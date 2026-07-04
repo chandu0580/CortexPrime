@@ -1,0 +1,80 @@
+{
+  "title": "CortexPrime — Executive Dashboard",
+  "uid": "cortex-executive",
+  "tags": ["cortexprime", "executive"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "refresh": "30s",
+  "time": { "from": "now-24h", "to": "now" },
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "Active Missions",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "area" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{"color":"green","value":null},{"color":"yellow","value":5},{"color":"red","value":10}] } } },
+      "targets": [{ "expr": "cortex_active_missions", "legendFormat": "Active", "datasource": "Prometheus" }]
+    },
+    {
+      "id": 2, "type": "stat", "title": "Mission Success Rate (1h)",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "color": { "mode": "thresholds" }, "thresholds": { "steps": [{"color":"red","value":null},{"color":"yellow","value":0.8},{"color":"green","value":0.95}] } } },
+      "targets": [{ "expr": "rate(cortex_missions_completed_total[1h]) / (rate(cortex_missions_started_total[1h]) + 0.001)", "legendFormat": "Success Rate", "datasource": "Prometheus" }]
+    },
+    {
+      "id": 3, "type": "stat", "title": "Avg Mission Duration (1h)",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "options": { "reduceOptions": { "calcs": ["mean"] } },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [{ "expr": "rate(cortex_mission_duration_seconds_sum[1h]) / rate(cortex_mission_duration_seconds_count[1h])", "legendFormat": "Avg Duration", "datasource": "Prometheus" }]
+    },
+    {
+      "id": 4, "type": "stat", "title": "Active Voice Sessions",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [{ "expr": "cortex_active_voice_sessions", "legendFormat": "Voice", "datasource": "Prometheus" }]
+    },
+    {
+      "id": 5, "type": "stat", "title": "LLM Requests (1h)",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "expr": "increase(cortex_llm_requests_total[1h])", "legendFormat": "Requests", "datasource": "Prometheus" }]
+    },
+    {
+      "id": 6, "type": "stat", "title": "WebSocket Connections",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [{ "expr": "cortex_ws_connections", "legendFormat": "WS", "datasource": "Prometheus" }]
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "Mission Activity (started vs completed)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "fieldConfig": { "defaults": { "custom": { "lineWidth": 2, "fillOpacity": 10 } } },
+      "targets": [
+        { "expr": "rate(cortex_missions_started_total[5m])", "legendFormat": "Started/s", "datasource": "Prometheus" },
+        { "expr": "rate(cortex_missions_completed_total[5m])", "legendFormat": "Completed/s", "datasource": "Prometheus" },
+        { "expr": "rate(cortex_missions_failed_total[5m])", "legendFormat": "Failed/s", "datasource": "Prometheus" }
+      ]
+    },
+    {
+      "id": 8, "type": "timeseries", "title": "LLM Request Rate by Provider",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "fieldConfig": { "defaults": { "custom": { "lineWidth": 2, "fillOpacity": 10 } } },
+      "targets": [{ "expr": "rate(cortex_llm_requests_total[5m])", "legendFormat": "{{provider}} / {{model}}", "datasource": "Prometheus" }]
+    },
+    {
+      "id": 9, "type": "timeseries", "title": "LLM Latency p95 (ms)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "fieldConfig": { "defaults": { "unit": "ms" } },
+      "targets": [{ "expr": "histogram_quantile(0.95, rate(cortex_llm_latency_ms_bucket[5m]))", "legendFormat": "p95 {{provider}}", "datasource": "Prometheus" }]
+    },
+    {
+      "id": 10, "type": "timeseries", "title": "Memory Operations",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "targets": [
+        { "expr": "rate(cortex_memory_reads_total[5m])", "legendFormat": "Reads {{store}}", "datasource": "Prometheus" },
+        { "expr": "rate(cortex_memory_writes_total[5m])", "legendFormat": "Writes {{store}}", "datasource": "Prometheus" }
+      ]
+    }
+  ]
+}

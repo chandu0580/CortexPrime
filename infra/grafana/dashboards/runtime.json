@@ -1,0 +1,76 @@
+{
+  "title": "CortexPrime — Runtime Dashboard",
+  "uid": "cortex-runtime",
+  "tags": ["cortexprime", "runtime"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "Active Agents",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [{ "expr": "cortex_active_agents", "datasource": "Prometheus" }]
+    },
+    {
+      "id": 2, "type": "stat", "title": "WebSocket Connections",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [{ "expr": "cortex_ws_connections", "datasource": "Prometheus" }]
+    },
+    {
+      "id": 3, "type": "stat", "title": "Events Published (5m)",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "targets": [{ "expr": "increase(cortex_ws_events_published_total[5m])", "datasource": "Prometheus" }]
+    },
+    {
+      "id": 4, "type": "stat", "title": "Rate Limit Hits (5m)",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "options": { "colorMode": "background" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{"color":"green","value":null},{"color":"yellow","value":10},{"color":"red","value":50}] } } },
+      "targets": [{ "expr": "increase(cortex_rate_limit_hits_total[5m])", "datasource": "Prometheus" }]
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "Agent Execution Rate",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "fieldConfig": { "defaults": { "custom": { "lineWidth": 2, "fillOpacity": 10 } } },
+      "targets": [{ "expr": "rate(cortex_agent_executions_total[1m])", "legendFormat": "{{agent}} — {{event_type}}", "datasource": "Prometheus" }]
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "Agent Latency p50 / p95 / p99",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, rate(cortex_agent_duration_seconds_bucket[5m]))", "legendFormat": "p50 {{agent}}", "datasource": "Prometheus" },
+        { "expr": "histogram_quantile(0.95, rate(cortex_agent_duration_seconds_bucket[5m]))", "legendFormat": "p95 {{agent}}", "datasource": "Prometheus" },
+        { "expr": "histogram_quantile(0.99, rate(cortex_agent_duration_seconds_bucket[5m]))", "legendFormat": "p99 {{agent}}", "datasource": "Prometheus" }
+      ]
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "HTTP Request Rate",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "targets": [
+        { "expr": "rate(cortex_http_requests_total{status=~'2..'}[1m])", "legendFormat": "2xx {{path}}", "datasource": "Prometheus" },
+        { "expr": "rate(cortex_http_requests_total{status=~'5..'}[1m])", "legendFormat": "5xx {{path}}", "datasource": "Prometheus" }
+      ]
+    },
+    {
+      "id": 8, "type": "timeseries", "title": "HTTP Latency p95 (ms)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "fieldConfig": { "defaults": { "unit": "ms" } },
+      "targets": [{ "expr": "histogram_quantile(0.95, rate(cortex_http_latency_ms_bucket[5m]))", "legendFormat": "p95 {{path}}", "datasource": "Prometheus" }]
+    },
+    {
+      "id": 9, "type": "timeseries", "title": "Agent Failures",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "fieldConfig": { "defaults": { "color": { "fixedColor": "red", "mode": "fixed" } } },
+      "targets": [{ "expr": "rate(cortex_agent_failures_total[5m])", "legendFormat": "{{agent}} — {{error_type}}", "datasource": "Prometheus" }]
+    },
+    {
+      "id": 10, "type": "timeseries", "title": "Guardrail Blocks",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "targets": [{ "expr": "rate(cortex_guardrail_blocks_total[5m])", "legendFormat": "{{violation_type}}", "datasource": "Prometheus" }]
+    }
+  ]
+}

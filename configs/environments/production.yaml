@@ -1,0 +1,16 @@
+# ==============================================================
+# CortexPrime — Production Environment
+# ==============================================================
+ENVIRONMENT=production
+DEBUG=false
+LOG_LEVEL=warning
+STRUCTURED_LOGGING=true
+SKIP_DB_MIGRATIONS=false
+BLOCK_ON_MIGRATION_FAILURE=true
+STRICT_EMBEDDING_VALIDATION=true
+STARTUP_EMBEDDING_VALIDATION=true
+AUTH_DISABLED=false
+RATE_LIMIT_ENABLED=true
+WS_AUTH_REQUIRED=true
+REVOCATION_FAIL_OPEN=false
+CORS_ORIGINS=https://app.cortexprime.ai

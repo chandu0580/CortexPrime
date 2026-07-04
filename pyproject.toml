@@ -1,0 +1,39 @@
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths    = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+[tool.coverage.run]
+source   = ["backend"]
+omit     = [
+    "backend/database/migrations/*",
+    "backend/database/models/*",
+    "backend/database/repositories/*",
+    "backend/database/base.py",
+    "backend/database/session.py",
+    "backend/database/migrator.py",
+    "backend/database/engine.py",
+    "backend/computer/*",
+    "backend/infrastructure/rabbitmq/*",
+    "backend/voice_v2/cortex_llm_processor.py",
+    "backend/voice_v2/pipeline_factory.py",
+    "backend/tools/tool_execution_engine.py",
+    "backend/tools/browser_agent.py",
+    "backend/__pycache__/*",
+    "*/test_*",
+    "venv/*",
+]
+
+[tool.coverage.report]
+show_missing   = true
+skip_covered   = false
+fail_under     = 45
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]
+exclude = ["venv", ".git", "__pycache__", "backend/database/migrations"]

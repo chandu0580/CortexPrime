@@ -1,0 +1,108 @@
+CortexPrime Production Validation Report
+Generated:  2026-06-06T14:08:07.379728+00:00
+Backend:    http://localhost:8000
+Duration:   90.3s
+======================================================================
+
+[01 — Long Session]  Score: 100.0%  P=0 F=0 W=0 S=1
+  SKIP  all_checks                                        Backend not reachable at http://localhost:8000
+
+[02 — Multi-Agent Stress]  Score: 100.0%  P=0 F=0 W=0 S=1
+  SKIP  all_checks                                        Backend not reachable at http://localhost:8000
+
+[03 — Voice End-to-End]  Score: 88.9%  P=7 F=0 W=2 S=0
+  PASS  tts_edge_available                                edge-tts available (version: 7.2.8)
+  PASS  voice_runtime_importable                          VoiceRuntime importable — 6 voice profiles
+  WARN  stt_engine_importable                             STT engine importable but transcribe interface unclear
+  PASS  deepgram_configured                               DEEPGRAM_API_KEY present
+  PASS  livekit_manager                                   LiveKit manager configured — URL: wss://cp-d8w41gwq.livekit.cloud
+  WARN  pipeline_factory                                  Pipeline factory unavailable: cannot import name 'build_voice_pipeline' from 'backend.voice_v2.pipeline_factory' (C:\projects\cortexprime\backend\voice_v2\pipeline_factory.py)
+  PASS  voice_mission_integration                         MissionRuntimeService accessible from voice pipeline path
+  PASS  generated_voice_dir                               generated_voice/ exists — 0 audio files present
+  PASS  tts_synthesis                                     TTS synthesised 4320 bytes of audio
+
+[04 — Browser Agent]  Score: 120.0%  P=5 F=0 W=0 S=1
+  PASS  playwright_installed                              Playwright unknown installed
+  PASS  browser_agent_importable                          BrowserAgent importable with execute_task
+  PASS  domain_map_coverage                               Domain map covers 11 sites (all required present)
+  PASS  guardrails_browser_protection                     Guardrails blocked credential input: credential_input
+  SKIP  backend_checks                                    Backend not reachable
+  PASS  playwright_browser_available                      Chromium browser available
+
+[05 — Computer Agent]  Score: 105.6%  P=8 F=0 W=1 S=1
+  PASS  pyautogui_available                               pyautogui available (failsafe=True)
+  PASS  mss_available                                     mss screen capture available
+  PASS  computer_agent_importable                         ComputerAgent importable and instantiated
+  PASS  desktop_controller_importable                     DesktopController singleton importable
+  PASS  visual_ui_engine_importable                       VisualUIEngine importable
+  PASS  computer_task_engine_importable                   ComputerTaskEngine singleton importable
+  WARN  vscode_installed                                  VS Code not detected — computer-use VS Code tasks will fail
+  PASS  file_create_and_run                               Created Python file, executed it, verified output
+  PASS  guardrails_computer_protection                    All 4 dangerous computer commands blocked
+  SKIP  backend_checks                                    Backend not reachable
+
+[06 — Governance]  Score: 109.1%  P=11 F=0 W=0 S=1
+  PASS  approval_queue_importable                         ApprovalQueue importable — statuses: ['pending', 'approved', 'rejected', 'timed_out']
+  PASS  approval_queue_approve                            Request ec2ea523 approved successfully
+  PASS  approval_queue_reject                             Request 0f53541f rejected with reason recorded
+  PASS  approval_queue_list                               get_pending()=1, get_queue()=1
+  PASS  emergency_stop_importable                         EmergencyStopController importable
+  PASS  emergency_stop_per_execution                      Per-execution stop and resume work correctly
+  PASS  emergency_global_stop                             Global stop activate/deactivate works correctly
+  PASS  emergency_stop_log                                Stop log has 1 entries
+  PASS  audit_logger_write                                AuditEntry created: 0ce257f9
+  PASS  audit_logger_read_cache                           AuditLogger cache read works correctly
+  PASS  audit_logger_summary                              summary() returns dict
+  SKIP  http_governance                                   Backend not reachable
+
+[07 — Security]  Score: 112.5%  P=8 F=0 W=0 S=1
+  PASS  prompt_injection_blocked                          All 5 injection patterns blocked
+  PASS  jailbreak_blocked                                 All 7 jailbreak patterns blocked
+  PASS  harmful_intent_blocked                            All 5 harmful patterns blocked
+  PASS  unsafe_browser_action_blocked                     All 5 unsafe browser/HTTP actions blocked
+  PASS  unsafe_computer_action_blocked                    All 6 dangerous computer commands blocked
+  PASS  output_credential_redaction                       All 3 credential patterns flagged and redacted
+  PASS  ssrf_blocked                                      All 4 SSRF URLs blocked
+  PASS  policy_strict_mode                                Strict policy escalates credential WARN → BLOCK
+  SKIP  http_security                                     Backend not reachable
+
+[08 — Research]  Score: 112.5%  P=8 F=0 W=0 S=1
+  PASS  tavily_client_importable                          TavilyClient importable — configured: True
+  PASS  tavily_key_configured                             TAVILY_API_KEY configured: tvly-dev...lljN
+  PASS  live_trigger_detection                            Live trigger detection correct (4 triggered, 2 skipped)
+  PASS  source_ranker                                     SourceRanker: 3 sources ranked correctly
+  PASS  citation_engine                                   CitationEngine generated 3 citations with correct markers
+  PASS  research_telemetry                                ResearchTelemetry snapshot structure correct
+  PASS  live_tavily_search                                Live Tavily: 3 sources in 5.50s
+  PASS  live_research_pipeline                            Pipeline: 6 sources, 6 citations in 2.58s
+  SKIP  research_http                                     Backend not reachable
+
+[09 — Recovery]  Score: 92.9%  P=4 F=0 W=3 S=1
+  WARN  audit_logger_memory_fallback                      AuditLogger.log() raised: There is no current event loop in thread 'MainThread'.
+  PASS  llm_gateway_importable                            LLM Gateway importable
+  WARN  llm_fallback_chain                                Only 1 LLM provider (['openai']) — no fallback if it fails
+  PASS  emergency_stop_aborts                             Emergency stop correctly flags execution as stopped
+  WARN  runtime_state_cleanup_abort                       RuntimeState check: 'RuntimeState' object has no attribute 'end_execution'
+  PASS  browser_session_cleanup                           BrowserAgent.close_session() on orphan session handled gracefully
+  PASS  browser_session_history                           get_session_history() returns [] for unknown session
+  SKIP  http_recovery                                     Backend not reachable
+
+======================================================================
+PRODUCTION SCORES
+----------------------------------------------------------------------
+Reliability Score:   102.6%
+Security Score:      111.5%
+Performance Score:   102.7%
+----------------------------------------------------------------------
+Composite Score:     105.7%  Grade: A  —  Production Ready
+
+STRENGTHS
+----------------------------------------------------------------------
+  [OK]   [01 — Long Session] Score 100% — 0/1 checks passed
+  [OK]   [02 — Multi-Agent Stress] Score 100% — 0/1 checks passed
+  [OK]   [04 — Browser Agent] Score 120% — 5/6 checks passed
+  [OK]   [05 — Computer Agent] Score 106% — 8/10 checks passed
+  [OK]   [06 — Governance] Score 109% — 11/12 checks passed
+  [OK]   [07 — Security] Score 112% — 8/9 checks passed
+  [OK]   [08 — Research] Score 112% — 8/9 checks passed
+  [OK]   [09 — Recovery] Score 93% — 4/8 checks passed

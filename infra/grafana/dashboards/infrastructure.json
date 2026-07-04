@@ -1,0 +1,78 @@
+{
+  "title": "CortexPrime — Infrastructure Dashboard",
+  "uid": "cortex-infra",
+  "tags": ["cortexprime", "infrastructure"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "Redis Operations (5m)",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "targets": [{ "expr": "increase(cortex_redis_operations_total[5m])", "legendFormat": "{{operation}}", "datasource": "Prometheus" }]
+    },
+    {
+      "id": 2, "type": "stat", "title": "DB Query p95 (ms)",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "ms" } },
+      "targets": [{ "expr": "histogram_quantile(0.95, rate(cortex_db_query_latency_ms_bucket[5m]))", "datasource": "Prometheus" }]
+    },
+    {
+      "id": 3, "type": "stat", "title": "Memory Reads (5m)",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "targets": [{ "expr": "increase(cortex_memory_reads_total[5m])", "legendFormat": "{{store}}", "datasource": "Prometheus" }]
+    },
+    {
+      "id": 4, "type": "stat", "title": "Memory Writes (5m)",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "targets": [{ "expr": "increase(cortex_memory_writes_total[5m])", "legendFormat": "{{store}}", "datasource": "Prometheus" }]
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "Database Query Latency (ms)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "fieldConfig": { "defaults": { "unit": "ms" } },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, rate(cortex_db_query_latency_ms_bucket[5m]))", "legendFormat": "p50 {{operation}}", "datasource": "Prometheus" },
+        { "expr": "histogram_quantile(0.95, rate(cortex_db_query_latency_ms_bucket[5m]))", "legendFormat": "p95 {{operation}}", "datasource": "Prometheus" }
+      ]
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "Memory Store Operations",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "targets": [
+        { "expr": "rate(cortex_memory_reads_total[5m])", "legendFormat": "Reads {{store}}", "datasource": "Prometheus" },
+        { "expr": "rate(cortex_memory_writes_total[5m])", "legendFormat": "Writes {{store}}", "datasource": "Prometheus" }
+      ]
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "Memory Latency p95 by Store (ms)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "fieldConfig": { "defaults": { "unit": "ms" } },
+      "targets": [{ "expr": "histogram_quantile(0.95, rate(cortex_memory_latency_ms_bucket[5m]))", "legendFormat": "p95 {{store}} {{operation}}", "datasource": "Prometheus" }]
+    },
+    {
+      "id": 8, "type": "timeseries", "title": "STT / TTS Latency p95 (ms)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "fieldConfig": { "defaults": { "unit": "ms" } },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, rate(cortex_stt_latency_ms_bucket[5m]))", "legendFormat": "STT p95", "datasource": "Prometheus" },
+        { "expr": "histogram_quantile(0.95, rate(cortex_tts_latency_ms_bucket[5m]))", "legendFormat": "TTS p95", "datasource": "Prometheus" }
+      ]
+    },
+    {
+      "id": 9, "type": "timeseries", "title": "LLM Token Usage",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "targets": [
+        { "expr": "rate(cortex_llm_prompt_tokens_total[5m])", "legendFormat": "Prompt {{provider}}", "datasource": "Prometheus" },
+        { "expr": "rate(cortex_llm_completion_tokens_total[5m])", "legendFormat": "Completion {{provider}}", "datasource": "Prometheus" }
+      ]
+    },
+    {
+      "id": 10, "type": "timeseries", "title": "Estimated LLM Cost (USD/hr)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD" } },
+      "targets": [{ "expr": "rate(cortex_llm_cost_usd_total[1h]) * 3600", "legendFormat": "{{provider}} {{model}}", "datasource": "Prometheus" }]
+    }
+  ]
+}

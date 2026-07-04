@@ -1,0 +1,47 @@
+/* ==========================================
+   COGNITION CSS
+   ========================================== */
+
+.cognition-feed {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-height: 400px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(139, 92, 246, 0.4) transparent;
+}
+
+.cognition-event {
+    padding: 0.625rem 0.875rem;
+    border-radius: 0.5rem;
+    border-left: 2px solid rgba(139, 92, 246, 0.5);
+    background: rgba(139, 92, 246, 0.06);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    animation: cognitionSlide 0.25s ease-out;
+}
+
+.cognition-event.status-active {
+    border-left-color: #82c0a4;
+    background: rgba(16, 185, 129, 0.06);
+}
+
+.cognition-event.status-error {
+    border-left-color: #ef4444;
+    background: rgba(239, 68, 68, 0.06);
+}
+
+@keyframes cognitionSlide {
+    from { opacity: 0; transform: translateX(-8px); }
+    to   { opacity: 1; transform: translateX(0); }
+}
+
+.agent-node-pulse {
+    animation: agentGlow 2s ease-in-out infinite;
+}
+
+@keyframes agentGlow {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.4); }
+    50%       { box-shadow: 0 0 0 8px rgba(139, 92, 246, 0); }
+}

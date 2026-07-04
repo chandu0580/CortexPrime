@@ -1,0 +1,45 @@
+/* ==========================================
+   RUNTIME CSS
+   ========================================== */
+
+.runtime-grid {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+
+.runtime-card {
+    background: rgba(15, 15, 25, 0.8);
+    border: 1px solid rgba(139, 92, 246, 0.2);
+    border-radius: 0.75rem;
+    padding: 1.25rem;
+    backdrop-filter: blur(12px);
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.runtime-card:hover {
+    border-color: rgba(139, 92, 246, 0.5);
+    box-shadow: 0 0 20px rgba(139, 92, 246, 0.15);
+}
+
+.runtime-metric-value {
+    font-size: 1.75rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    background: linear-gradient(135deg, #a855f7, #4a8c70);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.runtime-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    animation: runtimePulse 2s ease-in-out infinite;
+}
+
+@keyframes runtimePulse {
+    0%, 100% { opacity: 0.6; transform: scale(1); }
+    50%       { opacity: 1;   transform: scale(1.3); }
+}

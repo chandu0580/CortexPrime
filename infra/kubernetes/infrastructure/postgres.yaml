@@ -1,0 +1,138 @@
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cortexprime-postgres-pvc
+  namespace: cortexprime
+  labels:
+    app: cortexprime
+    component: postgres
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cortexprime-postgres-config
+  namespace: cortexprime
+  labels:
+    app: cortexprime
+    component: postgres
+data:
+  postgresql.conf: |
+    max_connections = 100
+    shared_buffers = 512MB
+    work_mem = 64MB
+    maintenance_work_mem = 256MB
+    effective_cache_size = 1536MB
+    wal_buffers = 16MB
+    min_wal_size = 512MB
+    max_wal_size = 2GB
+    wal_compression = on
+    max_parallel_workers_per_gather = 2
+    max_parallel_workers = 4
+    effective_io_concurrency = 200
+    random_page_cost = 1.1
+    log_min_duration_statement = 1000
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: cortexprime-postgres
+  namespace: cortexprime
+  labels:
+    app: cortexprime
+    component: postgres
+spec:
+  serviceName: cortexprime-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cortexprime
+      component: postgres
+  template:
+    metadata:
+      labels:
+        app: cortexprime
+        component: postgres
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: postgres
+          image: pgvector/pgvector:pg16
+          ports:
+            - containerPort: 5432
+              name: postgres
+          env:
+            - name: POSTGRES_USER
+              value: cortex
+            - name: POSTGRES_DB
+              value: cortexdb
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: cortexprime-backend-secret
+                  key: POSTGRES_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+            - name: postgres-config
+              mountPath: /etc/postgresql/postgresql.conf
+              subPath: postgresql.conf
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 1000m
+              memory: 2Gi
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "cortex"]
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "cortex"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+      volumes:
+        - name: postgres-config
+          configMap:
+            name: cortexprime-postgres-config
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 50Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cortexprime-postgres
+  namespace: cortexprime
+  labels:
+    app: cortexprime
+    component: postgres
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: 5432
+      name: postgres
+  selector:
+    app: cortexprime
+    component: postgres

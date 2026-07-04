@@ -1,0 +1,112 @@
+{
+  "version": "1.0.0",
+  "release_date": "2026-07-04",
+  "codename": "CortexPrime General Availability",
+  "semver": {
+    "major": 1,
+    "minor": 0,
+    "patch": 0,
+    "pre_release": null,
+    "build": null
+  },
+  "components": {
+    "frontend": {
+      "version": "1.0.0",
+      "framework": "Next.js 16.2.9",
+      "language": "TypeScript 5.x",
+      "node_minimum": "20.x",
+      "npm_minimum": "10.x",
+      "key_dependencies": {
+        "react": "19.2.4",
+        "zustand": "5.0.13",
+        "framer-motion": "12.40.0",
+        "recharts": "3.8.1",
+        "reactflow": "11.11.4",
+        "lucide-react": "1.14.0",
+        "tanstack_react_query": "5.101.2"
+      }
+    },
+    "backend": {
+      "version": "1.0.0",
+      "framework": "FastAPI",
+      "language": "Python 3.12+",
+      "key_dependencies": {
+        "fastapi": "latest",
+        "pydantic": "v2",
+        "sqlalchemy": "2.x (async)",
+        "redis": "5.x",
+        "neo4j": "5.x",
+        "prometheus_client": "latest"
+      }
+    },
+    "databases": {
+      "postgresql": {
+        "minimum_version": "15",
+        "recommended_version": "16",
+        "extension": "pgvector",
+        "pool_size": 20
+      },
+      "redis": {
+        "minimum_version": "7",
+        "recommended_version": "7.2",
+        "mode": "standalone or sentinel"
+      },
+      "neo4j": {
+        "minimum_version": "5",
+        "recommended_version": "5.15",
+        "edition": "community or enterprise"
+      }
+    },
+    "message_queue": {
+      "rabbitmq": {
+        "minimum_version": "3.12",
+        "recommended_version": "4.0"
+      }
+    },
+    "workers": {
+      "browser": "Playwright 1.52.0",
+      "voice_stt": "Deepgram",
+      "voice_tts": "ElevenLabs",
+      "voice_transport": "LiveKit 2.x"
+    }
+  },
+  "deployment": {
+    "docker_compose": "3.8+",
+    "kubernetes": "1.28+",
+    "helm": "3.12+",
+    "minimum_nodes": 3,
+    "recommended_nodes": 5,
+    "architecture": "x86_64 / arm64"
+  },
+  "security": {
+    "authentication": ["JWT", "OAuth2", "API Keys"],
+    "authorization": "RBAC + ABAC",
+    "secrets_management": ["Vault", "Azure Key Vault", "AWS Secrets Manager"],
+    "encryption": "TLS 1.3",
+    "audit_logging": true
+  },
+  "enterprise_modules": {
+    "mission_runtime": "1.0.0",
+    "executive_platform": "1.0.0",
+    "security_center": "1.0.0",
+    "approval_center": "1.0.0",
+    "certification_center": "1.0.0",
+    "enterprise_replay": "1.0.0",
+    "developer_portal": "1.0.0",
+    "operations_center": "1.0.0",
+    "scale_reliability_center": "1.0.0",
+    "enterprise_ux": "1.0.0"
+  },
+  "checksums": {
+    "algorithm": "SHA-256",
+    "backend": "verify_release",
+    "frontend": "verify_release"
+  },
+  "compatibility": {
+    "docker_engine": "24.x+",
+    "kubernetes_ingress": ["nginx", "traefik", "aws-alb", "azure-appgw"],
+    "cloud_providers": ["AWS", "GCP", "Azure", "On-Premise"],
+    "browsers": ["Chrome 120+", "Firefox 120+", "Safari 17+", "Edge 120+"],
+    "mobile": "Responsive web (no native mobile)"
+  }
+}

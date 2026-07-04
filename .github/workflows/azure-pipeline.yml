@@ -1,0 +1,157 @@
+# ============================================================
+# CortexPrime — Azure DevOps Pipeline
+# ============================================================
+# Builds and deploys CortexPrime to AKS.
+#
+# Pipeline variables required:
+#   azureSubscription  - Azure Resource Manager connection
+#   containerRegistry  - ACR name (e.g. cortexprime.azurecr.io)
+#   aksCluster         - AKS cluster name
+#   aksResourceGroup   - AKS resource group
+#   imageTag           - Docker image tag (default: buildId)
+# ============================================================
+
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+  tags:
+    include:
+      - v*
+
+pr:
+  branches:
+    include:
+      - main
+      - develop
+
+variables:
+  dockerRegistryServiceConnection: "$(azureSubscription)"
+  imageRepositoryBackend: "cortexprime-backend"
+  imageRepositoryFrontend: "cortexprime-frontend"
+  dockerfileBackend: "backend/Dockerfile"
+  dockerfileFrontend: "frontend/Dockerfile"
+  tag: "$(Build.BuildId)"
+  vmImageName: "ubuntu-latest"
+
+stages:
+  - stage: Test
+    displayName: "Test"
+    jobs:
+      - job: BackendTest
+        displayName: "Backend tests"
+        pool:
+          vmImage: $(vmImageName)
+        services:
+          postgres:
+            image: pgvector/pgvector:pg16
+            env:
+              POSTGRES_USER: cortex
+              POSTGRES_PASSWORD: cortex_test
+              POSTGRES_DB: cortexdb_test
+            ports:
+              - 5432:5432
+          redis:
+            image: redis:7-alpine
+            ports:
+              - 6379:6379
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: "3.11"
+          - script: |
+              pip install -r requirements.txt -r requirements-dev.txt
+            displayName: "Install dependencies"
+          - script: |
+              pytest tests/ --cov=backend --cov-report=term-missing --cov-fail-under=45 -v -k "not live_research"
+            displayName: "Run pytest"
+            env:
+              DATABASE_URL: postgresql+asyncpg://cortex:cortex_test@localhost:5432/cortexdb_test
+              REDIS_URL: redis://localhost:6379/0
+              JWT_SECRET_KEY: test-jwt-secret-key-32chars-minimum
+              JWT_REFRESH_SECRET: test-refresh-secret-key-32chars-minimum
+              SKIP_DB_MIGRATIONS: "true"
+              ENVIRONMENT: test
+
+      - job: FrontendBuild
+        displayName: "Frontend build"
+        pool:
+          vmImage: $(vmImageName)
+        steps:
+          - task: NodeTool@0
+            inputs:
+              versionSpec: "20.x"
+          - script: |
+              cd frontend
+              npm ci --legacy-peer-deps
+              npm run build
+            displayName: "Build frontend"
+            env:
+              NEXT_PUBLIC_API_URL: http://localhost:8000
+              NEXT_PUBLIC_WS_URL: ws://localhost:8000/ws
+
+  - stage: BuildAndPush
+    displayName: "Build and push Docker images"
+    dependsOn: Test
+    condition: succeeded()
+    jobs:
+      - job: Build
+        displayName: "Build and push"
+        pool:
+          vmImage: $(vmImageName)
+        steps:
+          - task: Docker@2
+            displayName: "Build and push backend"
+            inputs:
+              command: buildAndPush
+              repository: $(imageRepositoryBackend)
+              dockerfile: $(dockerfileBackend)
+              containerRegistry: $(dockerRegistryServiceConnection)
+              tags: |
+                $(tag)
+                $(Build.SourceBranchName)
+              buildContext: $(System.DefaultWorkingDirectory)
+              arguments: "--target production"
+
+          - task: Docker@2
+            displayName: "Build and push frontend"
+            inputs:
+              command: buildAndPush
+              repository: $(imageRepositoryFrontend)
+              dockerfile: $(dockerfileFrontend)
+              containerRegistry: $(dockerRegistryServiceConnection)
+              tags: |
+                $(tag)
+                $(Build.SourceBranchName)
+              buildContext: frontend
+              arguments: "--target production"
+
+  - stage: Deploy
+    displayName: "Deploy to AKS"
+    dependsOn: BuildAndPush
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - deployment: AKSDeploy
+        displayName: "Deploy to AKS"
+        environment: "production"
+        pool:
+          vmImage: $(vmImageName)
+        strategy:
+          blueGreen:
+            deploy:
+              steps:
+                - task: HelmDeploy@0
+                  displayName: "Deploy with Helm"
+                  inputs:
+                    command: upgrade
+                    chartType: filepath
+                    chartPath: infra/helm/cortexprime
+                    releaseName: cortexprime
+                    namespace: cortexprime
+                    valueFile: configs/environments/production.yaml
+                    overrideValues: |
+                      backend.image.tag=$(tag)
+                      frontend.image.tag=$(tag)
+                    waitForExecution: true
+                    timeoutInMinutes: 10

@@ -1,0 +1,41 @@
+# ==============================================================
+# CortexPrime — Air-Gapped Environment
+# No external network access permitted.
+# All LLM inference must use local Ollama models.
+# All dependencies must be pre-loaded into internal registry.
+# ==============================================================
+ENVIRONMENT=air-gapped
+DEBUG=false
+LOG_LEVEL=warning
+STRUCTURED_LOGGING=true
+SKIP_DB_MIGRATIONS=false
+BLOCK_ON_MIGRATION_FAILURE=true
+STRICT_EMBEDDING_VALIDATION=true
+STARTUP_EMBEDDING_VALIDATION=true
+AUTH_DISABLED=false
+RATE_LIMIT_ENABLED=true
+WS_AUTH_REQUIRED=true
+REVOCATION_FAIL_OPEN=false
+CORS_ORIGINS=https://app.cortexprime.internal
+
+# Air-gapped specific
+# No external API keys — use local Ollama
+MODEL_ORCHESTRATOR=ollama/llama3.2
+MODEL_PLANNER=ollama/llama3.2
+MODEL_CRITIC=ollama/llama3.2
+MODEL_RUNTIME_FAST=ollama/llama3.2
+EMBEDDING_PROVIDER=local
+VECTOR_DB_PROVIDER=chroma
+CHROMA_PATH=/data/chroma
+
+# Disable external services
+ENABLE_LIVE_RESEARCH=false
+ENABLE_WEB_SEARCH=false
+TAVILY_API_KEY=""
+SENTRY_DSN=""
+
+# Local-only voice
+ENABLE_TTS=true
+ENABLE_STT=true
+ENABLE_REALTIME_RUNTIME=false
+LIVEKIT_URL=""

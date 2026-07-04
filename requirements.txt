@@ -1,0 +1,116 @@
+# ======================================
+# CORE API
+# ======================================
+
+fastapi==0.136.1
+uvicorn==0.46.0
+websockets==16.0
+python-dotenv==1.2.2
+python-multipart==0.0.20
+PyJWT==2.13.0
+
+
+# ======================================
+# OPENAI / LLM
+# ======================================
+
+openai==2.36.0
+anthropic==0.100.0
+google-generativeai==0.8.6
+ollama==0.6.2
+
+
+# ======================================
+# COMPUTER USE
+# ======================================
+
+pyautogui==0.9.54
+mss==10.2.0
+pillow==12.2.0
+pytesseract==0.3.13
+
+
+# ======================================
+# BROWSER AUTOMATION
+# ======================================
+
+playwright==1.59.0
+
+
+# ======================================
+# VOICE
+# ======================================
+
+edge-tts==7.2.8
+SpeechRecognition==3.16.1
+pyaudio==0.2.14
+aiohttp==3.14.0
+livekit-api==1.1.0
+deepgram-sdk==7.3.1
+pipecat-ai[deepgram,livekit,openai,silero]==1.3.0
+
+
+# ======================================
+# PDF + OCR
+# ======================================
+
+pymupdf==1.27.2.3
+
+
+# ======================================
+# DATA / MEMORY
+# ======================================
+
+numpy==2.4.4
+pandas==3.0.2
+
+
+# ======================================
+# OPTIONAL
+# ======================================
+
+aiofiles==25.1.0
+httpx==0.28.1
+requests==2.33.1
+idna==3.15
+starlette==1.0.1
+
+
+# ======================================
+# INFRASTRUCTURE CLIENTS
+# ======================================
+
+# PostgreSQL — async SQLAlchemy + pgvector
+asyncpg==0.31.0
+psycopg2-binary==2.9.12
+sqlalchemy[asyncio]==2.0.50
+pgvector==0.4.2
+alembic==1.18.4
+
+# RabbitMQ async client
+# RabbitMQ async client — orchestration bus + agent messaging
+aio-pika==9.6.2          # includes aiormq, async-timeout
+
+# Redis — async client with hiredis C-accelerated parser
+# redis[hiredis] bundles redis[asyncio] + hiredis for maximum throughput
+redis[hiredis]==7.4.0
+
+# Neo4j async driver
+neo4j==6.2.0
+
+# ChromaDB — local vector store (used alongside pgvector)
+chromadb==1.5.9
+
+
+# ======================================
+# OBSERVABILITY
+# ======================================
+
+# Prometheus metrics exposition
+prometheus-client==0.25.0
+
+# HTTP client for internal health fan-out (system health endpoint)
+httpx==0.28.1
+
+# Sentry — error tracking + performance monitoring
+sentry-sdk[fastapi]==2.62.0

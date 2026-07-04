@@ -1,0 +1,16 @@
+# ==============================================================
+# CortexPrime — Development Environment
+# ==============================================================
+ENVIRONMENT=development
+DEBUG=true
+LOG_LEVEL=debug
+STRUCTURED_LOGGING=true
+SKIP_DB_MIGRATIONS=false
+BLOCK_ON_MIGRATION_FAILURE=false
+STRICT_EMBEDDING_VALIDATION=false
+STARTUP_EMBEDDING_VALIDATION=false
+AUTH_DISABLED=true
+RATE_LIMIT_ENABLED=false
+WS_AUTH_REQUIRED=false
+REVOCATION_FAIL_OPEN=true
+CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000

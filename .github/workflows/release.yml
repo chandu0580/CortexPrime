@@ -1,0 +1,199 @@
+# ============================================================
+# CortexPrime — Release Pipeline
+# ============================================================
+# Triggers: git tag v* (e.g. v1.0.0, v1.2.3-rc.1)
+#
+# Steps:
+#   1. Run full test suite (gates the release)
+#   2. Build multi-arch production Docker images
+#   3. Push versioned + latest tags to GHCR
+#   4. Generate release notes from git log
+#   5. Create GitHub Release with artifacts
+# ============================================================
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"   # pre-releases: v1.0.0-rc.1
+
+permissions:
+  contents: write        # create GitHub release
+  packages: write        # push to GHCR
+  id-token: write        # OIDC signing (cosign)
+
+env:
+  REGISTRY:         ghcr.io
+  IMAGE_BACKEND:    ghcr.io/${{ github.repository_owner }}/cortexprime-backend
+  IMAGE_FRONTEND:   ghcr.io/${{ github.repository_owner }}/cortexprime-frontend
+  PYTHON_VERSION:   "3.11"
+  NODE_VERSION:     "20"
+
+jobs:
+
+  # ══════════════════════════════════════════════════════════
+  # GATE — Full test suite must pass before release
+  # ══════════════════════════════════════════════════════════
+  test-gate:
+    name: Release Gate — Tests
+    uses: ./.github/workflows/test.yml
+    secrets: inherit
+
+  # ══════════════════════════════════════════════════════════
+  # BUILD — Multi-arch production images
+  # ══════════════════════════════════════════════════════════
+  build-and-push:
+    name: Build & Push Images
+    runs-on: ubuntu-latest
+    needs: test-gate
+    timeout-minutes: 45
+
+    outputs:
+      version:          ${{ steps.meta.outputs.version }}
+      backend-digest:   ${{ steps.push-backend.outputs.digest }}
+      frontend-digest:  ${{ steps.push-frontend.outputs.digest }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history for release notes
+
+      - name: Set up QEMU (multi-arch)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── Extract version from tag ──────────────────────────
+      - name: Extract version metadata
+        id: meta
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+          echo "version=${VERSION}"     >> $GITHUB_OUTPUT
+          echo "tag=${TAG}"             >> $GITHUB_OUTPUT
+          echo "sha=${GITHUB_SHA::8}"   >> $GITHUB_OUTPUT
+          # Determine if pre-release
+          if [[ "$VERSION" == *"-"* ]]; then
+            echo "prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "prerelease=false" >> $GITHUB_OUTPUT
+          fi
+
+      # ── Backend image ──────────────────────────────────────
+      - name: Build and push backend
+        id: push-backend
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: backend/Dockerfile
+          target: production
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE_BACKEND }}:${{ steps.meta.outputs.version }}
+            ${{ env.IMAGE_BACKEND }}:${{ steps.meta.outputs.sha }}
+            ${{ steps.meta.outputs.prerelease == 'false' && format('{0}:latest', env.IMAGE_BACKEND) || '' }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+          build-args: |
+            BUILD_HASH=${{ github.sha }}
+          cache-from: type=gha,scope=backend-release
+          cache-to:   type=gha,scope=backend-release,mode=max
+
+      # ── Frontend image ─────────────────────────────────────
+      - name: Build and push frontend
+        id: push-frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: frontend
+          file: frontend/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE_FRONTEND }}:${{ steps.meta.outputs.version }}
+            ${{ env.IMAGE_FRONTEND }}:${{ steps.meta.outputs.sha }}
+            ${{ steps.meta.outputs.prerelease == 'false' && format('{0}:latest', env.IMAGE_FRONTEND) || '' }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+          build-args: |
+            NEXT_PUBLIC_BUILD_HASH=${{ github.sha }}
+          cache-from: type=gha,scope=frontend-release
+          cache-to:   type=gha,scope=frontend-release,mode=max
+
+  # ══════════════════════════════════════════════════════════
+  # RELEASE — Generate notes + create GitHub Release
+  # ══════════════════════════════════════════════════════════
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate release notes from git log
+        id: notes
+        run: |
+          TAG="${{ github.ref_name }}"
+          # Find previous tag
+          PREV_TAG=$(git describe --abbrev=0 --tags "${TAG}^" 2>/dev/null || echo "")
+
+          echo "## What's Changed" > release-notes.md
+          echo "" >> release-notes.md
+
+          if [ -n "$PREV_TAG" ]; then
+            echo "### Commits since ${PREV_TAG}" >> release-notes.md
+            git log --pretty="- %s (%h)" "${PREV_TAG}..${TAG}" >> release-notes.md
+          else
+            echo "### All commits" >> release-notes.md
+            git log --pretty="- %s (%h)" -30 >> release-notes.md
+          fi
+
+          echo "" >> release-notes.md
+          echo "## Docker Images" >> release-notes.md
+          echo "" >> release-notes.md
+          echo "\`\`\`bash" >> release-notes.md
+          echo "# Backend" >> release-notes.md
+          echo "docker pull ${{ env.IMAGE_BACKEND }}:${{ needs.build-and-push.outputs.version }}" >> release-notes.md
+          echo "" >> release-notes.md
+          echo "# Frontend" >> release-notes.md
+          echo "docker pull ${{ env.IMAGE_FRONTEND }}:${{ needs.build-and-push.outputs.version }}" >> release-notes.md
+          echo "\`\`\`" >> release-notes.md
+
+          echo "" >> release-notes.md
+          echo "## Image Digests" >> release-notes.md
+          echo "- Backend:  \`${{ needs.build-and-push.outputs.backend-digest }}\`" >> release-notes.md
+          echo "- Frontend: \`${{ needs.build-and-push.outputs.frontend-digest }}\`" >> release-notes.md
+
+          cat release-notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name:   ${{ github.ref_name }}
+          name:       "CortexPrime ${{ needs.build-and-push.outputs.version }}"
+          body_path:  release-notes.md
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: |
+            release-notes.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,7 @@
+# This directory holds TLS certificates for nginx.
+# Generate with:   bash scripts/generate-certs.sh
+# Or copy real Let's Encrypt certs (see scripts/generate-certs.sh comments).
+#
+# Files expected:
+#   cert.pem   — certificate (public)
+#   key.pem    — private key (never commit this)

@@ -1,0 +1,6 @@
+# Never commit TLS private keys
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx

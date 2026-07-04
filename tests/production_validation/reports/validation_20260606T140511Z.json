@@ -1,0 +1,625 @@
+{
+  "generated_at": "2026-06-06T14:05:11.093790+00:00",
+  "backend_url": "http://localhost:8000",
+  "elapsed_s": 84.65,
+  "scores": {
+    "reliability": 102.6,
+    "security": 111.5,
+    "performance": 102.7,
+    "composite": 105.7,
+    "grade": "A",
+    "verdict": "Production Ready",
+    "category_scores": {
+      "01 \u2014 Long Session": 100.0,
+      "02 \u2014 Multi-Agent Stress": 100.0,
+      "03 \u2014 Voice End-to-End": 88.9,
+      "04 \u2014 Browser Agent": 120.0,
+      "05 \u2014 Computer Agent": 105.6,
+      "06 \u2014 Governance": 109.1,
+      "07 \u2014 Security": 112.5,
+      "08 \u2014 Research": 112.5,
+      "09 \u2014 Recovery": 92.9
+    },
+    "weaknesses": [],
+    "strengths": [
+      "[01 \u2014 Long Session] Score 100% \u2014 0/1 checks passed",
+      "[02 \u2014 Multi-Agent Stress] Score 100% \u2014 0/1 checks passed",
+      "[04 \u2014 Browser Agent] Score 120% \u2014 5/6 checks passed",
+      "[05 \u2014 Computer Agent] Score 106% \u2014 8/10 checks passed",
+      "[06 \u2014 Governance] Score 109% \u2014 11/12 checks passed",
+      "[07 \u2014 Security] Score 112% \u2014 8/9 checks passed",
+      "[08 \u2014 Research] Score 112% \u2014 8/9 checks passed",
+      "[09 \u2014 Recovery] Score 93% \u2014 4/8 checks passed"
+    ]
+  },
+  "categories": [
+    {
+      "name": "01 \u2014 Long Session",
+      "score": 100.0,
+      "passed": 0,
+      "failed": 0,
+      "skipped": 1,
+      "warned": 0,
+      "total": 1,
+      "checks": [
+        {
+          "name": "all_checks",
+          "status": "skip",
+          "message": "Backend not reachable at http://localhost:8000",
+          "duration": 0.0,
+          "detail": null
+        }
+      ]
+    },
+    {
+      "name": "02 \u2014 Multi-Agent Stress",
+      "score": 100.0,
+      "passed": 0,
+      "failed": 0,
+      "skipped": 1,
+      "warned": 0,
+      "total": 1,
+      "checks": [
+        {
+          "name": "all_checks",
+          "status": "skip",
+          "message": "Backend not reachable at http://localhost:8000",
+          "duration": 0.0,
+          "detail": null
+        }
+      ]
+    },
+    {
+      "name": "03 \u2014 Voice End-to-End",
+      "score": 88.9,
+      "passed": 7,
+      "failed": 0,
+      "skipped": 0,
+      "warned": 2,
+      "total": 9,
+      "checks": [
+        {
+          "name": "tts_edge_available",
+          "status": "pass",
+          "message": "edge-tts available (version: 7.2.8)",
+          "duration": 1.302,
+          "detail": null
+        },
+        {
+          "name": "voice_runtime_importable",
+          "status": "pass",
+          "message": "VoiceRuntime importable \u2014 6 voice profiles",
+          "duration": 0.624,
+          "detail": {
+            "profiles": [
+              "jarvis_male",
+              "eric_male",
+              "roger_male",
+              "nova_female",
+              "jenny_female",
+              "natasha_female"
+            ]
+          }
+        },
+        {
+          "name": "stt_engine_importable",
+          "status": "warn",
+          "message": "STT engine importable but transcribe interface unclear",
+          "duration": 0.485,
+          "detail": null
+        },
+        {
+          "name": "deepgram_configured",
+          "status": "pass",
+          "message": "DEEPGRAM_API_KEY present",
+          "duration": 0.001,
+          "detail": null
+        },
+        {
+          "name": "livekit_manager",
+          "status": "pass",
+          "message": "LiveKit manager configured \u2014 URL: wss://cp-d8w41gwq.livekit.cloud",
+          "duration": 0.001,
+          "detail": null
+        },
+        {
+          "name": "pipeline_factory",
+          "status": "warn",
+          "message": "Pipeline factory unavailable: cannot import name 'build_voice_pipeline' from 'backend.voice_v2.pipeline_factory' (C:\\projects\\cortexprime\\backend\\voice_v2\\pipeline_factory.py)",
+          "duration": 5.864,
+          "detail": null
+        },
+        {
+          "name": "voice_mission_integration",
+          "status": "pass",
+          "message": "MissionRuntimeService accessible from voice pipeline path",
+          "duration": 20.841,
+          "detail": null
+        },
+        {
+          "name": "generated_voice_dir",
+          "status": "pass",
+          "message": "generated_voice/ exists \u2014 0 audio files present",
+          "duration": 0.001,
+          "detail": null
+        },
+        {
+          "name": "tts_synthesis",
+          "status": "pass",
+          "message": "TTS synthesised 4320 bytes of audio",
+          "duration": 1.148,
+          "detail": null
+        }
+      ]
+    },
+    {
+      "name": "04 \u2014 Browser Agent",
+      "score": 120.0,
+      "passed": 5,
+      "failed": 0,
+      "skipped": 1,
+      "warned": 0,
+      "total": 6,
+      "checks": [
+        {
+          "name": "playwright_installed",
+          "status": "pass",
+          "message": "Playwright unknown installed",
+          "duration": 0.003,
+          "detail": null
+        },
+        {
+          "name": "browser_agent_importable",
+          "status": "pass",
+          "message": "BrowserAgent importable with execute_task",
+          "duration": 0.004,
+          "detail": null
+        },
+        {
+          "name": "domain_map_coverage",
+          "status": "pass",
+          "message": "Domain map covers 11 sites (all required present)",
+          "duration": 0.0,
+          "detail": null
+        },
+        {
+          "name": "guardrails_browser_protection",
+          "status": "pass",
+          "message": "Guardrails blocked credential input: credential_input",
+          "duration": 0.044,
+          "detail": null
+        },
+        {
+          "name": "backend_checks",
+          "status": "skip",
+          "message": "Backend not reachable",
+          "duration": 0.0,
+          "detail": null
+        },
+        {
+          "name": "playwright_browser_available",
+          "status": "pass",
+          "message": "Chromium browser available",
+          "duration": 0.883,
+          "detail": null
+        }
+      ]
+    },
+    {
+      "name": "05 \u2014 Computer Agent",
+      "score": 105.6,
+      "passed": 8,
+      "failed": 0,
+      "skipped": 1,
+      "warned": 1,
+      "total": 10,
+      "checks": [
+        {
+          "name": "pyautogui_available",
+          "status": "pass",
+          "message": "pyautogui available (failsafe=True)",
+          "duration": 0.085,
+          "detail": null
+        },
+        {
+          "name": "mss_available",
+          "status": "pass",
+          "message": "mss screen capture available",
+          "duration": 0.011,
+          "detail": null
+        },
+        {
+          "name": "computer_agent_importable",
+          "status": "pass",
+          "message": "ComputerAgent importable and instantiated",
+          "duration": 0.013,
+          "detail": null
+        },
+        {
+          "name": "desktop_controller_importable",
+          "status": "pass",
+          "message": "DesktopController singleton importable",
+          "duration": 0.0,
+          "detail": null
+        },
+        {
+          "name": "visual_ui_engine_importable",
+          "status": "pass",
+          "message": "VisualUIEngine importable",
+          "duration": 0.0,
+          "detail": null
+        },
+        {
+          "name": "computer_task_engine_importable",
+          "status": "pass",
+          "message": "ComputerTaskEngine singleton importable",
+          "duration": 0.0,
+          "detail": null
+        },
+        {
+          "name": "vscode_installed",
+          "status": "warn",
+          "message": "VS Code not detected \u2014 computer-use VS Code tasks will fail",
+          "duration": 0.003,
+          "detail": null
+        },
+        {
+          "name": "file_create_and_run",
+          "status": "pass",
+          "message": "Created Python file, executed it, verified output",
+          "duration": 0.116,
+          "detail": null
+        },
+        {
+          "name": "guardrails_computer_protection",
+          "status": "pass",
+          "message": "All 4 dangerous computer commands blocked",
+          "duration": 0.001,
+          "detail": null
+        },
+        {
+          "name": "backend_checks",
+          "status": "skip",
+          "message": "Backend not reachable",
+          "duration": 0.0,
+          "detail": null
+        }
+      ]
+    },
+    {
+      "name": "06 \u2014 Governance",
+      "score": 109.1,
+      "passed": 11,
+      "failed": 0,
+      "skipped": 1,
+      "warned": 0,
+      "total": 12,
+      "checks": [
+        {
+          "name": "approval_queue_importable",
+          "status": "pass",
+          "message": "ApprovalQueue importable \u2014 statuses: ['pending', 'approved', 'rejected', 'timed_out']",
+          "duration": 0.005,
+          "detail": null
+        },
+        {
+          "name": "approval_queue_approve",
+          "status": "pass",
+          "message": "Request af04221e approved successfully",
+          "duration": 0.007,
+          "detail": null
+        },
+        {
+          "name": "approval_queue_reject",
+          "status": "pass",
+          "message": "Request 60e01807 rejected with reason recorded",
+          "duration": 0.003,
+          "detail": null
+        },
+        {
+          "name": "approval_queue_list",
+          "status": "pass",
+          "message": "get_pending()=1, get_queue()=1",
+          "duration": 0.0,
+          "detail": null
+        },
+        {
+          "name": "emergency_stop_importable",
+          "status": "pass",
+          "message": "EmergencyStopController importable",
+          "duration": 0.003,
+          "detail": null
+        },
+        {
+          "name": "emergency_stop_per_execution",
+          "status": "pass",
+          "message": "Per-execution stop and resume work correctly",
+          "duration": 0.005,
+          "detail": null
+        },
+        {
+          "name": "emergency_global_stop",
+          "status": "pass",
+          "message": "Global stop activate/deactivate works correctly",
+          "duration": 0.004,
+          "detail": null
+        },
+        {
+          "name": "emergency_stop_log",
+          "status": "pass",
+          "message": "Stop log has 1 entries",
+          "duration": 0.004,
+          "detail": null
+        },
+        {
+          "name": "audit_logger_write",
+          "status": "pass",
+          "message": "AuditEntry created: ed86aa31",
+          "duration": 0.006,
+          "detail": null
+        },
+        {
+          "name": "audit_logger_read_cache",
+          "status": "pass",
+          "message": "AuditLogger cache read works correctly",
+          "duration": 0.004,
+          "detail": null
+        },
+        {
+          "name": "audit_logger_summary",
+          "status": "pass",
+          "message": "summary() returns dict",
+          "duration": 0.0,
+          "detail": {
+            "keys": [
+              "total",
+              "approved",
+              "rejected",
+              "blocked",
+              "allowed",
+              "critical_actions",
+              "high_risk_actions"
+            ]
+          }
+        },
+        {
+          "name": "http_governance",
+          "status": "skip",
+          "message": "Backend not reachable",
+          "duration": 0.0,
+          "detail": null
+        }
+      ]
+    },
+    {
+      "name": "07 \u2014 Security",
+      "score": 112.5,
+      "passed": 8,
+      "failed": 0,
+      "skipped": 1,
+      "warned": 0,
+      "total": 9,
+      "checks": [
+        {
+          "name": "prompt_injection_blocked",
+          "status": "pass",
+          "message": "All 5 injection patterns blocked",
+          "duration": 0.001,
+          "detail": null
+        },
+        {
+          "name": "jailbreak_blocked",
+          "status": "pass",
+          "message": "All 7 jailbreak patterns blocked",
+          "duration": 0.0,
+          "detail": null
+        },
+        {
+          "name": "harmful_intent_blocked",
+          "status": "pass",
+          "message": "All 5 harmful patterns blocked",
+          "duration": 0.0,
+          "detail": null
+        },
+        {
+          "name": "unsafe_browser_action_blocked",
+          "status": "pass",
+          "message": "All 5 unsafe browser/HTTP actions blocked",
+          "duration": 0.001,
+          "detail": null
+        },
+        {
+          "name": "unsafe_computer_action_blocked",
+          "status": "pass",
+          "message": "All 6 dangerous computer commands blocked",
+          "duration": 0.0,
+          "detail": null
+        },
+        {
+          "name": "output_credential_redaction",
+          "status": "pass",
+          "message": "All 3 credential patterns flagged and redacted",
+          "duration": 0.0,
+          "detail": null
+        },
+        {
+          "name": "ssrf_blocked",
+          "status": "pass",
+          "message": "All 4 SSRF URLs blocked",
+          "duration": 0.0,
+          "detail": null
+        },
+        {
+          "name": "policy_strict_mode",
+          "status": "pass",
+          "message": "Strict policy escalates credential WARN \u2192 BLOCK",
+          "duration": 0.0,
+          "detail": null
+        },
+        {
+          "name": "http_security",
+          "status": "skip",
+          "message": "Backend not reachable",
+          "duration": 0.0,
+          "detail": null
+        }
+      ]
+    },
+    {
+      "name": "08 \u2014 Research",
+      "score": 112.5,
+      "passed": 8,
+      "failed": 0,
+      "skipped": 1,
+      "warned": 0,
+      "total": 9,
+      "checks": [
+        {
+          "name": "tavily_client_importable",
+          "status": "pass",
+          "message": "TavilyClient importable \u2014 configured: True",
+          "duration": 0.005,
+          "detail": null
+        },
+        {
+          "name": "tavily_key_configured",
+          "status": "pass",
+          "message": "TAVILY_API_KEY configured: tvly-dev...lljN",
+          "duration": 0.0,
+          "detail": null
+        },
+        {
+          "name": "live_trigger_detection",
+          "status": "pass",
+          "message": "Live trigger detection correct (4 triggered, 2 skipped)",
+          "duration": 0.0,
+          "detail": null
+        },
+        {
+          "name": "source_ranker",
+          "status": "pass",
+          "message": "SourceRanker: 3 sources ranked correctly",
+          "duration": 0.003,
+          "detail": null
+        },
+        {
+          "name": "citation_engine",
+          "status": "pass",
+          "message": "CitationEngine generated 3 citations with correct markers",
+          "duration": 0.002,
+          "detail": null
+        },
+        {
+          "name": "research_telemetry",
+          "status": "pass",
+          "message": "ResearchTelemetry snapshot structure correct",
+          "duration": 0.004,
+          "detail": {
+            "keys": [
+              "total_searches",
+              "total_successes",
+              "success_rate",
+              "avg_latency_ms",
+              "avg_source_count",
+              "recent_searches"
+            ]
+          }
+        },
+        {
+          "name": "live_tavily_search",
+          "status": "pass",
+          "message": "Live Tavily: 3 sources in 5.21s",
+          "duration": 5.215,
+          "detail": {
+            "query": "latest Python 3.13 features 2025",
+            "latency_ms": 5209.211499983212
+          }
+        },
+        {
+          "name": "live_research_pipeline",
+          "status": "pass",
+          "message": "Pipeline: 6 sources, 6 citations in 2.42s",
+          "duration": 2.422,
+          "detail": {
+            "source_count": 6,
+            "citation_count": 6
+          }
+        },
+        {
+          "name": "research_http",
+          "status": "skip",
+          "message": "Backend not reachable",
+          "duration": 0.0,
+          "detail": null
+        }
+      ]
+    },
+    {
+      "name": "09 \u2014 Recovery",
+      "score": 92.9,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 1,
+      "warned": 3,
+      "total": 8,
+      "checks": [
+        {
+          "name": "audit_logger_memory_fallback",
+          "status": "warn",
+          "message": "AuditLogger.log() raised: There is no current event loop in thread 'MainThread'.",
+          "duration": 0.001,
+          "detail": null
+        },
+        {
+          "name": "llm_gateway_importable",
+          "status": "pass",
+          "message": "LLM Gateway importable",
+          "duration": 0.0,
+          "detail": null
+        },
+        {
+          "name": "llm_fallback_chain",
+          "status": "warn",
+          "message": "Only 1 LLM provider (['openai']) \u2014 no fallback if it fails",
+          "duration": 0.001,
+          "detail": null
+        },
+        {
+          "name": "emergency_stop_aborts",
+          "status": "pass",
+          "message": "Emergency stop correctly flags execution as stopped",
+          "duration": 0.005,
+          "detail": null
+        },
+        {
+          "name": "runtime_state_cleanup_abort",
+          "status": "warn",
+          "message": "RuntimeState check: 'RuntimeState' object has no attribute 'end_execution'",
+          "duration": 0.0,
+          "detail": null
+        },
+        {
+          "name": "browser_session_cleanup",
+          "status": "pass",
+          "message": "BrowserAgent.close_session() on orphan session handled gracefully",
+          "duration": 0.004,
+          "detail": null
+        },
+        {
+          "name": "browser_session_history",
+          "status": "pass",
+          "message": "get_session_history() returns [] for unknown session",
+          "duration": 0.0,
+          "detail": null
+        },
+        {
+          "name": "http_recovery",
+          "status": "skip",
+          "message": "Backend not reachable",
+          "duration": 0.0,
+          "detail": null
+        }
+      ]
+    }
+  ]
+}

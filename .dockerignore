@@ -1,0 +1,63 @@
+# ==============================================================
+# Root .dockerignore
+# Excludes files from Docker build context (keeps images lean)
+# ==============================================================
+
+# Version control
+.git/
+.gitignore
+
+# Python runtime artifacts
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+dist/
+build/
+.tox/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Node / frontend (handled by frontend/Dockerfile separately)
+frontend/node_modules/
+frontend/.next/
+
+# Environment secrets
+.env
+**/.env
+!.env.example
+
+# Test artifacts
+tests/
+**/*.test.*
+**/__tests__/
+coverage/
+
+# IDE / editor
+.vscode/
+.idea/
+*.sublime-*
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+**/.DS_Store
+
+# Generated outputs (re-generated at runtime)
+generated_voice/
+generated_screens/
+cortex_memory/
+
+# Documentation (not needed in image)
+docs/
+*.md
+!README.md
+
+# Docker files themselves
+docker-compose*.yml

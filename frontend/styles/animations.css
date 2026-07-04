@@ -1,0 +1,239 @@
+/* ==========================================
+   CORTEXPRIME ANIMATIONS
+   ========================================== */
+
+/* Neural stream flow */
+@keyframes neuralFlow {
+    0%   { stroke-dashoffset: 100; opacity: 0.3; }
+    50%  { opacity: 1; }
+    100% { stroke-dashoffset: 0;   opacity: 0.3; }
+}
+
+/* Orbital ring rotation */
+@keyframes orbitalRotate {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
+@keyframes orbitalRotateReverse {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(-360deg); }
+}
+
+/* Core expand/pulse */
+@keyframes coreExpand {
+    0%, 100% { transform: scale(1);    opacity: 0.8; }
+    50%       { transform: scale(1.06); opacity: 1; }
+}
+
+/* Identity scan sweep (login page) */
+@keyframes identityScan {
+    0%   { top: -4px;   opacity: 0; }
+    5%   { opacity: 1; }
+    95%  { opacity: 1; }
+    100% { top: 100%;   opacity: 0; }
+}
+
+/* Data stream lines */
+@keyframes dataStream {
+    0%   { stroke-dashoffset: 200; opacity: 0; }
+    10%  { opacity: 0.8; }
+    90%  { opacity: 0.8; }
+    100% { stroke-dashoffset: 0;   opacity: 0; }
+}
+
+/* Holographic flicker */
+@keyframes holoFlicker {
+    0%, 100% { opacity: 1; }
+    92%       { opacity: 1; }
+    93%       { opacity: 0.85; }
+    94%       { opacity: 1; }
+    96%       { opacity: 0.9; }
+    97%       { opacity: 1; }
+}
+
+/* Typewriter cursor */
+@keyframes typeCursor {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0; }
+}
+
+/* Particle float */
+@keyframes particleFloat {
+    0%   { transform: translateY(0px) translateX(0px); opacity: 0.4; }
+    33%  { transform: translateY(-12px) translateX(6px); opacity: 0.8; }
+    66%  { transform: translateY(-6px) translateX(-8px); opacity: 0.6; }
+    100% { transform: translateY(0px) translateX(0px); opacity: 0.4; }
+}
+
+/* Scanline vertical sweep */
+@keyframes scanSweepV {
+    0%   { transform: translateY(-100%); opacity: 0.6; }
+    100% { transform: translateY(100vh);  opacity: 0.6; }
+}
+
+/* Glow pulse blue */
+@keyframes glowPulseBlue {
+    0%, 100% {
+        box-shadow: 0 0 8px rgba(14, 165, 233, 0.3),
+                    0 0 20px rgba(14, 165, 233, 0.15);
+    }
+    50% {
+        box-shadow: 0 0 20px rgba(14, 165, 233, 0.6),
+                    0 0 50px rgba(14, 165, 233, 0.3);
+    }
+}
+
+/* Glow pulse green */
+@keyframes glowPulseGreen {
+    0%, 100% {
+        box-shadow: 0 0 8px rgba(16, 185, 129, 0.3),
+                    0 0 20px rgba(16, 185, 129, 0.15);
+    }
+    50% {
+        box-shadow: 0 0 20px rgba(16, 185, 129, 0.6),
+                    0 0 50px rgba(16, 185, 129, 0.3);
+    }
+}
+
+/* Hex glow ring */
+@keyframes hexGlow {
+    0%, 100% { opacity: 0.15; }
+    50%       { opacity: 0.45; }
+}
+
+/* System boot text */
+@keyframes bootReveal {
+    from { opacity: 0; transform: translateX(-8px); }
+    to   { opacity: 1; transform: translateX(0); }
+}
+
+/* Glow breathing */
+@keyframes glowBreath {
+    0%, 100% {
+        box-shadow: 0 0 8px rgba(139, 92, 246, 0.4),
+                    0 0 20px rgba(139, 92, 246, 0.2);
+    }
+    50% {
+        box-shadow: 0 0 16px rgba(139, 92, 246, 0.7),
+                    0 0 40px rgba(139, 92, 246, 0.35);
+    }
+}
+
+/* Text streaming cursor */
+@keyframes streamCursor {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0; }
+}
+
+/* Scan line */
+@keyframes scanLine {
+    0%   { transform: translateY(-100%); }
+    100% { transform: translateY(100vh); }
+}
+
+/* Fade-slide in */
+@keyframes fadeSlideIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Ripple */
+@keyframes ripple {
+    0%   { transform: scale(0.8); opacity: 1; }
+    100% { transform: scale(2.4); opacity: 0; }
+}
+
+/* Scan line sweep – used on streaming AI message bubbles */
+@keyframes scanSweep {
+    0%   { left: -35%; opacity: 0; }
+    15%  { opacity: 1; }
+    85%  { opacity: 1; }
+    100% { left: 135%; opacity: 0; }
+}
+
+/* Neural pulse ring */
+@keyframes neuralPulse {
+    0%   { transform: scale(1); opacity: 0.7; }
+    100% { transform: scale(2.8); opacity: 0; }
+}
+
+/* Gradient text shimmer */
+@keyframes shimmer {
+    0%   { background-position: -200% center; }
+    100% { background-position: 200% center; }
+}
+
+/* Float */
+@keyframes float {
+    0%, 100% { transform: translateY(0px); }
+    50%       { transform: translateY(-5px); }
+}
+
+/* Blink */
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.2; }
+}
+
+/* Telemetry line sweep (hero background) */
+@keyframes telemetryFlow {
+    0%   { transform: translateX(-400px); opacity: 0; }
+    6%   { opacity: 1; }
+    94%  { opacity: 1; }
+    100% { transform: translateX(200vw);  opacity: 0; }
+}
+
+/* Gradient border shift */
+@keyframes gradientBorder {
+    0%   { background-position: 0% 50%; }
+    50%  { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+/* ── Utility animation classes ── */
+.animate-orbital          { animation: orbitalRotate 12s linear infinite; }
+.animate-orbital-rev      { animation: orbitalRotateReverse 18s linear infinite; }
+.animate-orbital-slow     { animation: orbitalRotate 28s linear infinite; }
+.animate-core-expand      { animation: coreExpand 3s ease-in-out infinite; }
+.animate-identity-scan    { animation: identityScan 2.6s ease-in-out infinite; }
+.animate-holo-flicker     { animation: holoFlicker 6s ease-in-out infinite; }
+.animate-particle-float   { animation: particleFloat 5s ease-in-out infinite; }
+.animate-glow-blue        { animation: glowPulseBlue 3s ease-in-out infinite; }
+.animate-glow-green       { animation: glowPulseGreen 3s ease-in-out infinite; }
+.animate-hex-glow         { animation: hexGlow 4s ease-in-out infinite; }
+.animate-glow-breath      { animation: glowBreath 3s ease-in-out infinite; }
+.animate-stream-cursor    { animation: streamCursor 0.8s ease-in-out infinite; }
+.animate-fade-slide-in    { animation: fadeSlideIn 0.3s ease-out forwards; }
+.animate-ripple           { animation: ripple 1.2s ease-out infinite; }
+.animate-neural-pulse     { animation: neuralPulse 1.5s ease-out infinite; }
+.animate-shimmer          { animation: shimmer 4s linear infinite; }
+.animate-float            { animation: float 3s ease-in-out infinite; }
+.animate-blink            { animation: blink 1.2s ease-in-out infinite; }
+.animate-type-cursor      { animation: typeCursor 0.8s step-end infinite; }
+.animate-boot-reveal      { animation: bootReveal 0.4s ease-out forwards; }
+
+.animate-gradient-border {
+    background: linear-gradient(270deg, #82c0a4, #4a8c70, #96cead, #82c0a4);
+    background-size: 400% 400%;
+    animation: gradientBorder 4s ease infinite;
+}
+
+/* Streaming message scan-line overlay */
+.message-streaming-overlay {
+    position: absolute;
+    top: 0;
+    left: -35%;
+    width: 35%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(14, 165, 233, 0.08), transparent);
+    animation: scanSweep 2.8s ease-in-out infinite;
+    pointer-events: none;
+}
+
+/* Neon focus ring for input */
+.neon-focus:focus-within {
+    box-shadow:
+        0 0 0 1px rgba(14, 165, 233, 0.35),
+        0 0 20px rgba(14, 165, 233, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
