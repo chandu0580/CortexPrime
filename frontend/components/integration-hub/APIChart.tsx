@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import dynamic from "next/dynamic";
-import { apiTrendsData } from "./mockData";
+import { apiTrendsData } from "./dashboardData";
 import { Activity, ShieldAlert, Cpu, ChevronDown } from "lucide-react";
 
 // Dynamic Recharts imports to prevent Next.js App Router hydration errors

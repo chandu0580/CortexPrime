@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { businessInsights } from "./mockData";
+import { businessInsights } from "./dashboardData";
 import { variants } from "@/lib/motion-tokens";
 import { Award, Compass, Clock, AlertTriangle, Cpu, TrendingUp } from "lucide-react";
 

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import dynamic from "next/dynamic";
-import { missionTypes, missionStats, missionPriorityData } from "./mockData";
+import { missionTypes, missionStats, missionPriorityData } from "./dashboardData";
 import { Award, ShieldAlert, BarChart3, PieChartIcon } from "lucide-react";
 
 // Dynamically import Recharts to avoid SSR hydration mismatches

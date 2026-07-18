@@ -10,7 +10,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database.models.reflection_history import ReflectionHistoryRecord
-from backend.database.repositories.base         import BaseRepository
+from backend.database.repositories.base import BaseRepository
 
 
 class ReflectionRepository(BaseRepository[ReflectionHistoryRecord]):
@@ -74,24 +74,31 @@ class ReflectionRepository(BaseRepository[ReflectionHistoryRecord]):
         """Cosine similarity search over reflection embeddings."""
         embed_literal = f"[{','.join(str(v) for v in embedding)}]"
 
-        where_clauses = [
+        where_parts = [
             "embedding IS NOT NULL",
-            f"1 - (embedding <=> '{embed_literal}'::vector) >= {min_similarity}",
+            "1 - (embedding <=> CAST(:embedding AS vector)) >= :min_sim",
         ]
-        if agent:
-            where_clauses.append(f"agent = '{agent}'")
+        params: Dict[str, Any] = {
+            "embedding": embed_literal,
+            "min_sim": min_similarity,
+            "lim": limit,
+        }
 
-        where_sql = " AND ".join(where_clauses)
+        if agent:
+            where_parts.append("agent = :agent")
+            params["agent"] = agent
+
+        where_sql = " AND ".join(where_parts)
 
         stmt = text(f"""
             SELECT
                 id, mission_id, agent, reflection, score, metadata, created_at,
-                1 - (embedding <=> '{embed_literal}'::vector) AS similarity
+                1 - (embedding <=> CAST(:embedding AS vector)) AS similarity
             FROM reflection_history
             WHERE {where_sql}
-            ORDER BY embedding <=> '{embed_literal}'::vector
-            LIMIT {limit}
-        """)  # nosec — embed_literal is float values, agent is validated above
+            ORDER BY embedding <=> CAST(:embedding AS vector)
+            LIMIT :lim
+        """)
 
-        rows = (await self._session.execute(stmt)).mappings().all()
+        rows = (await self._session.execute(stmt, params)).mappings().all()
         return [dict(r) for r in rows]

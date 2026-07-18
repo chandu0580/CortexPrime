@@ -5,16 +5,15 @@ Stores per-call LLM/API cost records for the Mission Cost Engine.
 """
 from __future__ import annotations
 
-import uuid
 from datetime import date
 from typing import Optional
 
-from sqlalchemy                     import Date, Float, Index, Integer, String
+from sqlalchemy import Date, Float, Index, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm                 import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column
 
-from backend.database.base          import Base
-from backend.database.models.mixins import UUIDPrimaryKeyMixin, TimestampMixin
+from backend.database.base import Base
+from backend.database.models.mixins import TimestampMixin, UUIDPrimaryKeyMixin
 
 
 class CostRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):

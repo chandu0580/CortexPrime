@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { systemActivityEvents } from "./mockData";
+import { systemActivityEvents } from "./dashboardData";
 import { Rocket, RefreshCw, HardDrive, Cpu, Heart, CheckCircle2 } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { variants } from "@/lib/motion-tokens";

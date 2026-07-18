@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { initialUsers, UserRecord } from "./mockData";
+import { initialUsers, UserRecord } from "./dashboardData";
 import { UserPlus, UserCheck, Shield, MoreVertical, Trash2 } from "lucide-react";
 import StatusBadge, { SettingsStatusType } from "./StatusBadge";
 

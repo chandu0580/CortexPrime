@@ -69,6 +69,11 @@ const menuItems = [
         icon: Settings,
         label: "Settings",
         href: "/settings"
+    },
+    {
+        icon: LayoutDashboard,
+        label: "Enterprise Platform",
+        href: "/enterprise"
     }
 ]
 

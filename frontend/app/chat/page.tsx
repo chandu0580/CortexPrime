@@ -1,2 +1,5 @@
-import ChatPage from "@/components/chat/ChatPage";
-export default ChatPage;
+import ChatPageStream from "@/components/chat/ChatPageStream"
+
+export default function ChatPage() {
+  return <ChatPageStream />
+}

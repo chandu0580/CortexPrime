@@ -19,7 +19,7 @@ import logging
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+
 from backend.auth.dependencies import require_admin, require_user
 
 log = logging.getLogger(__name__)
@@ -42,7 +42,7 @@ async def rabbitmq_health() -> Dict[str, Any]:
     """Return RabbitMQ connection status and basic stats."""
     try:
         from backend.infrastructure.rabbitmq.connection import rabbitmq_connection
-        from backend.infrastructure.rabbitmq.tracing    import message_tracer
+        from backend.infrastructure.rabbitmq.tracing import message_tracer
         return {
             "status":     "connected" if rabbitmq_connection.is_available else "disconnected",
             "available":  rabbitmq_connection.is_available,

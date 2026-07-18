@@ -9,7 +9,8 @@ import { ExecutiveConversation } from "@/components/executive-agent/conversation
 import { PulseDot } from "@/components/executive-platform/shared"
 
 export default function ExecutiveAgentPage() {
-  const { startAgent, lastMonitoredAt } = useExecutiveAgentStore()
+  const startAgent = useExecutiveAgentStore((s) => s.startAgent)
+  const lastMonitoredAt = useExecutiveAgentStore((s) => s.lastMonitoredAt)
 
   useEffect(() => { startAgent() }, [startAgent])
 

@@ -1,6 +1,5 @@
 "use client"
 
-import { useState } from "react"
 import {
   GitFork,
   Kanban,
@@ -12,48 +11,37 @@ import {
   Server,
   Plug,
   Settings,
-  RefreshCw,
   AlertTriangle,
   CheckCircle,
-  Clock,
 } from "lucide-react"
 
 import { cn } from "@/utils/cn"
 import { StatusBadge, SectionHeader } from "./shared"
+import { useConnectors } from "@/hooks/queries/connectors"
 
-// ─── TYPES ─────────────────────────────────────────────────────────────────────
-
-interface Connector {
-  id: string
-  name: string
-  icon: typeof GitFork
-  color: string
-  status: "connected" | "error"
-  lastSync: string
-  authMethod: string
-  health: string
+const CONNECTOR_ICONS: Record<string, { icon: typeof GitFork; color: string }> = {
+  github: { icon: GitFork, color: "#24292E" },
+  jira: { icon: Kanban, color: "#0052CC" },
+  slack: { icon: MessageSquare, color: "#4A154B" },
+  "microsoft-teams": { icon: MessageCircle, color: "#6264A7" },
+  "azure-devops": { icon: Server, color: "#0078D4" },
+  confluence: { icon: FileText, color: "#0052CC" },
+  servicenow: { icon: Headphones, color: "#81B136" },
+  notion: { icon: Layout, color: "#000000" },
 }
-
-// ─── MOCK DATA ─────────────────────────────────────────────────────────────────
-
-const CONNECTORS: Connector[] = [
-  { id: "gh", name: "GitHub", icon: GitFork, color: "#24292E", status: "connected", lastSync: "2 min ago", authMethod: "OAuth 2.0", health: "All repos accessible" },
-  { id: "jira", name: "Jira", icon: Kanban, color: "#0052CC", status: "connected", lastSync: "5 min ago", authMethod: "API Token", health: "All projects synced" },
-  { id: "slack", name: "Slack", icon: MessageSquare, color: "#4A154B", status: "connected", lastSync: "1 min ago", authMethod: "OAuth 2.0", health: "Webhook active" },
-  { id: "teams", name: "Teams", icon: MessageCircle, color: "#6264A7", status: "connected", lastSync: "10 min ago", authMethod: "Azure AD", health: "Channels active" },
-  { id: "servicenow", name: "ServiceNow", icon: Headphones, color: "#81B136", status: "error", lastSync: "1 hour ago", authMethod: "Basic Auth", health: "Rate limit exceeded" },
-  { id: "confluence", name: "Confluence", icon: FileText, color: "#0052CC", status: "connected", lastSync: "15 min ago", authMethod: "API Token", health: "Spaces synced" },
-  { id: "notion", name: "Notion", icon: Layout, color: "#000000", status: "connected", lastSync: "8 min ago", authMethod: "Integration Token", health: "Databases accessible" },
-  { id: "azure-devops", name: "Azure DevOps", icon: Server, color: "#0078D4", status: "connected", lastSync: "3 min ago", authMethod: "PAT", health: "Pipelines monitored" },
-]
 
 // ─── COMPONENT ─────────────────────────────────────────────────────────────────
 
 export default function ConnectorsPanel() {
-  const [connectors, setConnectors] = useState(CONNECTORS)
+  const { data, isLoading } = useConnectors()
+  const connectors = data?.connectors ?? []
 
-  const connected = connectors.filter((c) => c.status === "connected").length
-  const error = connectors.filter((c) => c.status === "error").length
+  const connected = connectors.filter((c) => c.connection_state === "connected").length
+  const errorCount = connectors.filter((c) => c.connection_state === "disconnected").length
+
+  if (isLoading) {
+    return <div className="text-[#6B7280] text-sm">Loading connectors...</div>
+  }
 
   return (
     <div className="space-y-6">
@@ -78,8 +66,8 @@ export default function ConnectorsPanel() {
         <div className="border border-[#E8EDF3] bg-white rounded-[18px] px-5 py-3 flex items-center gap-3">
           <AlertTriangle className="w-5 h-5 text-[#EF4444]" />
           <div>
-            <span className="text-2xl font-bold text-[#EF4444]">{error}</span>
-            <span className="text-sm text-[#6B7280] ml-1">Error</span>
+            <span className="text-2xl font-bold text-[#EF4444]">{errorCount}</span>
+            <span className="text-sm text-[#6B7280] ml-1">Disconnected</span>
           </div>
         </div>
       </div>
@@ -87,31 +75,33 @@ export default function ConnectorsPanel() {
       {/* Connector Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {connectors.map((connector) => {
-          const Icon = connector.icon
+          const meta = CONNECTOR_ICONS[connector.type] ?? { icon: Plug, color: "#6B7280" }
+          const Icon = meta.icon
+          const connStatus = connector.connection_state === "connected" ? "connected" : "error"
           return (
             <div
-              key={connector.id}
+              key={connector.type}
               className={cn(
                 "border bg-white rounded-[18px] p-5 transition-all duration-200",
-                connector.status === "error" ? "border-[#FEE2E2]" : "border-[#E8EDF3]",
+                connStatus === "error" ? "border-[#FEE2E2]" : "border-[#E8EDF3]",
               )}
             >
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: `${connector.color}10` }}>
-                    <Icon className="w-5 h-5" style={{ color: connector.color }} />
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: `${meta.color}10` }}>
+                    <Icon className="w-5 h-5" style={{ color: meta.color }} />
                   </div>
                   <div>
                     <h3 className="text-sm font-bold text-[#111827]">{connector.name}</h3>
-                    <StatusBadge tone={connector.status} label={connector.status} />
+                    <StatusBadge tone={connStatus} label={connStatus} />
                   </div>
                 </div>
-                <div className={cn("w-2 h-2 rounded-full", connector.status === "connected" ? "bg-[#38B88A]" : "bg-[#EF4444]")} />
+                <div className={cn("w-2 h-2 rounded-full", connStatus === "connected" ? "bg-[#38B88A]" : "bg-[#EF4444]")} />
               </div>
               <div className="space-y-2 text-xs">
-                <div className="flex justify-between"><span className="text-[#6B7280]">Last Sync</span><span className="text-[#111827] font-medium">{connector.lastSync}</span></div>
-                <div className="flex justify-between"><span className="text-[#6B7280]">Auth</span><span className="text-[#111827] font-medium">{connector.authMethod}</span></div>
-                <div className="flex justify-between"><span className="text-[#6B7280]">Health</span><span className={cn("font-medium", connector.status === "error" ? "text-[#EF4444]" : "text-[#38B88A]")}>{connector.health}</span></div>
+                <div className="flex justify-between"><span className="text-[#6B7280]">Latency</span><span className="text-[#111827] font-medium">{connector.latency_ms != null ? `${connector.latency_ms}ms` : "--"}</span></div>
+                <div className="flex justify-between"><span className="text-[#6B7280]">Auth</span><span className="text-[#111827] font-medium">{connector.authentication_type}</span></div>
+                <div className="flex justify-between"><span className="text-[#6B7280]">Status</span><span className={cn("font-medium", connStatus === "error" ? "text-[#EF4444]" : "text-[#38B88A]")}>{connector.connection_state}</span></div>
               </div>
               <div className="mt-4 pt-3 border-t border-[#E8EDF3]">
                 <button className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-[18px] text-xs font-medium text-[#6B7280] hover:bg-[#F4F7FA] hover:text-[#111827] border border-[#E8EDF3] transition-colors duration-150">

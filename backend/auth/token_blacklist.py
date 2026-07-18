@@ -31,12 +31,10 @@ behaviour explicitly via REVOCATION_FAIL_OPEN=true|false.
 """
 from __future__ import annotations
 
-import json
 import logging
 import os
 import time
-from datetime import datetime, timezone
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 log = logging.getLogger(__name__)
 

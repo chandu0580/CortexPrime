@@ -26,11 +26,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.auth.dependencies import require_admin, require_user
-from backend.safety.safety_guard    import safety_guard
-from backend.safety.permission_engine import permission_engine
-from backend.safety.approval_queue  import approval_queue
-from backend.safety.audit_logger    import audit_logger
-from backend.safety.emergency_stop  import emergency_stop
+from backend.safety.approval_queue import approval_queue
+from backend.safety.audit_logger import audit_logger
+from backend.safety.emergency_stop import emergency_stop
+from backend.safety.safety_guard import safety_guard
 
 log    = logging.getLogger(__name__)
 router = APIRouter(prefix="/governance", tags=["Governance"])
@@ -103,7 +102,7 @@ async def request_approval(body: ManualApprovalRequest) -> Dict[str, Any]:
         # instantly with the request_id while the approval wait happens async.
         import uuid as _uuid
 
-        from backend.safety.approval_queue import ApprovalRequest, ApprovalStatus
+        from backend.safety.approval_queue import ApprovalRequest
 
         req = ApprovalRequest(
             request_id   = str(_uuid.uuid4()),

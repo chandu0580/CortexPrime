@@ -35,7 +35,6 @@ log = logging.getLogger(__name__)
 
 try:
     import redis.asyncio as aioredis
-    from redis.asyncio.connection import ConnectionPool
     _REDIS_AVAILABLE = True
 except ImportError:
     _REDIS_AVAILABLE = False
@@ -110,7 +109,11 @@ class RedisConnectionPool:
             socket_keepalive_options = {},
             health_check_interval  = 30,   # seconds between background pings
             retry_on_timeout       = True,
+            ssl                    = _use_ssl(),
         )
+
+def _use_ssl() -> bool:
+    return os.getenv("REDIS_USE_SSL", "false").lower() in ("true", "1", "yes")
 
     async def _try_connect(self) -> bool:
         if not _REDIS_AVAILABLE:

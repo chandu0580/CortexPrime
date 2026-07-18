@@ -1,16 +1,19 @@
 """
 Runtime State Store — CortexPrime
 ====================================
-Redis-backed canonical store for execution state.
+Redis-backed read-through / write-through cache for execution state.
 
-Redis is the single source of truth.  In-memory dicts are a write-through
-cache only — on any cache miss the store always queries Redis first before
-returning None.  After a backend restart all active executions are
-immediately recoverable by scanning Redis.
+THE CANONICAL STORE IS THE ENGINEERING RUNTIME STORE
+(backend.services.enterprise_runtime_store.RuntimeStore → runtime_store.json).
+
+Redis NEVER owns execution state.  It is a best-effort cache that:
+  - Speeds up reads for active executions.
+  - Survives backend restart (Redis retains cached data).
+  - Publishes state-change events so WebSocket clients react in realtime.
 
 Key Schema (prefix ``cx:rt:``)
 -------------------------------
-cx:rt:exec:{execution_id}   HASH   Rich execution record (see _EXEC_FIELDS)
+cx:rt:exec:{execution_id}   HASH   Active execution record (from RuntimeStore)
 cx:rt:active                ZSET   member=execution_id, score=started_at_epoch
 cx:rt:hist:{execution_id}   HASH   Completed execution record (longer TTL)
 cx:rt:history               ZSET   member=execution_id, score=completed_at_epoch
@@ -21,6 +24,15 @@ TTLs
 Active execution record  : 86400 s (24 h)    — refreshed on every update
 Completed/failed history : 604800 s (7 days) — permanent audit trail
 Active ZSET entry        : pruned when execution completes / TTL auto-expires
+
+Data Flow
+---------
+  start()     → RuntimeStore.create_execution()  +  Redis HSET/ZADD (cache)
+  update()    → RuntimeStore.update_execution()   +  Redis HSET    (cache)
+  complete()  → RuntimeStore.update_execution()   +  Redis HSET/ZADD/ZREM (cache)
+  get()       → in-memory cache  →  RuntimeStore  →  Redis (write-through)
+  list_active()  → RuntimeStore.list_executions(status=...)
+  list_history() → RuntimeStore.list_executions(status=...)
 """
 from __future__ import annotations
 
@@ -82,28 +94,49 @@ def _duration(started_at: str, ended_at: str) -> float:
         return 0.0
 
 
-# ---------------------------------------------------------------------------
-# RuntimeStateStore
-# ---------------------------------------------------------------------------
+_ACTIVE_STATUSES = ("running", "pending")
+_TERMINAL_STATUSES = ("completed", "failed", "cancelled")
+
+
+# =============================================================================
+# Helper: map EngineeringExecution ↔ dict for Redis cache
+# =============================================================================
+
+_EXEC_TO_CACHE_FIELDS = {
+    "execution_id", "objective", "user_id", "session_id", "status",
+    "started_at", "updated_at", "completed_at", "current_step",
+    "mission_type", "priority", "duration_seconds",
+    "final_response", "failure_reason", "result_summary",
+}
+
+
+def _execution_to_cache(execution: Any) -> Dict[str, Any]:
+    """Convert an EngineeringExecution to a flat dict for Redis caching."""
+    d = execution.to_dict() if hasattr(execution, "to_dict") else dict(execution)
+    return {k: v for k, v in d.items() if k in _EXEC_TO_CACHE_FIELDS}
+
+
+def _cache_to_execution(record: Dict[str, Any]) -> Any:
+    """Convert a Redis cache dict back to EngineeringExecution (lazy import)."""
+    from backend.services.enterprise_runtime_store import EngineeringExecution
+    return EngineeringExecution.from_dict(record)
+
+
+# =============================================================================
+# RuntimeStateStore — Redis cache facade
+# =============================================================================
 
 class RuntimeStateStore:
     """
-    Canonical Redis-backed store for execution lifecycle management.
+    Redis-backed read-through / write-through cache for execution state.
 
-    Every write goes to Redis first, then updates the local write-through
-    cache.  Every read checks the local cache first; on a miss it
-    transparently loads from Redis.  This means state survives:
-
-    - Backend restart (cold start)
-    - Docker restart
-    - WebSocket reconnect
-
-    All public methods are async and may be called from any FastAPI
-    route handler or background task.
+    The canonical source of truth is ``RuntimeStore`` (runtime_store.json).
+    Every write goes to RuntimeStore first, then the Redis cache is updated
+    best-effort.  Every read checks the local in-memory cache, then RuntimeStore,
+    then Redis.
     """
 
     def __init__(self) -> None:
-        # Write-through cache: execution_id → record dict
         self._cache: Dict[str, Dict[str, Any]] = {}
 
     # ------------------------------------------------------------------
@@ -121,6 +154,41 @@ class RuntimeStateStore:
         return None
 
     # ------------------------------------------------------------------
+    # Internal: write-through helpers
+    # ------------------------------------------------------------------
+
+    def _store(self) -> Any:
+        """Lazy import of the canonical RuntimeStore singleton."""
+        from backend.services.enterprise_runtime_store import runtime_store
+        return runtime_store
+
+    def _store_create(self, execution_id: str, objective: str, **extra: Any) -> None:
+        """Create an EngineeringExecution in the canonical RuntimeStore."""
+        from backend.services.enterprise_runtime_store import EngineeringExecution
+        exec_kwargs = {
+            "execution_id": execution_id,
+            "objective": objective,
+            "status": "running",
+            "started_at": extra.pop("started_at", _now_iso()),
+            **extra,
+        }
+        execution = EngineeringExecution(**exec_kwargs)
+        self._store().create_execution(execution)
+
+    def _store_update(self, execution_id: str, **kwargs: Any) -> bool:
+        """Update an execution in the canonical RuntimeStore."""
+        result = self._store().update_execution(execution_id, **kwargs)
+        return result is not None
+
+    def _store_get(self, execution_id: str) -> Optional[Any]:
+        """Get an EngineeringExecution from the canonical RuntimeStore."""
+        return self._store().get_execution(execution_id)
+
+    def _store_list(self, status: str = "", limit: int = 1000) -> List[Any]:
+        """List executions from the canonical RuntimeStore."""
+        return self._store().list_executions(status=status, limit=limit)
+
+    # ------------------------------------------------------------------
     # Start an execution
     # ------------------------------------------------------------------
 
@@ -134,15 +202,25 @@ class RuntimeStateStore:
         priority:     int = 5,
     ) -> Dict[str, Any]:
         """
-        Register a new execution as active.
-
-        Adds:
-        - A HASH record at ``cx:rt:exec:{execution_id}``
-        - The execution_id to the ``cx:rt:active`` ZSET (score = started_at)
+        Register a new execution in the canonical RuntimeStore,
+        then cache in Redis best-effort.
         """
         now   = _now_iso()
         epoch = _now_epoch()
 
+        # 1. Write through to canonical store
+        self._store_create(
+            execution_id=execution_id,
+            objective=objective,
+            user_id=user_id,
+            session_id=session_id or "",
+            mission_type=mission_type,
+            priority=priority,
+            started_at=now,
+            current_step="initializing",
+        )
+
+        # 2. Build cache record
         record: Dict[str, Any] = {
             "execution_id": execution_id,
             "objective":    objective,
@@ -155,9 +233,9 @@ class RuntimeStateStore:
             "mission_type": mission_type,
             "priority":     priority,
         }
-
         self._cache[execution_id] = record
 
+        # 3. Best-effort Redis cache write
         redis = await self._redis()
         if redis:
             try:
@@ -166,9 +244,9 @@ class RuntimeStateStore:
                 pipe.expire(_exec_key(execution_id), _TTL_ACTIVE)
                 pipe.zadd(_KEY_ACTIVE, {execution_id: epoch})
                 await pipe.execute()
-                log.debug("RuntimeStateStore.start: persisted %s", execution_id)
+                log.debug("RuntimeStateStore.start: cached %s in Redis", execution_id)
             except Exception as exc:
-                log.warning("RuntimeStateStore.start Redis write failed: %s", exc)
+                log.warning("RuntimeStateStore.start Redis cache write failed: %s", exc)
 
         return record
 
@@ -187,24 +265,32 @@ class RuntimeStateStore:
         """
         Update mutable fields of a running execution.
 
-        Fields not passed are left unchanged.
+        Writes through to RuntimeStore, then best-effort Redis cache write.
         """
-        # Load current record (cache-first, then Redis)
-        record = await self.get(execution_id)
-        if record is None:
-            log.warning("RuntimeStateStore.update: unknown execution %s", execution_id)
-            return
+        # 1. Write through to canonical store
+        store_kwargs: Dict[str, Any] = {}
+        if status is not None:
+            store_kwargs["status"] = status
+        if current_step is not None:
+            store_kwargs["current_step"] = current_step
+        if extra:
+            store_kwargs.update(extra)
+        self._store_update(execution_id, **store_kwargs)
 
+        # 2. Update local cache
+        record = self._cache.get(execution_id)
+        if record is None:
+            record = {}
+            self._cache[execution_id] = record
         if status is not None:
             record["status"] = status
         if current_step is not None:
             record["current_step"] = current_step
         if extra:
             record.update(extra)
-
         record["updated_at"] = _now_iso()
-        self._cache[execution_id] = record
 
+        # 3. Best-effort Redis cache update
         redis = await self._redis()
         if redis:
             try:
@@ -221,7 +307,7 @@ class RuntimeStateStore:
                 pipe.expire(_exec_key(execution_id), _TTL_ACTIVE)
                 await pipe.execute()
             except Exception as exc:
-                log.warning("RuntimeStateStore.update Redis write failed: %s", exc)
+                log.warning("RuntimeStateStore.update Redis cache write failed: %s", exc)
 
     # ------------------------------------------------------------------
     # Complete / fail an execution
@@ -231,26 +317,31 @@ class RuntimeStateStore:
         self,
         execution_id:    str,
         *,
-        status:          str = "completed",  # "completed" | "failed" | "cancelled"
+        status:          str = "completed",
         final_response:  Optional[str]  = None,
         failure_reason:  Optional[str]  = None,
         result_summary:  Optional[str]  = None,
     ) -> None:
         """
-        Mark an execution as terminal and move it to the history store.
+        Mark an execution as terminal in the canonical RuntimeStore.
 
-        - Updates the HASH record with terminal fields.
-        - Removes from ``cx:rt:active`` ZSET.
-        - Copies to ``cx:rt:hist:{execution_id}`` with longer TTL.
-        - Adds to ``cx:rt:history`` ZSET.
+        Also cache in Redis (best-effort) for fast reads.
         """
-        record = await self.get(execution_id)
+        now           = _now_iso()
+        epoch         = _now_epoch()
+
+        # 1. Load current record (try cache first, then RuntimeStore)
+        record = self._cache.get(execution_id)
+        if record is None:
+            exec_obj = self._store_get(execution_id)
+            if exec_obj:
+                record = exec_obj.to_dict()
         if record is None:
             record = {
                 "execution_id": execution_id,
                 "status":       status,
-                "started_at":   _now_iso(),
-                "updated_at":   _now_iso(),
+                "started_at":   now,
+                "updated_at":   now,
                 "objective":    "",
                 "user_id":      "system",
                 "session_id":   "",
@@ -259,39 +350,40 @@ class RuntimeStateStore:
                 "priority":     5,
             }
 
-        now            = _now_iso()
-        epoch          = _now_epoch()
-        started_at     = record.get("started_at", now)
-        duration_secs  = _duration(started_at, now)
+        started_at    = record.get("started_at", now)
+        duration_secs = _duration(started_at, now)
 
-        record.update({
-            "status":          status,
-            "completed_at":    now,
-            "updated_at":      now,
+        terminal_fields = {
+            "status":           status,
+            "completed_at":     now,
+            "updated_at":       now,
             "duration_seconds": duration_secs,
-            "final_response":  (final_response or "")[:2000],  # cap stored size
-            "failure_reason":  failure_reason or "",
-            "result_summary":  result_summary or "",
-        })
+            "final_response":   (final_response or ""),
+            "failure_reason":   failure_reason or "",
+            "result_summary":   result_summary or "",
+        }
 
+        # 2. Write through to canonical store
+        self._store_update(execution_id, **terminal_fields)
+
+        # 3. Update local cache
+        record.update(terminal_fields)
         self._cache[execution_id] = record
 
+        # 4. Best-effort Redis cache write
         redis = await self._redis()
         if redis:
             try:
                 pipe = redis.pipeline()
-                # Update active record
                 pipe.hset(_exec_key(execution_id), mapping=_flatten(record))
                 pipe.expire(_exec_key(execution_id), _TTL_HISTORY)
-                # Remove from active ZSET
                 pipe.zrem(_KEY_ACTIVE, execution_id)
-                # Write history
                 pipe.hset(_hist_key(execution_id), mapping=_flatten(record))
                 pipe.expire(_hist_key(execution_id), _TTL_HISTORY)
                 pipe.zadd(_KEY_HISTORY, {execution_id: epoch})
                 await pipe.execute()
             except Exception as exc:
-                log.warning("RuntimeStateStore.complete Redis write failed: %s", exc)
+                log.warning("RuntimeStateStore.complete Redis cache write failed: %s", exc)
 
         log.info(
             "Execution %s %s in %.1fs",
@@ -299,16 +391,23 @@ class RuntimeStateStore:
         )
 
     # ------------------------------------------------------------------
-    # Get a single execution (cache-first, Redis fallback)
+    # Get a single execution (cache → RuntimeStore → Redis)
     # ------------------------------------------------------------------
 
     async def get(self, execution_id: str) -> Optional[Dict[str, Any]]:
-        """Return execution record or None."""
-        # 1. Check write-through cache
+        """Return execution record from canonical store, caching best-effort."""
+        # 1. Check in-memory cache
         if execution_id in self._cache:
             return self._cache[execution_id]
 
-        # 2. Try Redis
+        # 2. Check canonical RuntimeStore
+        exec_obj = self._store_get(execution_id)
+        if exec_obj:
+            record = exec_obj.to_dict()
+            self._cache[execution_id] = record
+            return record
+
+        # 3. Fallback to Redis (in case RuntimeStore is stale / recovering)
         redis = await self._redis()
         if redis:
             try:
@@ -317,7 +416,6 @@ class RuntimeStateStore:
                     record = _unflatten(raw)
                     self._cache[execution_id] = record
                     return record
-                # Try history key (completed executions)
                 raw = await redis.hgetall(_hist_key(execution_id))
                 if raw:
                     record = _unflatten(raw)
@@ -333,25 +431,11 @@ class RuntimeStateStore:
     # ------------------------------------------------------------------
 
     async def list_active(self) -> List[Dict[str, Any]]:
-        """Return all currently active (non-terminal) executions."""
-        redis = await self._redis()
-        if redis:
-            try:
-                # ZRANGE returns all members; ZRANGEBYSCORE with all scores
-                members = await redis.zrange(_KEY_ACTIVE, 0, -1)
-                results = []
-                for eid in members:
-                    rec = await self.get(eid)
-                    if rec:
-                        results.append(rec)
-                return results
-            except Exception as exc:
-                log.warning("RuntimeStateStore.list_active Redis error: %s", exc)
-
-        # In-memory fallback
+        """Return all currently active (non-terminal) executions from RuntimeStore."""
+        execs = self._store_list(limit=1000)
         return [
-            r for r in self._cache.values()
-            if r.get("status") in ("running", "pending")
+            e.to_dict() for e in execs
+            if e.status in _ACTIVE_STATUSES
         ]
 
     # ------------------------------------------------------------------
@@ -364,55 +448,31 @@ class RuntimeStateStore:
         offset: int = 0,
     ) -> List[Dict[str, Any]]:
         """Return completed execution history, newest first."""
-        redis = await self._redis()
-        if redis:
-            try:
-                # ZREVRANGE: newest first (highest score = latest epoch)
-                members = await redis.zrevrange(_KEY_HISTORY, offset, offset + limit - 1)
-                results = []
-                for eid in members:
-                    raw = await redis.hgetall(_hist_key(eid))
-                    if raw:
-                        results.append(_unflatten(raw))
-                return results
-            except Exception as exc:
-                log.warning("RuntimeStateStore.list_history Redis error: %s", exc)
-
-        # In-memory fallback (completed entries from cache)
+        all_execs = self._store_list(limit=1000)
         terminal = [
-            r for r in self._cache.values()
-            if r.get("status") in ("completed", "failed", "cancelled")
+            e.to_dict() for e in all_execs
+            if e.status in _TERMINAL_STATUSES
         ]
-        return sorted(terminal, key=lambda r: r.get("completed_at", ""), reverse=True)[:limit]
+        terminal.sort(key=lambda r: r.get("completed_at", r.get("updated_at", "")), reverse=True)
+        return terminal[offset:offset + limit]
 
     # ------------------------------------------------------------------
     # Active execution count
     # ------------------------------------------------------------------
 
     async def active_count(self) -> int:
-        redis = await self._redis()
-        if redis:
-            try:
-                return await redis.zcard(_KEY_ACTIVE)
-            except Exception:
-                pass
-        return sum(
-            1 for r in self._cache.values()
-            if r.get("status") in ("running", "pending")
-        )
+        return len(await self.list_active())
 
     # ------------------------------------------------------------------
-    # Startup recovery
+    # Startup recovery (load from Redis into cache)
     # ------------------------------------------------------------------
 
     async def recover_on_startup(self) -> int:
         """
         Scan Redis for active executions that survived a restart.
 
-        For each execution found in the active ZSET that is not already
-        in the local cache, load it from Redis and add it to the cache.
-
-        Returns the count of recovered executions.
+        Redis is a cache, not the source of truth, but this helps rebuild
+        the in-memory cache after a cold start.
         """
         redis = await self._redis()
         if not redis:
@@ -433,17 +493,15 @@ class RuntimeStateStore:
                 raw = await redis.hgetall(_exec_key(eid))
                 if raw:
                     record = _unflatten(raw)
-                    # Mark as recovered rather than orphaned-running
                     if record.get("status") == "running":
-                        record["status"]       = "recovered"
-                        record["updated_at"]   = _now_iso()
+                        record["status"] = "recovered"
+                        record["updated_at"] = _now_iso()
                         record["current_step"] = "recovered_after_restart"
-                        # Persist the updated status back
                         await redis.hset(
                             _exec_key(eid),
                             mapping=_flatten({
-                                "status":       "recovered",
-                                "updated_at":   record["updated_at"],
+                                "status": "recovered",
+                                "updated_at": record["updated_at"],
                                 "current_step": record["current_step"],
                             }),
                         )
@@ -453,7 +511,6 @@ class RuntimeStateStore:
                 log.warning("RuntimeStateStore.recover: failed to load %s: %s", eid, exc)
 
         if recovered:
-            # Bump the recovered counter
             try:
                 await redis.incrby(_KEY_RCVD, recovered)
                 await redis.expire(_KEY_RCVD, _TTL_HISTORY)
@@ -461,8 +518,6 @@ class RuntimeStateStore:
                 pass
 
             log.info("RuntimeStateStore: recovered %d execution(s) from Redis", recovered)
-
-            # Fire audit
             _audit_recovery(recovered)
 
         return recovered
@@ -503,7 +558,7 @@ class RuntimeStateStore:
     # ------------------------------------------------------------------
 
     def clear_cache(self) -> None:
-        """Drop the local write-through cache (does not affect Redis)."""
+        """Drop the local write-through cache (does not affect RuntimeStore or Redis)."""
         self._cache.clear()
 
 
@@ -531,14 +586,12 @@ def _unflatten(raw: Dict[bytes | str, bytes | str]) -> Dict[str, Any]:
         key = k.decode() if isinstance(k, bytes) else k
         val = v.decode() if isinstance(v, bytes) else v
 
-        # Attempt JSON decode for structured fields
         if val.startswith("{") or val.startswith("["):
             try:
                 val = json.loads(val)
             except Exception:
                 pass
 
-        # Coerce known numeric fields
         if key in ("priority",):
             try:
                 val = int(val)
@@ -561,17 +614,16 @@ def _unflatten(raw: Dict[bytes | str, bytes | str]) -> Dict[str, Any]:
 def _audit_recovery(count: int) -> None:
     """Fire-and-forget audit log for recovery events."""
     try:
-        import asyncio
         from backend.safety.audit_logger import audit_logger
         audit_logger.log(
-            execution_id = "startup",
-            agent        = "runtime_state_store",
-            action       = "runtime_recovered",
-            target       = "executions",
-            risk_level   = "low",
-            outcome      = "recovered",
-            reason       = f"{count} execution(s) recovered from Redis after restart",
-            metadata     = {"recovered_count": count},
+            execution_id="startup",
+            agent="runtime_state_store",
+            action="runtime_recovered",
+            target="executions",
+            risk_level="low",
+            outcome="recovered",
+            reason=f"{count} execution(s) recovered from Redis after restart",
+            metadata={"recovered_count": count},
         )
     except Exception as exc:
         log.debug("_audit_recovery non-fatal: %s", exc)

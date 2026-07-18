@@ -1,10 +1,10 @@
-from __future__ import annotations
-
 """
 CortexPrime Runtime API Routes
 ================================
 All orchestration, execution, and runtime management endpoints.
 """
+
+from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
@@ -12,13 +12,12 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from backend.auth.dependencies import require_user
-from backend.runtime.execution_manager import execution_manager
-from backend.runtime.agent_registry import agent_registry
 from backend.orchestration.lifecycle_manager import agent_lifecycle_manager
-from backend.orchestration.priority_queue import execution_priority_queue
 from backend.orchestration.orchestration_tracer import orchestration_tracer
+from backend.orchestration.priority_queue import execution_priority_queue
 from backend.orchestration.task_decomposer import task_decomposer
-
+from backend.runtime.agent_registry import agent_registry
+from backend.runtime.execution_manager import execution_manager
 
 router = APIRouter(prefix="/api/runtime", tags=["Runtime"], dependencies=[Depends(require_user)])
 

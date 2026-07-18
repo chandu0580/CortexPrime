@@ -7,8 +7,8 @@ and recovery after disconnect.
 
 import json
 import logging
-import uuid
 import time
+import uuid
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
@@ -204,7 +204,7 @@ class VoiceSessionStore:
         """Write the full session (including transcript) to Redis."""
         try:
             from backend.infrastructure.redis.connection import redis_connection
-            from backend.infrastructure.redis.keys import RedisKeys, TTL
+            from backend.infrastructure.redis.keys import TTL, RedisKeys
             r = await redis_connection.ensure_connected()
             key  = RedisKeys.voice_session(session.session_id)
             data = json.dumps(session.to_redis_dict())

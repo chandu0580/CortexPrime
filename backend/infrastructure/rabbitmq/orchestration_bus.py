@@ -38,18 +38,15 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
-from uuid import uuid4
 
 log = logging.getLogger(__name__)
 
+from backend.infrastructure.rabbitmq.consumer import rabbitmq_consumer
 from backend.infrastructure.rabbitmq.publisher import rabbitmq_publisher
-from backend.infrastructure.rabbitmq.consumer  import rabbitmq_consumer
-from backend.infrastructure.rabbitmq.schemas   import (
+from backend.infrastructure.rabbitmq.schemas import (
     MessageType,
-    Queues,
     RabbitMessage,
 )
-
 
 # =========================================================
 # RESULT COLLECTOR
@@ -335,7 +332,7 @@ class OrchestrationBus:
         Fanout broadcast to all subscribers on the events exchange.
         Used for system-wide notifications (e.g. health events).
         """
-        from backend.infrastructure.rabbitmq.schemas import RabbitMessage, MessageType
+        from backend.infrastructure.rabbitmq.schemas import MessageType, RabbitMessage
         msg = RabbitMessage(
             message_type = MessageType.RUNTIME_BROADCAST,
             payload      = {"event_type": event_type, **payload},
@@ -554,7 +551,7 @@ class OrchestrationBus:
     async def _forward_to_event_bus(self, msg: RabbitMessage) -> None:
         """Re-emit to the in-process EventBus so WebSocket clients receive it."""
         try:
-            from backend.events.event_bus    import event_bus
+            from backend.events.event_bus import event_bus
             from backend.events.event_models import CognitionEvent
             p = msg.payload
             await event_bus.publish(CognitionEvent(

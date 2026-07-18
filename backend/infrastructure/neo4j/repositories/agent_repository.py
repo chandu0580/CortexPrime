@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from backend.infrastructure.neo4j.repositories.base_repository import BaseRepository
-from backend.infrastructure.neo4j.schema import Labels, Rels
+from backend.infrastructure.neo4j.schema import Rels
 
 
 class AgentRepository(BaseRepository):

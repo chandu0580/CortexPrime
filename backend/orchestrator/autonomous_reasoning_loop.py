@@ -1,38 +1,14 @@
-from typing import Dict, Any, List
-
+import asyncio
+import os
+from datetime import datetime
+from typing import Any, Dict, List
 from uuid import uuid4
 
-from datetime import datetime
-
-import asyncio
-
-import os
-
-
-from backend.events.event_bus import (
-    event_bus
-)
-
-from backend.events.event_models import (
-    CognitionEvent
-)
-
-from backend.llm.llm_gateway import (
-    llm_gateway
-)
-
-from backend.orchestrator.agent_router import (
-    agent_router
-)
-
-from backend.orchestrator.reflection_engine import (
-    reflection_engine
-)
-
-from backend.memory.episodic_memory_engine import (
-    episodic_memory_engine
-)
-
+from backend.events.event_bus import event_bus, publish_event
+from backend.events.event_models import CognitionEvent
+from backend.llm.llm_gateway import llm_gateway
+from backend.memory.episodic_memory_engine import episodic_memory_engine
+from backend.orchestrator.reflection_engine import reflection_engine
 
 # =========================================================
 # AUTONOMOUS REASONING LOOP
@@ -65,35 +41,10 @@ class AutonomousReasoningLoop:
 
         message: str,
 
-        payload: Dict[str, Any] = {}
+        payload: Dict[str, Any] = None
     ):
 
-        await event_bus.publish(
-
-            CognitionEvent(
-
-                agent=
-                    "autonomous_reasoning_loop",
-
-                event_type=
-                    event_type,
-
-                status=
-                    status,
-
-                phase=
-                    phase,
-
-                execution_id=
-                    execution_id,
-
-                message=
-                    message,
-
-                payload=
-                    payload
-            )
-        )
+        await publish_event("autonomous_reasoning_loop", execution_id, event_type, status, phase, message, payload)
 
 
     # =====================================================

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion";
 import CortexShell from "@/components/layout/CortexShell";
 import GovernanceHeader from "@/components/governance-center/GovernanceHeader";
@@ -13,24 +14,46 @@ import AuditTable from "@/components/governance-center/AuditTable";
 import InsightCard from "@/components/governance-center/InsightCard";
 import ExecutiveSummaryCard from "@/components/governance-center/ExecutiveSummaryCard";
 import SectionTitle from "@/components/governance-center/SectionTitle";
-import { governanceKPIs } from "@/components/governance-center/mockData";
 import { stagger } from "@/lib/motion-tokens";
+import { PageLoading, PageError, PageEmpty } from "@/app/loading-states"
 
 export default function GovernanceCenterPage() {
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [kpiData, setKpiData] = useState<any[]>([])
+
+  useEffect(() => {
+    async function fetchKPIs() {
+      try {
+        setLoading(true)
+        setError(null)
+        const res = await fetch("/api/governance/kpis")
+        if (!res.ok) throw new Error(`API error: ${res.status}`)
+        const data = await res.json()
+        setKpiData(data.kpis ?? data)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load KPIs")
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchKPIs()
+  }, [])
+
   const handleRefresh = () => {
     console.log("Refreshing governance center...");
   };
 
   const handleCreatePolicy = () => {
-    alert("Opening Create Policy dialog... Draft version 1.0 will be saved.");
+    console.log("Opening Create Policy dialog... Draft version 1.0 will be saved.");
   };
 
   const handleReviewRisks = () => {
-    alert("Navigating to risk detail logs...");
+    console.log("Navigating to risk detail logs...");
   };
 
   const handleExportAudit = () => {
-    alert("Exporting secure compliance audit history (CSV/JSON)...");
+    console.log("Exporting secure compliance audit history (CSV/JSON)...");
   };
 
   return (
@@ -54,13 +77,20 @@ export default function GovernanceCenterPage() {
         />
 
         {/* Section 1: Governance Overview Cards */}
+        {loading ? (
+          <PageLoading />
+        ) : error ? (
+          <PageError message={error} />
+        ) : kpiData.length === 0 ? (
+          <PageEmpty message="No KPI data available" />
+        ) : (
         <motion.div
           initial="hidden"
           animate="visible"
           variants={stagger(0.05, 0.05)}
           className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6"
         >
-          {governanceKPIs.map((kpi, idx) => (
+          {kpiData.map((kpi: any, idx: number) => (
             <MetricCard
               key={kpi.title}
               title={kpi.title}
@@ -74,6 +104,7 @@ export default function GovernanceCenterPage() {
             />
           ))}
         </motion.div>
+        )}
 
         {/* Section 9: Executive Summary */}
         <div className="space-y-3">

@@ -1,7 +1,7 @@
-"use client";
+"use client"
 
-import ReplayCenter from "@/components/replay-center/ReplayCenter";
+import ReplayPage from "@/components/replay-center/ReplayPage"
 
-export default function ReplayPage() {
-  return <ReplayCenter />;
+export default function ReplayPageRoute() {
+  return <ReplayPage />
 }

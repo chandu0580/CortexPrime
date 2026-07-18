@@ -9,6 +9,7 @@ import "@/styles/cognition.css"
 import { ThemeProvider } from "@/components/theme/ThemeProvider"
 import { QueryProvider } from "@/lib/query"
 import { EnterpriseUXProvider } from "@/components/enterprise-ux/integration"
+import { ErrorBoundary } from "@/components/ErrorBoundary"
 
 
 // ==========================================
@@ -76,17 +77,20 @@ export default async function RootLayout({
                     <ThemeProvider>
                         <EnterpriseUXProvider>
                             {/* RUNTIME CONTAINER */}
-                            <div
+                            <main
                                 className="
                                     h-screen
                                     overflow-y-auto
                                     scroll-smooth
                                 "
                                 id="main-content"
+                                role="main"
                             >
-                                {children}
+                                <ErrorBoundary>
+                                    {children}
+                                </ErrorBoundary>
 
-                            </div>
+                            </main>
                         </EnterpriseUXProvider>
                     </ThemeProvider>
                 </QueryProvider>

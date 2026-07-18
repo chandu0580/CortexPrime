@@ -10,7 +10,7 @@ Usage:
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
+from typing import List
 
 from backend.memory.embedding_pipeline import embedding_pipeline
 from backend.workspace.models import (
@@ -50,7 +50,7 @@ class RetrievalService:
 
         # 2. Keyword fallback if vector search returned nothing
         if not chunks:
-            logger.info(f"Vector search returned 0 chunks — falling back to keyword search")
+            logger.info("Vector search returned 0 chunks — falling back to keyword search")
             chunks = await workspace_store.keyword_search(workspace_id, query, n=n_chunks)
 
         # 3. Filter by minimum score

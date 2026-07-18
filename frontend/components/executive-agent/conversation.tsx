@@ -21,7 +21,9 @@ export function ExecutiveConversation() {
     },
   ])
   const [input, setInput] = useState("")
-  const { conversationContext, suggestions, notifications } = useExecutiveAgentStore()
+  const conversationContext = useExecutiveAgentStore((s) => s.conversationContext)
+  const suggestions = useExecutiveAgentStore((s) => s.suggestions)
+  const notifications = useExecutiveAgentStore((s) => s.notifications)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }) }, [messages])

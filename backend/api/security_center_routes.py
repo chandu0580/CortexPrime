@@ -3,9 +3,10 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
-from backend.security_center.auth_providers import AuthProvider, auth_providers
+from backend.auth.dependencies import require_user
+from backend.security_center.auth_providers import auth_providers
 from backend.security_center.identity import identity_manager
 from backend.security_center.models import (
     IdentityType,
@@ -18,7 +19,7 @@ from backend.security_center.rbac_abac import access_control
 
 log = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/security", tags=["Security Center"])
+router = APIRouter(prefix="/api/security", tags=["Security Center"], dependencies=[Depends(require_user)])
 
 
 # ------------------------------------------------------------------

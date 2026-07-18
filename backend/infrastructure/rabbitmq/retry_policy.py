@@ -24,11 +24,9 @@ DLQ management
 """
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
 import random
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 log = logging.getLogger(__name__)
 
@@ -42,9 +40,7 @@ from backend.infrastructure.rabbitmq.schemas import (
     Exchanges,
     Queues,
     RabbitMessage,
-    MessageType,
 )
-
 
 # =========================================================
 # RETRY POLICY

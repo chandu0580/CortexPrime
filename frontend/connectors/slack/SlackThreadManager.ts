@@ -31,7 +31,17 @@ export const SlackThreadManager = {
     return null
   },
 
-  async closeThread(_threadId: string): Promise<SlackThread | null> {
+  async closeThread(threadId: string): Promise<SlackThread | null> {
+    const tsParts = threadId.split("-")
+    if (tsParts.length >= 2) {
+      const channelId = tsParts[0]
+      const ts = tsParts.slice(1).join("-")
+      const result = await this.retrieveThread(channelId, ts)
+      if (result) {
+        result.closed = true
+        return result
+      }
+    }
     return null
   },
 
@@ -49,6 +59,12 @@ export const SlackThreadManager = {
   },
 
   async getThread(id: string): Promise<SlackThread | null> {
+    const tsParts = id.split("-")
+    if (tsParts.length >= 2) {
+      const channelId = tsParts[0]
+      const ts = tsParts.slice(1).join("-")
+      return this.retrieveThread(channelId, ts)
+    }
     return null
   },
 }

@@ -10,7 +10,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database.models.embedding_cache import EmbeddingCacheRecord
-from backend.database.repositories.base      import BaseRepository
+from backend.database.repositories.base import BaseRepository
 
 
 class EmbeddingCacheRepository(BaseRepository[EmbeddingCacheRecord]):

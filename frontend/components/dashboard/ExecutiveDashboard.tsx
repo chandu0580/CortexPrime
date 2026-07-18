@@ -6,12 +6,8 @@ import { Bot, ClipboardCheck, Plus, ShieldCheck, Sparkles, Target } from "lucide
 
 import { cn } from "@/utils/cn";
 import { stagger, variants } from "@/lib/motion-tokens";
-import { kpiMetrics, type StatusTone } from "@/components/dashboard/data";
-import { useDashboardOverview, useDashboardHealth, useDashboardResources, useDashboardTimeline, useDashboardAgents, useDashboardEvents, useDashboardHeader } from "@/hooks";
-import type { DashboardTimelineItem } from "@/services/dashboard/timeline";
-import type { DashboardAgent } from "@/services/dashboard/agents";
-import type { DashboardEvent } from "@/services/dashboard/events";
-import type { HeaderStatus } from "@/services/dashboard/header";
+import type { StatusTone } from "@/components/dashboard/data";
+import { useDashboardOverview, useDashboardHealth, useDashboardResources, useDashboardTimeline, useDashboardAgents, useDashboardEvents, useDashboardHeader, useDashboardWebSocket } from "@/hooks";
 
 import { Sidebar } from "./Sidebar";
 import { ExecutiveHeader } from "./ExecutiveHeader";
@@ -24,7 +20,7 @@ import { ResourceUsage } from "./ResourceUsage";
 
 export default function ExecutiveDashboard() {
   const [collapsed, setCollapsed] = useState(false);
-  const { data: overview, isLoading, isError } = useDashboardOverview();
+  const { data: overview } = useDashboardOverview();
   const { data: health } = useDashboardHealth();
   const { data: resources } = useDashboardResources();
   const { data: timeline, isLoading: isTimelineLoading } = useDashboardTimeline();
@@ -32,9 +28,12 @@ export default function ExecutiveDashboard() {
   const { data: events, isLoading: isEventsLoading } = useDashboardEvents();
   const { data: header } = useDashboardHeader();
 
+  useDashboardWebSocket();
+
   const displayMetrics = useMemo(() => {
-    if (!overview) return kpiMetrics;
-    return [
+    if (!overview) return [];
+
+    const metrics = [
       {
         label: "Active Agents",
         value: String(overview.activeAgents),
@@ -72,6 +71,8 @@ export default function ExecutiveDashboard() {
         data: overview.rateSparkline,
       },
     ];
+
+    return metrics;
   }, [overview]);
 
   return (

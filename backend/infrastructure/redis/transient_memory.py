@@ -20,7 +20,7 @@ from collections import defaultdict
 from typing import Any, Dict, List, Optional
 
 from backend.infrastructure.redis.connection import redis_connection
-from backend.infrastructure.redis.keys       import RedisKeys, TTL
+from backend.infrastructure.redis.keys import TTL, RedisKeys
 
 log = logging.getLogger(__name__)
 

@@ -27,9 +27,8 @@ GET  /api/enterprise-replay/export/{execution_id}?format=json|markdown|timeline|
 """
 from __future__ import annotations
 
-import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -254,7 +253,7 @@ def _get_execution_events(execution_id: str) -> List[Dict[str, Any]]:
         if loop.is_running():
             return []
         return loop.run_until_complete(replay_store.get_timeline(execution_id))
-    except:
+    except Exception:
         return []
 
 
@@ -1013,24 +1012,24 @@ async def export_replay(
     elif format == "markdown":
         md_lines = [
             f"# Mission Replay Export: {execution_id}",
-            f"",
+            "",
             f"**Exported at:** {datetime.utcnow().isoformat()}",
             f"**Total Events:** {len(events)}",
             f"**Status:** {'Complete' if summary.get('is_complete') else 'In Progress'}",
             f"**Duration:** {summary.get('duration_ms', 0)}ms",
-            f"",
-            f"## Events",
-            f"",
-            f"| # | Time | Agent | Event | Message |",
-            f"|---|------|-------|-------|---------|",
+            "",
+            "## Events",
+            "",
+            "| # | Time | Agent | Event | Message |",
+            "|---|------|-------|-------|---------|",
         ]
         for i, e in enumerate(events, 1):
             ts = e.get("timestamp") or f"+{e.get('offset_ms', 0)}ms"
             md_lines.append(f"| {i} | {ts} | {e.get('agent', '')} | {e.get('event_type', '')} | {e.get('message', '')} |")
 
-        md_lines.append(f"")
-        md_lines.append(f"---")
-        md_lines.append(f"*Exported from CortexPrime Enterprise Replay Center*")
+        md_lines.append("")
+        md_lines.append("---")
+        md_lines.append("*Exported from CortexPrime Enterprise Replay Center*")
 
         from fastapi.responses import PlainTextResponse
         return PlainTextResponse(content="\n".join(md_lines), media_type="text/markdown")

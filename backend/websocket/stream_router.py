@@ -153,8 +153,8 @@ class StreamRouter:
         Receive an event from Redis and fan it out to all connections
         whose topic subscriptions match the event type.
         """
-        from backend.websocket.connection_pool import connection_pool
         from backend.infrastructure.redis.keys import RedisKeys
+        from backend.websocket.connection_pool import connection_pool
 
         event_type = payload.get("type", "")
 

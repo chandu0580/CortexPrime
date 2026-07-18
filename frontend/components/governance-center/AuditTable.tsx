@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { auditHistory, AuditHistoryEntry } from "./mockData";
+import { auditHistory, AuditHistoryEntry } from "./dashboardData";
 import { HelpCircle, ChevronDown, RefreshCw, FileText, Filter } from "lucide-react";
 import StatusBadge from "./StatusBadge";
 

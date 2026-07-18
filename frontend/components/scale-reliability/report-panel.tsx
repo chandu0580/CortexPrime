@@ -63,11 +63,11 @@ export default function ReportPanel() {
   }
 
   const emailReport = () => {
-    alert("Report queued for email delivery to stakeholders.")
+    console.log("Report queued for email delivery to stakeholders.")
   }
 
   const download = (type: "json" | "markdown") => {
-    alert(`Report downloaded as ${type.toUpperCase()} file.`)
+    console.log(`Report downloaded as ${type.toUpperCase()} file.`)
   }
 
   return (

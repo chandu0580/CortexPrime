@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { risksData, RiskData } from "./mockData";
+import { risksData, RiskData } from "./dashboardData";
 import { variants } from "@/lib/motion-tokens";
 import { AlertCircle, AlertTriangle, ShieldAlert, Cpu } from "lucide-react";
 import StatusBadge from "./StatusBadge";

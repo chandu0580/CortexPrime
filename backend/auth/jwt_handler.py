@@ -40,13 +40,16 @@ def _require_secret(env_var: str, fallback_var: str = "") -> str:
     if not secret and fallback_var:
         secret = os.getenv(fallback_var, "")
     if not secret or len(secret) < 32:
-        generated = secrets.token_hex(32)
-        log.warning(
-            "%s not set or too short — generated ephemeral key. "
-            "Set %s in backend/.env (tokens will reset on restart).",
-            env_var, env_var,
+        log.critical(
+            "%s is not set or too short (< 32 chars). "
+            "Set a strong secret in backend/.env or environment variables. "
+            "Startup aborted for security.",
+            env_var,
         )
-        return generated
+        raise RuntimeError(
+            f"{env_var} is required and must be at least 32 characters. "
+            f"Set it in backend/.env or your deployment environment."
+        )
     return secret
 
 
@@ -63,7 +66,12 @@ _REFRESH_EXPIRE_H: int = int(os.getenv("JWT_REFRESH_EXPIRE_H", "168"))  # 7 days
 # Token creation
 # ---------------------------------------------------------------------------
 
-def create_access_token(user_id: str, role: str = "operator") -> str:
+def create_access_token(
+    user_id: str, role: str = "operator", *,
+    tenant_id: Optional[str] = None,
+    tenant_slug: Optional[str] = None,
+    user_role: Optional[str] = None,
+) -> str:
     """Return a signed short-lived access JWT."""
     now = datetime.now(timezone.utc)
     payload: Dict[str, Any] = {
@@ -74,10 +82,21 @@ def create_access_token(user_id: str, role: str = "operator") -> str:
         "iat":  now,
         "exp":  now + timedelta(minutes=_EXPIRE_MIN),
     }
+    if tenant_id:
+        payload["tenant_id"] = tenant_id
+    if tenant_slug:
+        payload["tenant_slug"] = tenant_slug
+    if user_role:
+        payload["user_role"] = user_role
     return jwt.encode(payload, _SECRET, algorithm=_ALGORITHM)
 
 
-def create_refresh_token(user_id: str, role: str = "operator") -> str:
+def create_refresh_token(
+    user_id: str, role: str = "operator", *,
+    tenant_id: Optional[str] = None,
+    tenant_slug: Optional[str] = None,
+    user_role: Optional[str] = None,
+) -> str:
     """Return a signed long-lived refresh JWT."""
     now = datetime.now(timezone.utc)
     payload: Dict[str, Any] = {
@@ -88,7 +107,24 @@ def create_refresh_token(user_id: str, role: str = "operator") -> str:
         "iat":  now,
         "exp":  now + timedelta(hours=_REFRESH_EXPIRE_H),
     }
+    if tenant_id:
+        payload["tenant_id"] = tenant_id
+    if tenant_slug:
+        payload["tenant_slug"] = tenant_slug
+    if user_role:
+        payload["user_role"] = user_role
     return jwt.encode(payload, _REFRESH_SECRET, algorithm=_ALGORITHM)
+
+
+def create_tenant_token(
+    user_id: str, tenant_id: str, tenant_slug: str, user_role: str = "member",
+    role: str = "operator",
+) -> str:
+    """Create an access token scoped to a specific tenant."""
+    return create_access_token(
+        user_id=user_id, role=role,
+        tenant_id=tenant_id, tenant_slug=tenant_slug, user_role=user_role,
+    )
 
 
 # ---------------------------------------------------------------------------

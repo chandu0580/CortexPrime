@@ -13,7 +13,6 @@ When activated, all running agents are signalled to abort and a
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set
@@ -299,7 +298,7 @@ class EmergencyStopController:
         execution_id: Optional[str] = None,
     ) -> None:
         try:
-            from backend.events.event_bus    import event_bus
+            from backend.events.event_bus import event_bus
             from backend.events.event_models import CognitionEvent
             await event_bus.publish(CognitionEvent(
                 agent        = "governance",

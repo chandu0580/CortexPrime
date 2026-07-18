@@ -13,7 +13,6 @@ so downstream layers (VisionReasoner, VerificationEngine) can read it.
 """
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import logging
 from dataclasses import dataclass, field
@@ -349,7 +348,7 @@ class ScreenObserver:
         payload:      Dict[str, Any] | None = None,
     ) -> None:
         try:
-            from backend.events.event_bus    import event_bus
+            from backend.events.event_bus import event_bus
             from backend.events.event_models import CognitionEvent
             await event_bus.publish(CognitionEvent(
                 agent        = "screen_observer",

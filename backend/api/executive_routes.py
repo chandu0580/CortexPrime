@@ -12,11 +12,9 @@ GET /executive/analytics  – 7-day chart series for Executive Analytics
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
-from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends
@@ -134,11 +132,6 @@ async def get_snapshot():
     guardrail_snap: Dict[str, Any] = {}
     active_missions: List[Dict[str, Any]] = []
     completed_missions: List[Dict[str, Any]] = []
-    memory_stats: Dict[str, Any] = {}
-    voice_status: Dict[str, Any] = {}
-    llm_health: Dict[str, Any] = {}
-    embedding_health: Dict[str, Any] = {}
-    agent_registry_data: List[str] = []
     pending_approvals: int = 0
     compliance_score: float = 85.0
     emergency_stop: bool = False
@@ -245,9 +238,9 @@ async def get_snapshot():
     # ── Agent registry ────────────────────────────────────────────────────
     try:
         from backend.runtime.agent_registry import agent_registry
-        agent_registry_data = agent_registry.list_agents()
+        agent_registry.list_agents()
     except Exception:
-        agent_registry_data = ["orchestrator", "planner", "research", "critic", "optimizer", "memory"]
+        pass
 
     # ── Build agent statuses ──────────────────────────────────────────────
     AGENT_IDS = ["orchestrator", "planner", "research", "critic", "optimizer", "memory"]
@@ -322,7 +315,7 @@ async def get_snapshot():
     ]
 
     # ── Health matrix ─────────────────────────────────────────────────────
-    guardrail_score = max(0.0, 100.0 - ((guardrail_snap.get("block_rate") or 0.0) * 100))
+    max(0.0, 100.0 - ((guardrail_snap.get("block_rate") or 0.0) * 100))
     health_matrix: List[HealthItem] = [
         HealthItem(label="LLM Health",        status=llm_status,    score=_status_score(llm_status),    detail=llm_provider),
         HealthItem(label="Voice Health",      status="healthy" if active_voice >= 0 else "degraded", score=95.0, detail="Audio pipeline"),

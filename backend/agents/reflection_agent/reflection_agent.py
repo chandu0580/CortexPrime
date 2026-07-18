@@ -1,17 +1,16 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 from uuid import uuid4
 
-log = logging.getLogger(__name__)
-
-from backend.runtime.base_agent import BaseAgent
 from backend.events.event_bus import event_bus
 from backend.events.event_models import CognitionEvent, EventTypes
+from backend.runtime.base_agent import BaseAgent
 from backend.runtime.runtime_state import runtime_state
+
+log = logging.getLogger(__name__)
 
 
 # =========================================================

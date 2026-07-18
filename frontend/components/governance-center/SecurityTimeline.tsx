@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { securityEvents } from "./mockData";
+import { securityEvents } from "./dashboardData";
 import { ShieldAlert, AlertTriangle, EyeOff, Lock, CheckCircle2, RefreshCw } from "lucide-react";
 
 export default function SecurityTimeline() {

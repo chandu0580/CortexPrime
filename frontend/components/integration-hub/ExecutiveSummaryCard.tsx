@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { opsExecutiveSummary } from "./mockData";
+import { opsExecutiveSummary } from "./dashboardData";
 import { variants } from "@/lib/motion-tokens";
 import { ShieldCheck, Network, Award, Zap, Activity } from "lucide-react";
 

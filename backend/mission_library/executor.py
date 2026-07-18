@@ -7,7 +7,6 @@ from typing import Any, Dict, Optional
 
 from backend.mission_library.definitions import MISSION_REGISTRY, get_mission
 from backend.mission_library.models import (
-    AuditLevel,
     ExecutionStage,
     MissionDefinition,
     MissionResult,
@@ -217,7 +216,7 @@ class MissionExecutor:
     def _get_mission_cost(self, execution_id: str) -> float:
         try:
             from backend.analytics.cost_engine import cost_engine
-            result = asyncio.get_running_loop().create_task(
+            asyncio.get_running_loop().create_task(
                 cost_engine.mission_cost(execution_id)
             )
         except Exception:

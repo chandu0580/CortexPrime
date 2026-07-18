@@ -1,0 +1,42 @@
+route:
+  group_by: ["alertname", "severity"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: "default"
+  routes:
+    - receiver: "critical"
+      match:
+        severity: critical
+      repeat_interval: 1h
+    - receiver: "warning"
+      match:
+        severity: warning
+
+receivers:
+  - name: "default"
+    slack_configs:
+      - api_url: ${SLACK_WEBHOOK_URL}
+        channel: "#cortexprime-alerts"
+        title: '{{ template "slack.title" . }}'
+        text: '{{ template "slack.text" . }}'
+
+  - name: "critical"
+    slack_configs:
+      - api_url: ${SLACK_WEBHOOK_URL}
+        channel: "#cortexprime-critical"
+        title: '{{ template "slack.title" . }}'
+        text: '{{ template "slack.text" . }}'
+    pagerduty_configs:
+      - routing_key: ${PAGERDUTY_ROUTING_KEY}
+        severity: critical
+
+  - name: "warning"
+    slack_configs:
+      - api_url: ${SLACK_WEBHOOK_URL}
+        channel: "#cortexprime-warnings"
+        title: '{{ template "slack.title" . }}'
+        text: '{{ template "slack.text" . }}'
+
+templates:
+  - "/etc/alertmanager/*.tmpl"

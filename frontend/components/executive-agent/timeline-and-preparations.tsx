@@ -5,7 +5,7 @@ import { GlassCard } from "@/components/executive-platform/shared"
 import { History, Crosshair, CheckCircle2, Shield, Lightbulb, AlertTriangle } from "lucide-react"
 
 export function ExecutiveTimeline() {
-  const { timeline } = useExecutiveAgentStore()
+  const timeline = useExecutiveAgentStore((s) => s.timeline)
 
   const now = new Date()
   const today = timeline.filter((e) => e.category === "today")
@@ -64,7 +64,7 @@ export function ExecutiveTimeline() {
 }
 
 export function MissionPreparationPanel() {
-  const { missionPreparations } = useExecutiveAgentStore()
+  const missionPreparations = useExecutiveAgentStore((s) => s.missionPreparations)
 
   return (
     <GlassCard>

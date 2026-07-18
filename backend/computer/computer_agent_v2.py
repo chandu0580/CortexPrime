@@ -14,18 +14,15 @@ when it detects a computer-task keyword in the user objective.
 """
 from __future__ import annotations
 
-import asyncio
 import logging
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
+from backend.computer.screen_observer import screen_observer
 from backend.computer.task_completion_engine import (
-    TaskCompletionEngine,
     MissionResult,
     task_completion_engine,
 )
-from backend.computer.screen_observer import screen_observer
 
 log = logging.getLogger(__name__)
 
@@ -176,7 +173,7 @@ class ComputerAgentV2:
         session_id:   Optional[str]            = None,
     ) -> None:
         try:
-            from backend.events.event_bus    import event_bus
+            from backend.events.event_bus import event_bus
             from backend.events.event_models import CognitionEvent
             await event_bus.publish(CognitionEvent(
                 agent        = "computer_agent_v2",

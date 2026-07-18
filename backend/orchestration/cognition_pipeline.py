@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 CortexPrime Cognition Pipeline
 ==============================
@@ -19,14 +17,12 @@ Each stage:
   8. Emits a completion event
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
-import time
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional
-from uuid import uuid4
-
-log = logging.getLogger(__name__)
+from typing import Any, Dict, List, Optional
 
 from backend.events.event_bus import event_bus
 from backend.events.event_models import CognitionEvent, EventTypes
@@ -34,9 +30,10 @@ from backend.orchestration.execution_context import (
     ExecutionContext,
     execution_context_manager,
 )
-from backend.orchestration.orchestration_tracer import orchestration_tracer
 from backend.orchestration.lifecycle_manager import agent_lifecycle_manager
-from backend.orchestration.task_decomposer import task_decomposer
+from backend.orchestration.orchestration_tracer import orchestration_tracer
+
+log = logging.getLogger(__name__)
 
 
 # =========================================================

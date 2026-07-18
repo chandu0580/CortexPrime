@@ -1,3 +1,6 @@
 export * from "./runtime"
 export * from "./dashboard"
 export * from "./mission-control"
+export * from "./workspace"
+export * from "./connectors"
+export * from "./analytics"

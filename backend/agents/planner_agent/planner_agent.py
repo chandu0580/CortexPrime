@@ -1,21 +1,10 @@
-from typing import Dict, Any
 from datetime import datetime
+from typing import Any, Dict
 
+from backend.events.event_bus import event_bus
+from backend.events.event_models import CognitionEvent, EventTypes
 from backend.runtime.base_agent import BaseAgent
-
-from backend.events.event_bus import (
-    event_bus
-)
-
-from backend.events.event_models import (
-    CognitionEvent,
-    EventTypes
-)
-
-from backend.runtime.runtime_state import (
-    runtime_state
-)
-
+from backend.runtime.runtime_state import runtime_state
 
 # ==========================================
 # PLANNER AGENT

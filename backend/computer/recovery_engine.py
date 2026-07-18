@@ -19,10 +19,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from backend.computer.screen_observer import ScreenSnapshot, screen_observer
+from backend.computer.screen_observer import ScreenSnapshot
 from backend.computer.verification_engine import VerificationResult
 
 log = logging.getLogger(__name__)
@@ -225,7 +225,6 @@ class RecoveryEngine:
         """Ask the LLM for a completely new action to achieve the goal."""
         try:
             from backend.computer.vision_reasoner import vision_reasoner
-            from backend.computer.vision_reasoner import ActionDecision
 
             history = [
                 f"Failed: {failed_action.get('action')} → {failed_action.get('selector')} "

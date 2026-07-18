@@ -10,27 +10,26 @@ receives the response incrementally without waiting for completion.
 from __future__ import annotations
 
 import asyncio
-import logging
 import uuid
 from datetime import datetime
-from typing import AsyncGenerator, Dict, Any
+from typing import Any, Dict
 
+from backend.analytics.cost_engine import cost_engine
+from backend.core.logging import get_logger, get_request_id, set_context
 from backend.events.event_bus import event_bus
 from backend.events.event_models import CognitionEvent
 from backend.llm.llm_gateway import llm_gateway
-from backend.llm.llm_router  import llm_router, TaskType
-from backend.memory.vector_memory import vector_memory
+from backend.llm.llm_router import TaskType, llm_router
 from backend.memory.memory_orchestrator import memory_orchestrator
-from backend.services.memory_context_service import memory_context_service
-from backend.runtime.runtime_state import runtime_state
-from backend.websocket.connection_manager import manager
-from backend.core.logging import get_logger, set_context, get_request_id
+from backend.memory.vector_memory import vector_memory
 
 # Observability, Analytics, Cost, Governance integrations
 from backend.observability.prometheus_metrics import metrics as _prom_metrics
-from backend.analytics.cost_engine import cost_engine
-from backend.runtime.runtime_metrics import runtime_metrics
 from backend.orchestration.orchestration_tracer import orchestration_tracer
+from backend.runtime.runtime_metrics import runtime_metrics
+from backend.runtime.runtime_state import runtime_state
+from backend.services.memory_context_service import memory_context_service
+from backend.websocket.connection_manager import manager
 
 log = get_logger(__name__)
 
@@ -89,7 +88,7 @@ async def _governance_request_approval(
 ):
     """Request human approval and await the decision."""
     from backend.safety.approval_queue import approval_queue
-    from backend.safety.audit_logger   import audit_logger
+    from backend.safety.audit_logger import audit_logger
 
     req = await approval_queue.request(
         execution_id = execution_id,
@@ -568,7 +567,7 @@ class MissionRuntimeService:
         Returns a summary dict after completion.
         """
         execution_id = str(uuid.uuid4())
-        started_at   = datetime.utcnow().isoformat()
+        datetime.utcnow().isoformat()
 
         # ── Propagate request_id + mission_id into logging / Sentry context ──
         set_context(mission_id=execution_id, session_id=session_id or "global")
@@ -746,6 +745,7 @@ class MissionRuntimeService:
             result = await self._run_pipeline(
                 execution_id, objective, session_id, workspace_id,
                 voice_context=voice_context,
+                mission_span=_mission_span,
             )
             # ── AUDIT: MISSION COMPLETED ──────────────────
             _governance_log(
@@ -797,6 +797,7 @@ class MissionRuntimeService:
         session_id:    str | None = None,
         workspace_id:  str | None = None,
         voice_context: str | None = None,
+        mission_span=None,
     ) -> Dict[str, Any]:
 
         # ── NEMO GUARDRAILS: input check ──────────────────
@@ -1263,10 +1264,10 @@ class MissionRuntimeService:
         )
 
         # -- OBSERVABILITY: trace final span --
-        if _mission_span is not None:
+        if mission_span is not None:
             try:
                 orchestration_tracer.finish_span(
-                    span=_mission_span,
+                    span=mission_span,
                     status="completed",
                 )
             except Exception:

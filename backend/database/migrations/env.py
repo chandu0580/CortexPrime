@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 # Load all ORM models so their metadata is registered
 import backend.database.models  # noqa: F401 — side-effect import
+backend.database.models._ensure_bc_models()  # load bounded context models
 
 from backend.database.base   import Base
 from backend.database.engine import _build_dsn

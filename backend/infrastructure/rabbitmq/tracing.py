@@ -31,18 +31,14 @@ Usage — decorator on consumer callback
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 from collections import deque
-from datetime import datetime, timezone
 from typing import Any, Callable, Deque, Dict, List, Optional
-from uuid import uuid4
 
 log = logging.getLogger(__name__)
 
 from backend.infrastructure.rabbitmq.schemas import RabbitMessage, TraceContext
-
 
 # =========================================================
 # MESSAGE TRACE RECORD

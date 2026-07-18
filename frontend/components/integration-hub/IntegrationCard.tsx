@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { connectedIntegrations, ConnectedIntegration } from "./mockData";
+import { connectedIntegrations, ConnectedIntegration } from "./dashboardData";
 import { variants } from "@/lib/motion-tokens";
 import { Settings, RefreshCw, FileText, Trash2, Search, SlidersHorizontal } from "lucide-react";
 import StatusBadge, { IntegrationStatusType } from "./StatusBadge";

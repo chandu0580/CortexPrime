@@ -24,20 +24,18 @@ from __future__ import annotations
 
 import os
 import time
-from contextlib import asynccontextmanager, contextmanager
-from typing import Optional
+from contextlib import contextmanager
 
 try:
     from prometheus_client import (
         CONTENT_TYPE_LATEST,
+        REGISTRY,
         CollectorRegistry,
         Counter,
         Gauge,
         Histogram,
-        Summary,
         generate_latest,
         multiprocess,
-        REGISTRY,
     )
     _PROMETHEUS_AVAILABLE = True
 except ImportError:
@@ -113,6 +111,20 @@ class _CortexMetrics:
         self.active_missions = _gauge(
             "cortex_active_missions",
             "Number of missions currently in-flight",
+        )
+        self.missions_by_agent = _counter(
+            "cortex_missions_by_agent_total",
+            "Total missions started, broken down by agent",
+            ["agent", "mission_type"],
+        )
+        self.mission_queue_depth = _gauge(
+            "cortex_mission_queue_depth",
+            "Current number of missions waiting in the execution queue",
+        )
+        self.mission_failures = _counter(
+            "cortex_mission_failures_total",
+            "Total mission failures with error details",
+            ["error_type"],
         )
         self.mission_duration = _histogram(
             "cortex_mission_duration_seconds",

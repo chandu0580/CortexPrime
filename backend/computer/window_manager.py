@@ -1,22 +1,12 @@
-from typing import Dict, Any, List
-from uuid import uuid4
-from datetime import datetime
 import asyncio
+from typing import Any, Dict
+from uuid import uuid4
 
 import pygetwindow as gw
 
-from backend.events.event_bus import (
-    event_bus
-)
-
-from backend.events.event_models import (
-    CognitionEvent
-)
-
-from backend.tools.tool_registry import (
-    tool_registry
-)
-
+from backend.events.event_bus import event_bus, publish_event
+from backend.events.event_models import CognitionEvent
+from backend.tools.tool_registry import tool_registry
 
 # ==========================================
 # WINDOW MANAGER
@@ -47,35 +37,10 @@ class WindowManager:
 
         message: str,
 
-        payload: Dict[str, Any] = {}
+        payload: Dict[str, Any] = None
     ):
 
-        await event_bus.publish(
-
-            CognitionEvent(
-
-                agent=
-                    "window_manager",
-
-                event_type=
-                    event_type,
-
-                status=
-                    status,
-
-                phase=
-                    phase,
-
-                execution_id=
-                    execution_id,
-
-                message=
-                    message,
-
-                payload=
-                    payload
-            )
-        )
+        await publish_event("window_manager", execution_id, event_type, status, phase, message, payload)
 
 
     # ==========================================

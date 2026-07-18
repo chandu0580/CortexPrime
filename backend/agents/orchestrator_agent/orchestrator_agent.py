@@ -1,69 +1,38 @@
 
-from typing import Dict, Any
-from datetime import datetime
-import uuid
 import asyncio
-
-
-# ==========================================
-# BASE AGENT
-# ==========================================
-
-from backend.runtime.base_agent import (
-    BaseAgent
-)
-
+import uuid
+from datetime import datetime
+from typing import Any, Dict
 
 # ==========================================
 # EVENT SYSTEM
 # ==========================================
-
-from backend.events.event_bus import (
-    event_bus
-)
-
-from backend.events.event_models import (
-    CognitionEvent,
-    EventTypes
-)
-
-
-# ==========================================
-# RUNTIME STATE
-# ==========================================
-
-from backend.runtime.runtime_state import (
-    runtime_state
-)
-
+from backend.events.event_bus import event_bus
+from backend.events.event_models import CognitionEvent, EventTypes
 
 # ==========================================
 # VECTOR MEMORY
 # ==========================================
+from backend.memory.vector_memory import vector_memory
+from backend.research.deep_research_engine import deep_research_engine
 
-from backend.memory.vector_memory import (
-    vector_memory
-)
-
+# ==========================================
+# BASE AGENT
+# ==========================================
+from backend.runtime.base_agent import BaseAgent
 
 # ==========================================
 # DYNAMIC AGENT FACTORY
 # ==========================================
+from backend.runtime.dynamic_agent_factory import dynamic_agent_factory
+from backend.runtime.recursive_planner import recursive_planner
 
-from backend.runtime.dynamic_agent_factory import (
-    dynamic_agent_factory
-)
+# ==========================================
+# RUNTIME STATE
+# ==========================================
+from backend.runtime.runtime_state import runtime_state
+from backend.tools.tool_execution_engine import tool_execution_engine
 
-from backend.runtime.recursive_planner import (
-    recursive_planner
-)
-from backend.research.deep_research_engine import (
-    deep_research_engine
-)
-
-from backend.tools.tool_execution_engine import (
-    tool_execution_engine
-)
 # ==========================================
 # ORCHESTRATOR AGENT
 # ==========================================
@@ -101,9 +70,7 @@ class OrchestratorAgent(BaseAgent):
         # LAZY IMPORT AGENT REGISTRY
         # ==========================================
 
-        from backend.runtime.agent_registry import (
-            agent_registry
-        )
+        from backend.runtime.agent_registry import agent_registry
 
         # ==========================================
         # UPDATE STATUS

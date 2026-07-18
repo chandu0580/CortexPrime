@@ -24,21 +24,21 @@ Schema types
   Exchanges       — exchange name constants
   RoutingKeys     — routing key helpers
 """
-from backend.infrastructure.rabbitmq.connection       import rabbitmq_connection    # noqa: F401
-from backend.infrastructure.rabbitmq.channel_pool     import channel_pool           # noqa: F401
-from backend.infrastructure.rabbitmq.publisher        import rabbitmq_publisher     # noqa: F401
-from backend.infrastructure.rabbitmq.consumer         import rabbitmq_consumer      # noqa: F401
-from backend.infrastructure.rabbitmq.orchestration_bus import orchestration_bus     # noqa: F401
-from backend.infrastructure.rabbitmq.tracing          import message_tracer         # noqa: F401
-from backend.infrastructure.rabbitmq.retry_policy     import dlq_manager, default_retry_policy  # noqa: F401
-from backend.infrastructure.rabbitmq.schemas          import (                       # noqa: F401
-    RabbitMessage,
-    TraceContext,
+from backend.infrastructure.rabbitmq.channel_pool import channel_pool  # noqa: F401
+from backend.infrastructure.rabbitmq.connection import rabbitmq_connection  # noqa: F401
+from backend.infrastructure.rabbitmq.consumer import rabbitmq_consumer  # noqa: F401
+from backend.infrastructure.rabbitmq.orchestration_bus import orchestration_bus  # noqa: F401
+from backend.infrastructure.rabbitmq.publisher import rabbitmq_publisher  # noqa: F401
+from backend.infrastructure.rabbitmq.retry_policy import default_retry_policy, dlq_manager  # noqa: F401
+from backend.infrastructure.rabbitmq.schemas import (  # noqa: F401
+    Exchanges,
     MessageType,
     Queues,
-    Exchanges,
+    RabbitMessage,
     RoutingKeys,
+    TraceContext,
 )
+from backend.infrastructure.rabbitmq.tracing import message_tracer  # noqa: F401
 
 __all__ = [
     "rabbitmq_connection",

@@ -1,13 +1,37 @@
 import type { NextConfig } from "next"
 
 const nextConfig: NextConfig = {
-    reactStrictMode: false,
+    reactStrictMode: true,
 
-    // Produce a standalone output bundle for the production Docker image.
-    // The builder stage copies .next/standalone + .next/static + public/
-    // into a minimal Node.js image (no node_modules required at runtime).
     output: process.env.NODE_ENV === "production" ? "standalone" : undefined,
 
+    async headers() {
+        return [
+            {
+                source: "/(.*)",
+                headers: [
+                    { key: "X-Frame-Options", value: "DENY" },
+                    { key: "X-Content-Type-Options", value: "nosniff" },
+                    { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+                    { key: "X-XSS-Protection", value: "1; mode=block" },
+                    {
+                        key: "Content-Security-Policy",
+                        value: [
+                            "default-src 'self'",
+                            "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+                            "style-src 'self' 'unsafe-inline'",
+                            "img-src 'self' data: blob: https:",
+                            "font-src 'self' data:",
+                            "connect-src 'self' https: wss:",
+                            "frame-ancestors 'none'",
+                            "base-uri 'self'",
+                            "form-action 'self'",
+                        ].join("; "),
+                    },
+                ],
+            },
+        ]
+    },
 }
 
 export default nextConfig

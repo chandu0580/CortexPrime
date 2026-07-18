@@ -11,6 +11,6 @@ Public API
 - get_session()   : FastAPI dependency that yields an AsyncSession
 - init_db()       : create all tables (dev / test only)
 """
-from backend.database.engine  import engine, AsyncSessionLocal, init_db  # noqa: F401
-from backend.database.base    import Base                                  # noqa: F401
-from backend.database.session import get_session                           # noqa: F401
+from backend.database.base import Base  # noqa: F401
+from backend.database.engine import AsyncSessionLocal, engine, init_db  # noqa: F401
+from backend.database.session import get_session  # noqa: F401

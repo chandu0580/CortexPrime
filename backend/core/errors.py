@@ -32,11 +32,10 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import Request, status
+from fastapi import Request
 from fastapi.responses import JSONResponse
 
 from backend.core.logging import get_request_id
-
 
 # ─── Canonical error codes ─────────────────────────────────────────────────
 

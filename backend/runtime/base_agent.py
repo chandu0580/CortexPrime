@@ -1,8 +1,7 @@
+import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Dict, Any
-import uuid
-
+from typing import Any, Dict
 
 # ==========================================
 # BASE AGENT

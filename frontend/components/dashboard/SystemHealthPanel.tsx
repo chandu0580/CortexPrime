@@ -39,14 +39,7 @@ export function SystemHealthPanel({ overallHealth = 98.7, services = [] }: {
           </div>
         </div>
         <div className="flex-1 space-y-1.5 self-center">
-          {(services.length > 0 ? services : [
-            { label: "API Services",  status: "healthy" },
-            { label: "Database",      status: "healthy" },
-            { label: "Vector Store",  status: "healthy" },
-            { label: "Redis Cache",   status: "healthy" },
-            { label: "Message Queue", status: "healthy" },
-            { label: "Voice Services",status: "healthy" },
-          ]).map((s) => {
+          {services.map((s) => {
             const colors = STATUS_COLORS[s.status] ?? STATUS_COLORS.unknown;
             return (
               <div key={s.label} className="flex items-center justify-between">

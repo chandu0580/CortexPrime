@@ -27,28 +27,25 @@ try:
 except ImportError:
     _AIO_PIKA_AVAILABLE = False
 
-from backend.infrastructure.rabbitmq.connection import rabbitmq_connection
 from backend.infrastructure.rabbitmq.channel_pool import channel_pool
-from backend.infrastructure.rabbitmq.tracing import message_tracer
+from backend.infrastructure.rabbitmq.connection import rabbitmq_connection
 from backend.infrastructure.rabbitmq.schemas import (
     Exchanges,
     Queues,
-    RoutingKeys,
     RabbitMessage,
-    MessageType,
+    RoutingKeys,
     agent_task_message,
     agent_to_agent_message,
     cognition_event_message,
-    execution_event_message,
-    mission_start_message,
+    memory_store_message,
     mission_complete_message,
     mission_failed_message,
-    pipeline_stage_start_message,
+    mission_start_message,
     pipeline_stage_done_message,
-    memory_store_message,
+    pipeline_stage_start_message,
     reflection_trigger_message,
 )
-
+from backend.infrastructure.rabbitmq.tracing import message_tracer
 
 # =========================================================
 # RABBITMQ PUBLISHER

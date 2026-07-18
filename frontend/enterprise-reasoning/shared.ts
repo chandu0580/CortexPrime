@@ -1,8 +1,7 @@
 import type { DecisionCategory, EnterpriseDecision } from "./types"
 
-function generateId(prefix: string): string {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
-}
+import { generateId } from '../lib/utils/id';
+export { generateId }
 
 export function buildDecisionBase(category: DecisionCategory, targetId: string, targetLabel: string): Omit<EnterpriseDecision, "explanation" | "evidence" | "assumptions" | "alternatives" | "confidence"> {
   return {

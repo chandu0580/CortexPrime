@@ -39,12 +39,11 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from backend.events.event_models import CognitionEvent
 from backend.infrastructure.redis.connection import redis_connection
-from backend.infrastructure.redis.keys import TTL
 
 log = logging.getLogger(__name__)
 
@@ -139,7 +138,6 @@ def _meta_key(execution_id: str) -> str:
 async def _db_append(execution_id: str, sequence: int, raw: Dict[str, Any]) -> None:
     """Write one replay event row to PostgreSQL.  Silently no-ops if DB is down."""
     try:
-        from sqlalchemy import select
         from backend.database.engine import AsyncSessionLocal
         from backend.database.models.mission_replay import MissionReplayEvent
 
@@ -457,6 +455,7 @@ class MissionReplayStore:
         """Read from PostgreSQL ordered by sequence (fallback / long-term storage)."""
         try:
             from sqlalchemy import select
+
             from backend.database.engine import AsyncSessionLocal
             from backend.database.models.mission_replay import MissionReplayEvent
 

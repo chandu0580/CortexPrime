@@ -1,27 +1,31 @@
 import asyncio
-from contextlib import asynccontextmanager
-from typing import Any, Dict
 import logging
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any, Dict
 
-from fastapi import APIRouter, FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv(Path(__file__).with_name('.env'))
 
 # ==========================================
 # STRUCTURED LOGGING  (must be first)
 # ==========================================
-from backend.core.logging import configure_root_logger, get_logger
 from backend.core.dependency_container import container
+from backend.core.logging import configure_root_logger, get_logger
+
 configure_root_logger()
 _log = get_logger(__name__)
 
-from backend.websocket.websocket_router import router as websocket_router
-from backend.runtime.agent_registry import agent_registry
+from backend.core.logging_config import configure_logging
+
+configure_logging()
+
 from backend.events.event_bus import event_bus
+from backend.runtime.agent_registry import agent_registry
 from backend.runtime.runtime_state import runtime_state
 
 # ==========================================
@@ -37,13 +41,13 @@ if _SENTRY_DSN:
     try:
         import sentry_sdk
         from sentry_sdk.integrations.fastapi import FastApiIntegration
-        from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
         from sentry_sdk.integrations.logging import LoggingIntegration
+        from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 
         sentry_sdk.init(
             dsn=_SENTRY_DSN,
             environment=os.getenv("ENV", "development"),
-            release=f"cortexprime@{os.getenv('BUILD_HASH', '3.0.0')}",
+            release=f"cortexprime@{os.getenv('BUILD_HASH', '1.0.0-rc.1')}",
             traces_sample_rate=float(os.getenv("SENTRY_TRACES_RATE", "0.1")),
             profiles_sample_rate=float(os.getenv("SENTRY_PROFILES_RATE", "0.1")),
             integrations=[
@@ -57,139 +61,6 @@ if _SENTRY_DSN:
         logging.getLogger(__name__).info("Sentry error tracking initialised (env=%s)", os.getenv("ENV"))
     except Exception as _sentry_err:
         logging.getLogger(__name__).warning("Sentry init failed: %s", _sentry_err)
-
-# ==========================================
-# AUTH ROUTES  (JWT)
-# ==========================================
-
-try:
-    from backend.api.auth_routes import router as auth_router
-    _auth_available = True
-except Exception as _auth_err:
-    auth_router = None
-    _auth_available = False
-    logging.getLogger(__name__).warning(f"Auth routes unavailable: {_auth_err}")
-
-# ==========================================
-# MISSION EXECUTION ROUTES  (streaming)
-# ==========================================
-
-try:
-    from backend.api.mission_execution_routes import router as mission_execution_router
-    _mission_execution_available = True
-except Exception as _me_err:
-    mission_execution_router = None
-    _mission_execution_available = False
-    logging.getLogger(__name__).warning(f"Mission execution routes unavailable: {_me_err}")
-
-# ==========================================
-# NEW RUNTIME API
-# ==========================================
-
-try:
-    from backend.api.runtime_api import router as runtime_api_router
-    _runtime_api_available = True
-except Exception as _runtime_api_err:
-    runtime_api_router = None
-    _runtime_api_available = False
-    logging.getLogger(__name__).warning(
-        f"Runtime API unavailable: {_runtime_api_err}"
-    )
-
-try:
-
-    from backend.api.routes.mission_routes import (
-        router as mission_router
-    )
-
-    from backend.api.routes.orchestrator_routes import (
-        router as orchestrator_router
-    )
-
-    _advanced_api_routes_available = True
-
-except Exception as route_import_error:
-
-    mission_router = None
-
-    orchestrator_router = None
-
-    _advanced_api_routes_available = False
-
-
-try:
-
-    from backend.api.memory_routes import (
-        router as memory_router
-    )
-
-    _memory_routes_available = True
-
-except Exception as memory_route_error:
-
-    memory_router = None
-
-    _memory_routes_available = False
-
-try:
-    from backend.api.memory_explorer_routes import router as _memory_explorer_router
-    _memory_explorer_available = True
-except Exception as _mexpl_err:
-    _memory_explorer_router = None
-    _memory_explorer_available = False
-    logging.getLogger(__name__).warning(f"Memory Explorer routes unavailable: {_mexpl_err}")
-
-
-try:
-
-    from backend.api.vector_search_routes import (
-        router as vector_search_router
-    )
-
-    _vector_search_available = True
-
-except Exception as _vector_search_err:
-
-    vector_search_router = None
-
-    _vector_search_available = False
-
-    logging.getLogger(__name__).warning(
-        f"Vector search routes unavailable: {_vector_search_err}"
-    )
-
-try:
-    from backend.api.rabbitmq_routes import router as _rabbitmq_router
-    _rabbitmq_routes_available = True
-except Exception as _rmq_err:
-    _rabbitmq_router = None
-    _rabbitmq_routes_available = False
-    logging.getLogger(__name__).warning(f"RabbitMQ routes unavailable: {_rmq_err}")
-
-try:
-    from backend.api.graph_routes import graph_router as _graph_router
-    _graph_routes_available = True
-except Exception as _graph_err:
-    _graph_router = None
-    _graph_routes_available = False
-    logging.getLogger(__name__).warning(f"Graph routes unavailable: {_graph_err}")
-
-try:
-    from backend.api.mission_replay_routes import router as _replay_router
-    _replay_routes_available = True
-except Exception as _replay_err:
-    _replay_router = None
-    _replay_routes_available = False
-    logging.getLogger(__name__).warning(f"Mission replay routes unavailable: {_replay_err}")
-
-try:
-    from backend.api.enterprise_replay_routes import router as _enterprise_replay_router
-    _enterprise_replay_routes_available = True
-except Exception as _enterprise_replay_err:
-    _enterprise_replay_router = None
-    _enterprise_replay_routes_available = False
-    logging.getLogger(__name__).warning(f"Enterprise replay routes unavailable: {_enterprise_replay_err}")
-
 
 def _log_registered_routes(app: FastAPI) -> None:
     log = logging.getLogger(__name__)
@@ -229,15 +100,99 @@ async def lifespan(_app: FastAPI):
     container.register("runtime_metrics", runtime_metrics)
     container.register("runtime_state", runtime_state)
 
+    # Repository Layer (Pilot Services)
+    from backend.database.repositories.factory import repo_factory
+    container.register("repo_factory", repo_factory)
+
+    # Identity Runtime Foundation (Milestone 2A)
+    from backend.identity.di import register_identity_services
+    register_identity_services()
+
+    # Connector Runtime Core (Phase 5A) — registered before Execution Runtime
+    # so adapters can be used by sandbox in future.
+    try:
+        from backend.connector.di import register_connector_services
+        register_connector_services()
+    except Exception as exc:
+        _log.warning("Connector Runtime services registration incomplete: %s", exc)
+
+    # Governance Runtime Core (Phase 6A) — registered before Mission + Execution Runtime
+    # so both runtimes can consult governance for policy decisions.
+    try:
+        from backend.governance.di import register_governance_services
+        register_governance_services()
+    except Exception as exc:
+        _log.warning("Governance Runtime services registration incomplete: %s", exc)
+
+    # Knowledge Runtime Core (Phase 7A)
+    # Registered before Mission + Execution Runtime so they can auto-index
+    # completed missions and execution history into the knowledge base.
+    try:
+        from backend.knowledge.di import register_knowledge_services
+        register_knowledge_services()
+    except Exception as exc:
+        _log.warning("Knowledge Runtime services registration incomplete: %s", exc)
+
+    # Learning Runtime Core (Phase 8A)
+    # Registered after Knowledge Runtime so it can consume patterns from
+    # knowledge base for training and recommendation generation.
+    try:
+        from backend.learning.di import register_learning_services
+        register_learning_services()
+    except Exception as exc:
+        _log.warning("Learning Runtime services registration incomplete: %s", exc)
+
+    # LLM Provider Runtime (Phase 10A)
+    # Registered before AI Runtime so AI can use LLM Provider Runtime
+    # for all model interactions. Registered after Learning Runtime.
+    try:
+        from backend.llm_provider.di import register_llm_provider_services
+        register_llm_provider_services()
+    except Exception as exc:
+        _log.warning("LLM Provider Runtime services registration incomplete: %s", exc)
+
+    # AI Runtime Core (Phase 9A)
+    # Registered after Learning Runtime so it can orchestrate all lower
+    # runtimes (Identity, Connector, Governance, Knowledge, Learning,
+    # Execution, Mission). AI Runtime provides intent classification,
+    # rule-based planning, and standardized runtime invocation.
+    try:
+        from backend.ai.di import register_ai_services
+        register_ai_services()
+    except Exception as exc:
+        _log.warning("AI Runtime services registration incomplete: %s", exc)
+
+    # OAuth / SSO Identity Providers (Milestone 2B)
+    try:
+        from backend.identity.providers.registry import register_default_providers
+        register_default_providers()
+    except Exception as exc:
+        _log.warning("OAuth provider registration incomplete: %s", exc)
+
+    # Execution Runtime Core (Phase 4) — registered before Mission Runtime
+    # so Mission Runtime can resolve it for step execution.
+    try:
+        from backend.execution.di import register_execution_services
+        register_execution_services()
+    except Exception as exc:
+        _log.warning("Execution Runtime services registration incomplete: %s", exc)
+
+    # Mission Runtime Core (Milestone 3A)
+    try:
+        from backend.mission.di import register_mission_services
+        register_mission_services()
+    except Exception as exc:
+        _log.warning("Mission Runtime services registration incomplete: %s", exc)
+
     # Cortex Runtime
-    from backend.runtime.runtime_state_store import runtime_state_store
-    from backend.runtime.execution_manager import execution_manager
     from backend.orchestration.cognition_pipeline import cognition_pipeline
+    from backend.orchestration.execution_context import execution_context_manager
     from backend.orchestration.lifecycle_manager import agent_lifecycle_manager
     from backend.orchestration.orchestration_tracer import orchestration_tracer
     from backend.orchestration.priority_queue import execution_priority_queue
-    from backend.orchestration.execution_context import execution_context_manager
     from backend.runtime.dynamic_agent_factory import dynamic_agent_factory
+    from backend.runtime.execution_manager import execution_manager
+    from backend.runtime.runtime_state_store import runtime_state_store
 
     container.register("runtime_state_store", runtime_state_store)
     container.register("execution_manager", execution_manager)
@@ -249,9 +204,9 @@ async def lifespan(_app: FastAPI):
     container.register("dynamic_agent_factory", dynamic_agent_factory)
 
     # Mission Runtime
-    from backend.services.mission_runtime import mission_runtime
-    from backend.services.mission_replay_store import replay_store
     from backend.services.memory_context_service import memory_context_service
+    from backend.services.mission_replay_store import replay_store
+    from backend.services.mission_runtime import mission_runtime
 
     container.register("mission_runtime", mission_runtime)
     container.register("replay_store", replay_store)
@@ -265,17 +220,17 @@ async def lifespan(_app: FastAPI):
     container.register("llm_router", llm_router)
 
     # Mission Planning / Execution
-    from backend.runtime.recursive_planner import recursive_planner
     from backend.orchestration.task_decomposer import task_decomposer
+    from backend.runtime.recursive_planner import recursive_planner
 
     container.register("recursive_planner", recursive_planner)
     container.register("task_decomposer", task_decomposer)
 
     # Cognitive Orchestrator
     from backend.orchestrator.agent_router import agent_router
+    from backend.orchestrator.autonomous_reasoning_loop import autonomous_reasoning_loop
     from backend.orchestrator.master_agent_runtime import master_agent_runtime
     from backend.orchestrator.mission_planner import mission_agent_runtime
-    from backend.orchestrator.autonomous_reasoning_loop import autonomous_reasoning_loop
     from backend.orchestrator.reflection_engine import reflection_engine
 
     container.register("agent_router", agent_router)
@@ -292,11 +247,11 @@ async def lifespan(_app: FastAPI):
     container.register("voice_runtime", voice_runtime)
 
     # Redis Cognitive Memory
+    from backend.infrastructure.redis.cognition_cache import cognition_cache
     from backend.infrastructure.redis.connection import redis_connection
     from backend.infrastructure.redis.pub_sub import pub_sub
-    from backend.infrastructure.redis.cognition_cache import cognition_cache
-    from backend.infrastructure.redis.transient_memory import transient_memory
     from backend.infrastructure.redis.runtime_state_manager import runtime_state_manager
+    from backend.infrastructure.redis.transient_memory import transient_memory
 
     container.register("redis_connection", redis_connection)
     container.register("pub_sub", pub_sub)
@@ -308,15 +263,142 @@ async def lifespan(_app: FastAPI):
     from backend.infrastructure.neo4j.connection import neo4j_connection
     from backend.infrastructure.neo4j.graph_manager import neo4j_graph
     from backend.infrastructure.neo4j.query_service import graph_query_service
+    from backend.services.enterprise_event_hub import enterprise_hub
+    from backend.services.enterprise_graph_service import enterprise_graph
 
     container.register("neo4j_connection", neo4j_connection)
     container.register("neo4j_graph", neo4j_graph)
     container.register("graph_query_service", graph_query_service)
+    container.register("enterprise_graph", enterprise_graph)
+    container.register("enterprise_hub", enterprise_hub)
+
+    # Enterprise Learning Engine
+    from backend.services.enterprise_learning_service import enterprise_learning
+
+    container.register("enterprise_learning", enterprise_learning)
+
+    # Enterprise Monitoring (Watchers, Rules, Auto-Generator)
+    from backend.services.autonomous_mission_generator import auto_mission_generator
+    from backend.services.enterprise_watchers import watcher_manager
+    from backend.services.monitoring_rules_engine import monitoring_rules
+
+    container.register("watcher_manager", watcher_manager)
+    container.register("monitoring_rules", monitoring_rules)
+    container.register("auto_mission_generator", auto_mission_generator)
+
+    # Enterprise Explainability Service
+    from backend.services.enterprise_explainability_service import enterprise_explainability
+
+    container.register("enterprise_explainability", enterprise_explainability)
+
+    # Enterprise Recommendation Engine
+    from backend.services.enterprise_recommendation_engine import enterprise_recommendation_engine
+
+    container.register("enterprise_recommendation_engine", enterprise_recommendation_engine)
+
+    # Enterprise Engineering Department
+    from backend.services.enterprise_engineering_service import engineering_executive
+
+    container.register("engineering_executive", engineering_executive)
+
+    # Enterprise Workspace Engine
+    from backend.services.enterprise_workspace_engine import workspace_manager
+
+    container.register("workspace_manager", workspace_manager)
+
+    # Enterprise Patch Engine
+    from backend.services.enterprise_patch_engine import patch_manager
+
+    container.register("patch_manager", patch_manager)
+
+    # Enterprise Build Engine
+    from backend.services.enterprise_build_engine import BuildEngine
+
+    build_engine = BuildEngine()
+    container.register("build_engine", build_engine)
+
+    # Enterprise Deployment Engine
+    from backend.services.enterprise_deployment_engine import DeploymentEngine
+
+    deployment_engine = DeploymentEngine()
+    container.register("deployment_engine", deployment_engine)
+
+    # Enterprise Governance Service
+    from backend.services.enterprise_governance_service import GovernanceService
+
+    governance_service = GovernanceService()
+    container.register("governance_service", governance_service)
+
+    # Enterprise Analytics Service
+    from backend.services.enterprise_analytics_service import AnalyticsService
+
+    analytics_service = AnalyticsService()
+    container.register("analytics_service", analytics_service)
+
+    # Enterprise Delivery Orchestrator
+    from backend.services.enterprise_delivery_orchestrator import delivery_orchestrator
+
+    container.register("delivery_orchestrator", delivery_orchestrator)
+
+    # Autonomous Trigger Runtime
+    from backend.services.autonomous_trigger_runtime import autonomous_trigger_runtime
+
+    container.register("autonomous_trigger_runtime", autonomous_trigger_runtime)
+
+    # Enterprise Execution Sandbox
+    from backend.services.enterprise_execution_sandbox import execution_sandbox
+
+    container.register("execution_sandbox", execution_sandbox)
+
+    # Enterprise Code Intelligence
+    from backend.services.enterprise_code_intelligence import code_intelligence
+
+    container.register("code_intelligence", code_intelligence)
+
+    # Enterprise Patch Pipeline
+    from backend.services.enterprise_patch_pipeline import patch_pipeline
+
+    container.register("patch_pipeline", patch_pipeline)
+
+    # Enterprise Git Operations
+    from backend.services.enterprise_git_operations import git_operations
+
+    container.register("git_operations", git_operations)
+
+    # Enterprise Pipeline Orchestrator
+    from backend.services.enterprise_pipeline_orchestrator import pipeline_orchestrator
+
+    container.register("pipeline_orchestrator", pipeline_orchestrator)
+
+    # Enterprise GitHub Integration
+    from backend.services.enterprise_github_integration import github_integration
+
+    container.register("github_integration", github_integration)
+
+    # Enterprise CI/CD Intelligence
+    from backend.services.enterprise_cicd_intelligence import cicd_intelligence
+
+    container.register("cicd_intelligence", cicd_intelligence)
+
+    # Enterprise Infrastructure Intelligence
+    from backend.services.enterprise_infrastructure_intelligence import infrastructure_intelligence
+
+    container.register("infrastructure_intelligence", infrastructure_intelligence)
+
+    # Enterprise Root Cause Analysis Intelligence
+    from backend.services.enterprise_root_cause_analysis import root_cause_analysis
+
+    container.register("root_cause_analysis", root_cause_analysis)
+
+    # Enterprise Architecture Intelligence
+    from backend.services.enterprise_architecture_intelligence import architecture_intelligence
+
+    container.register("architecture_intelligence", architecture_intelligence)
 
     # Enterprise Connectors (RabbitMQ)
+    from backend.infrastructure.rabbitmq.channel_pool import channel_pool
     from backend.infrastructure.rabbitmq.connection import rabbitmq_connection
     from backend.infrastructure.rabbitmq.orchestration_bus import orchestration_bus
-    from backend.infrastructure.rabbitmq.channel_pool import channel_pool
     from backend.infrastructure.rabbitmq.publisher import rabbitmq_publisher
 
     container.register("rabbitmq_connection", rabbitmq_connection)
@@ -325,12 +407,12 @@ async def lifespan(_app: FastAPI):
     container.register("rabbitmq_publisher", rabbitmq_publisher)
 
     # Governance
-    from backend.safety.safety_guard import safety_guard
-    from backend.safety.guardrails_engine import guardrails_engine
-    from backend.safety.audit_logger import audit_logger
     from backend.safety.approval_queue import approval_queue
+    from backend.safety.audit_logger import audit_logger
     from backend.safety.emergency_stop import emergency_stop
+    from backend.safety.guardrails_engine import guardrails_engine
     from backend.safety.rate_limiter import rate_limiter
+    from backend.safety.safety_guard import safety_guard
 
     container.register("safety_guard", safety_guard)
     container.register("guardrails_engine", guardrails_engine)
@@ -350,11 +432,11 @@ async def lifespan(_app: FastAPI):
     container.register("cost_engine", cost_engine)
 
     # Memory subsystem
+    from backend.memory.embedding_pipeline import embedding_pipeline
     from backend.memory.event_subscriber import memory_event_subscriber
     from backend.memory.graph.cognition_graph import cognition_graph
     from backend.memory.memory_orchestrator import memory_orchestrator
     from backend.memory.vector_memory import vector_memory
-    from backend.memory.embedding_pipeline import embedding_pipeline
 
     container.register("memory_event_subscriber", memory_event_subscriber)
     container.register("cognition_graph", cognition_graph)
@@ -372,6 +454,14 @@ async def lifespan(_app: FastAPI):
     container.register("connection_pool", connection_pool)
     container.register("heartbeat_monitor", heartbeat_monitor)
     container.register("metrics_broadcaster", metrics_broadcaster)
+
+    # Multi-Agent Runtime (Phase 15A)
+    try:
+        from backend.agents.di import register_agent_services
+        register_agent_services()
+        log.info("Multi-Agent Runtime services registered")
+    except Exception as exc:
+        log.warning("Multi-Agent Runtime registration incomplete: %s", exc)
 
     # ============================================================
     # STARTUP SEQUENCE
@@ -402,8 +492,8 @@ async def lifespan(_app: FastAPI):
     try:
         connected = await redis_connection.connect()
         if connected:
-            from backend.websocket.connection_manager import connection_manager as _cm
             from backend.infrastructure.redis.keys import RedisKeys
+            from backend.websocket.connection_manager import connection_manager as _cm
 
             async def _ws_broadcast_handler(channel: str, payload) -> None:
                 await _cm.broadcast(payload)
@@ -421,6 +511,7 @@ async def lifespan(_app: FastAPI):
         connected = await neo4j_connection.connect()
         if connected:
             await neo4j_graph.ensure_schema()
+            await enterprise_graph.ensure_schema()
             for record in agent_lifecycle_manager.list_all():
                 await neo4j_graph.upsert_agent(
                     record["agent_name"],
@@ -431,7 +522,212 @@ async def lifespan(_app: FastAPI):
     except Exception as exc:
         log.warning(f"Neo4j startup incomplete: {exc}")
 
-    # 5) Memory subsystem
+    # 5) Enterprise EventHub — subscribe to EventBus for cross-service sync
+    try:
+        await enterprise_hub.initialize()
+        log.info("Enterprise EventHub initialized")
+    except Exception as exc:
+        log.warning(f"Enterprise EventHub startup incomplete: {exc}")
+
+    # 5a) Enterprise Learning Engine — subscribe to EventBus for active learning
+    try:
+        await enterprise_learning.initialize()
+        log.info("Enterprise Learning Engine initialized")
+    except Exception as exc:
+        log.warning(f"Enterprise Learning Engine startup incomplete: {exc}")
+
+    # 5b) Monitoring Rules Engine — load persisted monitoring rules
+    try:
+        await monitoring_rules.initialize()
+        log.info("Monitoring Rules Engine initialized")
+    except Exception as exc:
+        log.warning(f"Monitoring Rules Engine startup incomplete: {exc}")
+
+    # 5c) Autonomous Mission Generator — prepare auto-mission creation
+    try:
+        await auto_mission_generator.initialize()
+        log.info("Autonomous Mission Generator initialized")
+    except Exception as exc:
+        log.warning(f"Autonomous Mission Generator startup incomplete: {exc}")
+
+    # 5d) Enterprise Watchers — initialize connector watchers
+    try:
+        results = await watcher_manager.initialize_all()
+        ready = sum(1 for v in results.values() if v)
+        log.info("Enterprise Watchers initialized — %d/%d ready", ready, len(results))
+    except Exception as exc:
+        log.warning(f"Enterprise Watchers startup incomplete: {exc}")
+
+    # 5e) Enterprise Recommendation Engine — start periodic scanning
+    try:
+        await enterprise_recommendation_engine.initialize()
+        log.info("Enterprise Recommendation Engine initialized")
+    except Exception as exc:
+        log.warning(f"Enterprise Recommendation Engine startup incomplete: {exc}")
+
+    # 5f) Enterprise Build Engine
+    try:
+        log.info("Enterprise Build Engine initialized")
+    except Exception as exc:
+        log.warning(f"Enterprise Build Engine startup incomplete: {exc}")
+
+    # 5g) Enterprise Deployment Engine
+    try:
+        log.info("Enterprise Deployment Engine initialized")
+    except Exception as exc:
+        log.warning(f"Enterprise Deployment Engine startup incomplete: {exc}")
+
+    # 5h) Enterprise Governance Service
+    try:
+        log.info("Enterprise Governance Service initialized")
+    except Exception as exc:
+        log.warning(f"Enterprise Governance Service startup incomplete: {exc}")
+
+    # 5i) Enterprise Analytics Service
+    try:
+        log.info("Enterprise Analytics Service initialized")
+    except Exception as exc:
+        log.warning(f"Enterprise Analytics Service startup incomplete: {exc}")
+
+    # 5j) Autonomous Trigger Runtime — listen & seed defaults
+    try:
+        from backend.services.autonomous_trigger_runtime import autonomous_trigger_runtime
+        await autonomous_trigger_runtime.initialize()
+        await autonomous_trigger_runtime.seed_default_policies()
+        await autonomous_trigger_runtime.start()
+        log.info("Autonomous Trigger Runtime initialized and started")
+    except Exception as exc:
+        log.warning(f"Autonomous Trigger Runtime startup incomplete: {exc}")
+
+    # 5k) Enterprise Execution Sandbox — ready for execution
+    try:
+        from backend.services.enterprise_execution_sandbox import execution_sandbox
+        log.info("Enterprise Execution Sandbox initialized with %d sandboxes",
+                 len(execution_sandbox._sandboxes) if hasattr(execution_sandbox, '_sandboxes') else 0)
+    except Exception as exc:
+        log.warning(f"Enterprise Execution Sandbox startup incomplete: {exc}")
+
+    # 5l) Enterprise Patch Pipeline — load persisted data
+    try:
+        from backend.services.enterprise_patch_pipeline import patch_pipeline
+        log.info("Enterprise Patch Pipeline initialized with %d plans, %d candidates",
+                 len(patch_pipeline._plans) if hasattr(patch_pipeline, '_plans') else 0,
+                 len(patch_pipeline._candidates) if hasattr(patch_pipeline, '_candidates') else 0)
+    except Exception as exc:
+        log.warning(f"Enterprise Patch Pipeline startup incomplete: {exc}")
+
+    # 5m) Enterprise Git Operations — load persisted data
+    try:
+        from backend.services.enterprise_git_operations import git_operations
+        log.info("Enterprise Git Operations initialized with %d PRs tracked",
+                 len(git_operations._pull_requests) if hasattr(git_operations, '_pull_requests') else 0)
+    except Exception as exc:
+        log.warning(f"Enterprise Git Operations startup incomplete: {exc}")
+
+    # 5n-m) Enterprise GitHub Integration — load persisted state
+    try:
+        from backend.services.enterprise_github_integration import github_integration
+        log.info("Enterprise GitHub Integration initialized with %d webhooks tracked",
+                 len(github_integration._webhooks) if hasattr(github_integration, '_webhooks') else 0)
+    except Exception as exc:
+        log.warning(f"Enterprise GitHub Integration startup incomplete: {exc}")
+
+    # 5n-m) Enterprise CI/CD Intelligence — initialize
+    try:
+        from backend.services.enterprise_cicd_intelligence import cicd_intelligence
+        log.info("Enterprise CI/CD Intelligence initialized")
+    except Exception as exc:
+        log.warning(f"Enterprise CI/CD Intelligence startup incomplete: {exc}")
+
+    # 5n-n) Enterprise Infrastructure Intelligence — initialize
+    try:
+        from backend.services.enterprise_infrastructure_intelligence import infrastructure_intelligence
+        await infrastructure_intelligence.initialize()
+        log.info("Enterprise Infrastructure Intelligence initialized")
+    except Exception as exc:
+        log.warning(f"Enterprise Infrastructure Intelligence startup incomplete: {exc}")
+
+    # 5n-n1) Enterprise Trace Intelligence — initialize OTLP connector
+    try:
+        from backend.services.enterprise_trace_intelligence import trace_intelligence
+        await trace_intelligence.initialize()
+        log.info("Enterprise Trace Intelligence initialized")
+    except Exception as exc:
+        log.warning(f"Enterprise Trace Intelligence startup incomplete: {exc}")
+
+    # 5n-n2) Enterprise Prometheus Intelligence — initialize metric + alert collectors
+    try:
+        from backend.services.enterprise_prometheus_intelligence import alert_intelligence, prometheus_metrics
+        await prometheus_metrics.initialize()
+        await alert_intelligence.initialize()
+        log.info("Enterprise Prometheus Intelligence initialized")
+    except Exception as exc:
+        log.warning(f"Enterprise Prometheus Intelligence startup incomplete: {exc}")
+
+    # 5n-n3) Enterprise Loki Intelligence — initialize connector
+    try:
+        from backend.connectors.loki import loki_connector as loki_conn
+        await loki_conn.initialize()
+        log.info("Enterprise Loki Intelligence initialized — ready=%s", loki_conn.is_ready)
+    except Exception as exc:
+        log.warning(f"Enterprise Loki Intelligence startup incomplete: {exc}")
+
+    # 5n-n4) Enterprise Grafana Intelligence — initialize connector
+    try:
+        from backend.connectors.grafana import grafana_connector as gcon
+        await gcon.initialize()
+        log.info("Enterprise Grafana Intelligence initialized — ready=%s, org=%s", gcon.is_ready, gcon.org_name)
+    except Exception as exc:
+        log.warning(f"Enterprise Grafana Intelligence startup incomplete: {exc}")
+
+    # 5n-n5) Enterprise ArgoCD GitOps Intelligence — initialize connector
+    try:
+        from backend.connectors.argocd import argocd_connector as acon
+        await acon.initialize()
+        log.info("Enterprise ArgoCD GitOps Intelligence initialized — ready=%s", acon.is_ready)
+    except Exception as exc:
+        log.warning(f"Enterprise ArgoCD GitOps Intelligence startup incomplete: {exc}")
+
+    # 5n-o) Enterprise Root Cause Analysis Intelligence — initialize
+    try:
+        from backend.services.enterprise_root_cause_analysis import root_cause_analysis
+        log.info("Enterprise Root Cause Analysis Intelligence initialized")
+    except Exception as exc:
+        log.warning(f"Enterprise Root Cause Analysis Intelligence startup incomplete: {exc}")
+
+    # 5n) Enterprise Pipeline Orchestrator — load persisted data
+    try:
+        from backend.services.enterprise_pipeline_orchestrator import pipeline_orchestrator
+        log.info("Enterprise Pipeline Orchestrator initialized with %d pipelines",
+                 len(pipeline_orchestrator._pipelines) if hasattr(pipeline_orchestrator, '_pipelines') else 0)
+    except Exception as exc:
+        log.warning(f"Enterprise Pipeline Orchestrator startup incomplete: {exc}")
+
+    # 5o) Enterprise Architecture Intelligence — load persisted data
+    try:
+        from backend.services.enterprise_architecture_intelligence import architecture_intelligence
+        log.info("Enterprise Architecture Intelligence initialized with %d projects",
+                 len(architecture_intelligence._projects) if hasattr(architecture_intelligence, '_projects') else 0)
+    except Exception as exc:
+        log.warning(f"Enterprise Architecture Intelligence startup incomplete: {exc}")
+
+    # 5p) Enterprise Continuous Cognition Runtime — start background loop
+    try:
+        from backend.services.enterprise_continuous_cognition_runtime import (
+            enterprise_continuous_cognition_runtime,
+        )
+        _cog_interval = int(os.getenv("COGNITION_LOOP_INTERVAL_SECONDS", "60"))
+        _cog_repo_interval = int(os.getenv("COGNITION_REPO_INTERVAL_SECONDS", "300"))
+        _cog_infra_interval = int(os.getenv("COGNITION_INFRA_INTERVAL_SECONDS", "120"))
+        enterprise_continuous_cognition_runtime._loop_interval = max(10, _cog_interval)
+        enterprise_continuous_cognition_runtime._repo_interval = max(30, _cog_repo_interval)
+        enterprise_continuous_cognition_runtime._infra_interval = max(30, _cog_infra_interval)
+        await enterprise_continuous_cognition_runtime.start()
+        log.info("Enterprise Continuous Cognition Runtime started (interval=%ds)", _cog_interval)
+    except Exception as exc:
+        log.warning(f"Enterprise Continuous Cognition Runtime startup incomplete: {exc}")
+
+    # 6) Memory subsystem
     try:
         await memory_event_subscriber.start()
         await cognition_graph.ensure_constraints()
@@ -439,7 +735,7 @@ async def lifespan(_app: FastAPI):
     except Exception as exc:
         log.warning(f"Memory subsystem startup incomplete: {exc}")
 
-    # 6) Database migrations
+    # 7) Database migrations
     _migration_ok = False
     try:
         from backend.database.migrator import run_migrations
@@ -491,11 +787,44 @@ async def lifespan(_app: FastAPI):
     if not _migration_ok:
         try:
             from backend.database.engine import init_db
-            import backend.database.models
             await init_db()
             log.info("PostgreSQL + pgvector database layer ready (create_all fallback)")
         except Exception as exc:
             log.warning(f"Database layer startup incomplete: {exc}")
+
+    # 7a) Bounded Context Repository Layer — ensure new domain tables exist
+    try:
+        from backend.database.models import _ensure_bc_models
+        from backend.database.engine import init_db as _init_db
+        _ensure_bc_models()
+        await _init_db()
+        log.info("Bounded context repository tables verified")
+    except Exception as exc:
+        log.warning("Repository layer table check incomplete: %s", exc)
+
+    # 7b) Object Storage client connect
+    try:
+        from backend.infrastructure.object_storage import object_storage
+        await object_storage.connect()
+        log.info("Object storage client ready")
+    except Exception as exc:
+        log.warning("Object storage client unavailable: %s", exc)
+
+    # 7c) OpenSearch client connect
+    try:
+        from backend.infrastructure.opensearch import opensearch_client
+        await opensearch_client.connect()
+        log.info("OpenSearch client ready")
+    except Exception as exc:
+        log.warning("OpenSearch client unavailable: %s", exc)
+
+    # 7d) Vault client connect
+    try:
+        from backend.infrastructure.vault import vault_client
+        await vault_client.connect()
+        log.info("Vault client ready")
+    except Exception as exc:
+        log.warning("Vault client unavailable: %s", exc)
 
     # 7) WebSocket gateway services
     try:
@@ -521,7 +850,8 @@ async def lifespan(_app: FastAPI):
 
     if _run_embed_validation:
         try:
-            from backend.memory.embedding_pipeline import embedding_pipeline as _ep, EMBED_DIM
+            from backend.memory.embedding_pipeline import EMBED_DIM
+            from backend.memory.embedding_pipeline import embedding_pipeline as _ep
             from backend.safety.audit_logger import audit_logger as _al
 
             _val = await asyncio.wait_for(
@@ -584,7 +914,6 @@ async def lifespan(_app: FastAPI):
 
     # 10) Mission Runtime - final readiness
     try:
-        from backend.services.mission_runtime import mission_runtime as _mr
         log.info("Mission Runtime service ready")
     except Exception as exc:
         log.warning(f"Mission Runtime service unavailable: {exc}")
@@ -592,10 +921,10 @@ async def lifespan(_app: FastAPI):
     # 11) Startup dependency validation
     try:
         _dep_errors = []
-        from backend.infrastructure.redis.connection import redis_connection as _rc
+        from backend.database.health import check_database_health as _dbh
         from backend.infrastructure.neo4j.connection import neo4j_connection as _nc4j
         from backend.infrastructure.rabbitmq.connection import rabbitmq_connection as _rcon
-        from backend.database.health import check_database_health as _dbh
+        from backend.infrastructure.redis.connection import redis_connection as _rc
         db_ok = await _dbh()
         deps = {"redis": _rc.is_available, "neo4j": _nc4j.is_available,
                 "rabbitmq": _rcon.is_available, "postgresql": db_ok.get("status") == "healthy"}
@@ -612,6 +941,52 @@ async def lifespan(_app: FastAPI):
     except Exception as exc:
         log.warning("Dependency validation incomplete: %s", exc)
 
+    # 12) Enterprise Connectors registration
+    try:
+        from backend.connectors.argocd import ArgoCDConnector
+        from backend.connectors.azure_devops import AzureDevOpsConnector
+        from backend.connectors.circleci import CircleCIConnector
+        from backend.connectors.confluence import ConfluenceConnector
+        from backend.connectors.docker import DockerConnector
+        from backend.connectors.github import GitHubConnector
+        from backend.connectors.gitlab_ci import GitLabCIConnector
+        from backend.connectors.grafana import GrafanaConnector
+        from backend.connectors.jenkins import JenkinsConnector
+        from backend.connectors.jira import JiraConnector
+        from backend.connectors.kubernetes import KubernetesConnector
+        from backend.connectors.loki import LokiConnector
+        from backend.connectors.notion import NotionConnector
+        from backend.connectors.opentelemetry import OpenTelemetryConnector
+        from backend.connectors.prometheus import PrometheusConnector
+        from backend.connectors.registry import connector_registry
+        from backend.connectors.servicenow import ServiceNowConnector
+        from backend.connectors.slack import SlackConnector
+        from backend.connectors.teams import TeamsConnector
+        from backend.connectors.terraform import TerraformConnector
+
+        connector_registry.register(GitHubConnector())
+        connector_registry.register(JiraConnector())
+        connector_registry.register(SlackConnector())
+        connector_registry.register(TeamsConnector())
+        connector_registry.register(AzureDevOpsConnector())
+        connector_registry.register(ConfluenceConnector())
+        connector_registry.register(ServiceNowConnector())
+        connector_registry.register(NotionConnector())
+        connector_registry.register(KubernetesConnector())
+        connector_registry.register(DockerConnector())
+        connector_registry.register(JenkinsConnector())
+        connector_registry.register(GitLabCIConnector())
+        connector_registry.register(CircleCIConnector())
+        connector_registry.register(ArgoCDConnector())
+        connector_registry.register(GrafanaConnector())
+        connector_registry.register(LokiConnector())
+        connector_registry.register(OpenTelemetryConnector())
+        connector_registry.register(PrometheusConnector())
+        connector_registry.register(TerraformConnector())
+        log.info("Registered %d enterprise connectors", connector_registry.count())
+    except Exception as exc:
+        log.warning("Enterprise connectors registration incomplete: %s", exc)
+
     _log_registered_routes(_app)
     log.info("CortexPrime runtime startup complete - all subsystems online")
 
@@ -623,22 +998,7 @@ async def lifespan(_app: FastAPI):
 
     log.info("CortexPrime shutdown sequence initiated")
 
-    # 1) Flush Prometheus metrics
-    try:
-        from backend.observability.prometheus_metrics import metrics as _pm
-        log.info("Prometheus metrics flushed")
-    except Exception:
-        pass
-
-    # 2) Persist runtime state
-    try:
-        _snap = runtime_state.get_state()
-        _active_count = len(_snap.get("active_executions", {}))
-        log.info("Runtime state persisted - %d active execution(s)", _active_count)
-    except Exception as exc:
-        log.warning("Runtime state persist incomplete: %s", exc)
-
-    # 3) Emit shutdown event
+    # 1) Emit shutdown event
     try:
         from backend.events.event_models import CognitionEvent, EventTypes
         await event_bus.publish(
@@ -649,51 +1009,124 @@ async def lifespan(_app: FastAPI):
                 message="CortexPrime runtime shutting down",
             )
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("Shutdown event publish failed: %s", exc)
 
-    # 4) Stop WebSocket gateway services
+    # 2) Persist runtime state
+    try:
+        _snap = runtime_state.get_state()
+        _active_count = len(_snap.get("active_executions", {}))
+        log.info("Runtime state persisted - %d active execution(s)", _active_count)
+    except Exception as exc:
+        log.warning("Runtime state persist incomplete: %s", exc)
+
+    # 3) Stop WebSocket gateway services
     try:
         await heartbeat_monitor.stop()
         await metrics_broadcaster.stop()
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("WebSocket shutdown incomplete: %s", exc)
 
-    # 5) Stop memory event subscriber
+    # 4) Stop memory event subscriber
     try:
         await memory_event_subscriber.stop()
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("Memory subscriber stop incomplete: %s", exc)
 
-    # 6) Close Neo4j (Knowledge Graph)
+    # 5) Stop Enterprise Monitoring (watchers, rules, recommendations)
+    for svc_name, svc_shutdown in [
+        ("Enterprise Watchers", watcher_manager.shutdown_all()),
+        ("Monitoring Rules", monitoring_rules.shutdown()),
+        ("Recommendation Engine", enterprise_recommendation_engine.shutdown()),
+        ("Build Engine", None),
+        ("Deployment Engine", None),
+        ("Governance Service", None),
+        ("Analytics Service", None),
+    ]:
+        try:
+            if svc_shutdown is not None:
+                await svc_shutdown
+            log.info("%s shutdown", svc_name)
+        except Exception as exc:
+            log.warning("%s shutdown failed: %s", svc_name, exc)
+
+    # 6) Stop Enterprise Infrastructure Intelligence
+    try:
+        from backend.services.enterprise_infrastructure_intelligence import infrastructure_intelligence
+        await infrastructure_intelligence.shutdown()
+        log.info("Enterprise Infrastructure Intelligence shutdown")
+    except Exception as exc:
+        log.warning("Infrastructure Intelligence shutdown failed: %s", exc)
+
+    # 7) Stop Enterprise Continuous Cognition Runtime
+    try:
+        from backend.services.enterprise_continuous_cognition_runtime import (
+            enterprise_continuous_cognition_runtime,
+        )
+        await enterprise_continuous_cognition_runtime.stop()
+        log.info("Enterprise Continuous Cognition Runtime shutdown")
+    except Exception as exc:
+        log.warning("Continuous Cognition Runtime stop failed: %s", exc)
+
+    # 8) Close Neo4j
     try:
         await neo4j_connection.close()
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("Neo4j close failed: %s", exc)
 
-    # 7) Close Redis (Cognitive Memory)
+    # 9) Close Redis
     try:
         await pub_sub.stop()
         await redis_connection.close()
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("Redis close failed: %s", exc)
 
-    # 8) Close RabbitMQ (Enterprise Connectors)
+    # 10) Close RabbitMQ
     try:
         await orchestration_bus.stop()
         await channel_pool.close()
         await rabbitmq_connection.close()
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("RabbitMQ close failed: %s", exc)
 
-    # 9) Dispose database engine
+    # 11) Close OpenSearch
+    try:
+        from backend.infrastructure.opensearch import opensearch_client
+        await opensearch_client.close()
+        log.info("OpenSearch client closed")
+    except Exception as exc:
+        log.warning("OpenSearch close failed: %s", exc)
+
+    # 12) Close Object Storage (MinIO)
+    try:
+        from backend.infrastructure.object_storage import object_storage
+        await object_storage.close()
+        log.info("Object storage client closed")
+    except Exception as exc:
+        log.warning("Object storage close failed: %s", exc)
+
+    # 13) Close Vault
+    try:
+        from backend.infrastructure.vault import vault_client
+        await vault_client.close()
+        log.info("Vault client closed")
+    except Exception as exc:
+        log.warning("Vault close failed: %s", exc)
+
+    # 14) Identity Runtime shutdown
+    try:
+        log.info("Identity Runtime shut down")
+    except Exception as exc:
+        log.warning("Identity Runtime shutdown failed: %s", exc)
+
+    # 15) Dispose database engine
     try:
         from backend.database.engine import dispose_engine
         await dispose_engine()
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("Database engine dispose failed: %s", exc)
 
-    # 10) Flush runtime metrics summary
+    # 16) Flush runtime metrics summary
     try:
         _fm = runtime_metrics.export_metrics()
         log.info("Shutdown metrics: total=%d completed=%d failed=%d tokens=%d",
@@ -701,8 +1134,8 @@ async def lifespan(_app: FastAPI):
                  _fm.get("completed_executions", 0),
                  _fm.get("failed_executions", 0),
                  _fm.get("total_tokens", 0))
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("Metrics flush failed: %s", exc)
 
     log.info("CortexPrime runtime shutdown complete")
 
@@ -725,6 +1158,7 @@ app = FastAPI(
 # EXCEPTION HANDLERS  (registered before middleware)
 # ==========================================
 from backend.core.exception_handlers import register_exception_handlers
+
 register_exception_handlers(app)
 
 
@@ -739,12 +1173,16 @@ _CORS_ORIGINS = [
     if o.strip()
 ]
 
+_DEV_WILDCARD: bool = os.getenv("DEV_CORS_WILDCARD", "").lower() in ("true", "1", "yes")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins     = _CORS_ORIGINS,
     allow_credentials = True,
-    allow_methods     = ["*"],
-    allow_headers     = ["*"],
+    allow_methods     = ["*"] if _DEV_WILDCARD else ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers     = ["*"] if _DEV_WILDCARD else [
+        "Authorization", "Content-Type", "X-Request-ID", "X-CSRF-Token",
+    ],
 )
 
 # ==========================================
@@ -780,6 +1218,23 @@ except Exception as _guard_mw_err:
 
 
 # ==========================================
+# TENANT CONTEXT MIDDLEWARE
+# Resolves tenant, user, and permissions from
+# every request and propagates them through
+# ContextVar.  Runs after auth so the JWT
+# has been verified.  Sets request.state.
+# ==========================================
+
+try:
+    from backend.identity.tenant.tenant_context import TenantContextMiddleware
+    app.add_middleware(TenantContextMiddleware)
+    logging.getLogger(__name__).info("Tenant Context middleware active")
+except Exception as _tc_mw_err:
+    logging.getLogger(__name__).warning(
+        f"Tenant Context middleware could not be registered: {_tc_mw_err}"
+    )
+
+# ==========================================
 # RATE LIMIT MIDDLEWARE
 # Redis sliding-window rate limiting on all
 # REST routes.  Runs AFTER guardrails so the
@@ -799,533 +1254,8 @@ except Exception as _rl_mw_err:
     )
 
 
-# ==========================================
-# INCLUDE ROUTERS
-# ==========================================
-
-app.include_router(
-    websocket_router
-)
-
-# Auth FIRST before any protected routes
-if _auth_available:
-    app.include_router(auth_router)
-
-# Mission execution router FIRST takes priority for /orchestrate
-if _mission_execution_available:
-    app.include_router(
-        mission_execution_router,
-        tags=["Mission Execution"]
-    )
-
-# ==========================================
-# TELEMETRY ROUTER
-# ==========================================
-
-try:
-    from backend.api.telemetry_routes import router as telemetry_router
-    app.include_router(telemetry_router)
-except Exception as _tel_err:
-    logging.getLogger(__name__).warning(f"Telemetry routes unavailable: {_tel_err}")
-
-# ==========================================
-# RUNTIME API ROUTER
-# ==========================================
-
-if _runtime_api_available:
-    app.include_router(runtime_api_router)
-
-if _advanced_api_routes_available:
-
-    app.include_router(
-        mission_router,
-        prefix="/api/missions",
-        tags=["Missions"]
-    )
-
-    app.include_router(
-        orchestrator_router,
-        prefix="/api/orchestrator",
-        tags=["Orchestrator"]
-    )
-
-else:
-
-    fallback_router = APIRouter()
-
-    @fallback_router.get("/api/missions/active")
-    async def get_active_missions_fallback():
-        return {
-            "missions": [],
-            "status": "degraded",
-            "detail": "Advanced mission runtime unavailable",
-        }
-
-    @fallback_router.get("/api/missions/completed")
-    async def get_completed_missions_fallback():
-        return {
-            "missions": [],
-            "status": "degraded",
-            "detail": "Advanced mission runtime unavailable",
-        }
-
-    @fallback_router.get("/api/orchestrator/loops/active")
-    async def get_active_loops_fallback():
-        return {
-            "loops": [],
-            "status": "degraded",
-            "detail": "Orchestrator loop runtime unavailable",
-        }
-
-    @fallback_router.post("/api/orchestrator/autonomous")
-    async def autonomous_execution_fallback(
-        payload: Dict[str, Any]
-    ):
-        return {
-            "status": "degraded",
-            "accepted": False,
-            "detail": "Autonomous execution unavailable",
-            "payload_received": payload
-        }
-
-    app.include_router(fallback_router)
-
-
-# ==========================================
-# MEMORY ROUTES
-# ==========================================
-
-if _memory_routes_available:
-
-    app.include_router(memory_router)
-
-else:
-
-    _mem_fallback = APIRouter()
-
-    @_mem_fallback.get("/api/memory/status")
-    async def memory_status_fallback():
-        return {
-            "status": "unavailable",
-            "detail": "Memory layer failed to load",
-        }
-
-    app.include_router(_mem_fallback)
-
-
-# ==========================================
-# MEMORY EXPLORER ROUTES
-# ==========================================
-
-if _memory_explorer_available:
-    app.include_router(_memory_explorer_router, prefix="/api")
-    logging.getLogger(__name__).info("Memory Explorer routes registered at /api/memory/explorer")
-else:
-    _mexpl_fallback = APIRouter()
-
-    @_mexpl_fallback.get("/api/memory/explorer/health")
-    async def memory_explorer_health_fallback():
-        return {"status": "unavailable", "detail": "Memory Explorer routes failed to initialise"}
-
-    app.include_router(_mexpl_fallback)
-
-
-# ==========================================
-# GOVERNANCE CENTER ROUTES
-# ==========================================
-
-try:
-    from backend.api.governance_center_routes import router as _gov_center_router
-    _gov_center_available = True
-except Exception as _gc_err:
-    _gov_center_router = None
-    _gov_center_available = False
-
-if _gov_center_available:
-    app.include_router(_gov_center_router, prefix="/api")
-    logging.getLogger(__name__).info("Governance Center routes registered at /api/governance-center")
-else:
-    _gc_fallback = APIRouter()
-
-    @_gc_fallback.get("/api/governance-center/health")
-    async def governance_center_health_fallback():
-        return {"status": "unavailable", "detail": "Governance Center routes failed to initialise"}
-
-    app.include_router(_gc_fallback)
-
-
-# ==========================================
-# EXECUTIVE COMMAND CENTER ROUTES
-# ==========================================
-
-try:
-    from backend.api.executive_routes import router as _executive_router
-    _executive_available = True
-except Exception as _exec_err:
-    _executive_router = None
-    _executive_available = False
-
-if _executive_available:
-    app.include_router(_executive_router, prefix="/api")
-    logging.getLogger(__name__).info("Executive routes registered at /api/executive")
-else:
-    _exec_fallback = APIRouter()
-
-    @_exec_fallback.get("/api/executive/health")
-    async def executive_health_fallback():
-        return {"status": "unavailable", "detail": "Executive routes failed to initialise"}
-
-    app.include_router(_exec_fallback)
-
-
-# ==========================================
-# VECTOR SEARCH ROUTES
-# ==========================================
-
-if _vector_search_available:
-    app.include_router(vector_search_router)
-
-else:
-
-    _vec_fallback = APIRouter()
-
-    @_vec_fallback.get("/api/vector/health")
-    async def vector_health_fallback():
-        return {
-            "status":  "unavailable",
-            "pgvector": False,
-            "detail":  "Vector search layer failed to initialise",
-        }
-
-    app.include_router(_vec_fallback)
-
-
-# ==========================================
-# RABBITMQ OBSERVABILITY ROUTES
-# ==========================================
-
-if _rabbitmq_routes_available:
-    app.include_router(_rabbitmq_router)
-else:
-    _rmq_fallback = APIRouter()
-
-    @_rmq_fallback.get("/api/rabbitmq/health")
-    async def rabbitmq_health_fallback():
-        return {"status": "unavailable", "detail": "RabbitMQ routes failed to initialise"}
-
-    app.include_router(_rmq_fallback)
-
-
-# ==========================================
-# COGNITIVE GRAPH ROUTES
-# ==========================================
-
-if _graph_routes_available:
-    app.include_router(_graph_router)
-else:
-    _graph_fallback = APIRouter()
-
-    @_graph_fallback.get("/api/graph/health")
-    async def graph_health_fallback():
-        return {"status": "unavailable", "detail": "Graph routes failed to initialise"}
-
-    app.include_router(_graph_fallback)
-
-
-# ==========================================
-# MISSION REPLAY ROUTES
-# ==========================================
-
-if _replay_routes_available:
-    app.include_router(_replay_router, prefix="/api")
-    logging.getLogger(__name__).info("Mission Replay routes registered at /api/mission-replay")
-else:
-    _replay_fallback = APIRouter()
-
-    @_replay_fallback.get("/api/mission-replay/health")
-    async def replay_health_fallback():
-        return {"status": "unavailable", "detail": "Mission replay routes failed to initialise"}
-
-    app.include_router(_replay_fallback)
-
-
-# ==========================================
-# ENTERPRISE REPLAY ROUTES
-# ==========================================
-
-if _enterprise_replay_routes_available:
-    app.include_router(_enterprise_replay_router)
-    logging.getLogger(__name__).info("Enterprise Replay routes registered at /api/enterprise-replay")
-else:
-    _enterprise_replay_fallback = APIRouter()
-
-    @_enterprise_replay_fallback.get("/api/enterprise-replay/health")
-    async def enterprise_replay_health_fallback():
-        return {"status": "unavailable", "detail": "Enterprise replay routes failed to initialise"}
-
-    app.include_router(_enterprise_replay_fallback)
-
-
-# ==========================================
-# MISSION LIBRARY ROUTES  (Enterprise Mission Templates)
-# ==========================================
-
-try:
-    from backend.api.mission_library_routes import router as mission_library_router
-    app.include_router(mission_library_router)
-    logging.getLogger(__name__).info("Mission Library routes registered at /api/mission-library")
-except Exception as _ml_err:
-    _ml_fallback = APIRouter()
-
-    @_ml_fallback.get("/api/mission-library/missions")
-    async def mission_library_health_fallback():
-        return {"missions": [], "total": 0, "status": "unavailable", "detail": str(_ml_err)}
-
-    app.include_router(_ml_fallback)
-    logging.getLogger(__name__).warning(f"Mission Library routes unavailable: {_ml_err}")
-
-
-# ==========================================
-# APPROVAL CENTER ROUTES  (Human Approval & Executive Control Center)
-# ==========================================
-
-try:
-    from backend.api.approval_center_routes import router as approval_center_router
-    app.include_router(approval_center_router)
-    logging.getLogger(__name__).info("Approval Center routes registered at /api/approval-center")
-except Exception as _ac_err:
-    _ac_fallback = APIRouter()
-
-    @_ac_fallback.get("/api/approval-center/policies")
-    async def approval_center_health_fallback():
-        return {"policies": [], "status": "unavailable", "detail": str(_ac_err)}
-
-    app.include_router(_ac_fallback)
-    logging.getLogger(__name__).warning(f"Approval Center routes unavailable: {_ac_err}")
-
-
-# ==========================================
-# SECURITY CENTER ROUTES  (Enterprise Security & Identity)
-# ==========================================
-
-try:
-    from backend.api.security_center_routes import router as security_center_router
-    app.include_router(security_center_router)
-    logging.getLogger(__name__).info("Security Center routes registered at /api/security")
-except Exception as _sc_err:
-    _sc_fallback = APIRouter()
-
-    @_sc_fallback.get("/api/security/status")
-    async def security_center_health_fallback():
-        return {"status": "unavailable", "detail": str(_sc_err)}
-
-    app.include_router(_sc_fallback)
-    logging.getLogger(__name__).warning(f"Security Center routes unavailable: {_sc_err}")
-
-
-# ==========================================
-# GOVERNANCE ROUTES
-# ==========================================
-
-try:
-    from backend.api.governance_routes import router as governance_router
-    app.include_router(governance_router)
-    logging.getLogger(__name__).info("Governance routes registered")
-except Exception as _gov_err:
-    _gov_fallback = APIRouter()
-
-    @_gov_fallback.get("/governance/health")
-    async def governance_health_fallback():
-        return {"status": "unavailable", "detail": str(_gov_err)}
-
-    @_gov_fallback.get("/governance/queue")
-    async def governance_queue_fallback():
-        return {"requests": [], "total": 0, "detail": str(_gov_err)}
-
-    @_gov_fallback.get("/governance/audit")
-    async def governance_audit_fallback():
-        return {"entries": [], "total": 0, "detail": str(_gov_err)}
-
-    app.include_router(_gov_fallback)
-    logging.getLogger(__name__).warning(f"Governance routes unavailable: {_gov_err}")
-
-
-# ==========================================
-# LIVE RESEARCH ROUTES
-# ==========================================
-
-try:
-    from backend.api.research_routes import router as research_router
-    app.include_router(research_router)
-    logging.getLogger(__name__).info("Live Research routes registered")
-except Exception as _research_err:
-    _research_fallback = APIRouter()
-
-    @_research_fallback.get("/api/research/health")
-    async def research_fallback_health():
-        return {"status": "unavailable", "detail": str(_research_err)}
-
-    app.include_router(_research_fallback)
-    logging.getLogger(__name__).warning(f"Research routes unavailable: {_research_err}")
-
-
-# ==========================================
-# COMPUTER AGENT ROUTES
-# ==========================================
-
-try:
-    from backend.api.computer_routes import router as computer_router
-    app.include_router(computer_router)
-    logging.getLogger(__name__).info("Computer Agent routes registered")
-except Exception as _computer_err:
-    _computer_fallback = APIRouter()
-
-    @_computer_fallback.get("/computer/health")
-    async def computer_health_fallback():
-        return {"status": "unavailable", "detail": str(_computer_err)}
-
-    @_computer_fallback.get("/computer/status")
-    async def computer_status_fallback():
-        return {"status": "unavailable", "active_missions": 0, "detail": str(_computer_err)}
-
-    @_computer_fallback.get("/computer/tasks")
-    async def computer_tasks_fallback():
-        return {"active_tasks": [], "completed_tasks": [], "total_completed": 0}
-
-    app.include_router(_computer_fallback)
-    logging.getLogger(__name__).warning(f"Computer Agent routes unavailable: {_computer_err}")
-
-
-# ==========================================
-# OPERATOR ROUTES  (Computer Agent V2)
-# ==========================================
-
-try:
-    from backend.api.operator_routes import router as operator_router
-    app.include_router(operator_router)
-    logging.getLogger(__name__).info("Operator routes registered")
-except Exception as _op_err:
-    _op_fallback = APIRouter()
-
-    @_op_fallback.get("/operator/health")
-    async def operator_health_fallback():
-        return {"status": "unavailable", "detail": str(_op_err)}
-
-    @_op_fallback.get("/operator/active-missions")
-    async def operator_active_fallback():
-        return {"missions": [], "count": 0, "detail": str(_op_err)}
-
-    app.include_router(_op_fallback)
-    logging.getLogger(__name__).warning(f"Operator routes unavailable: {_op_err}")
-
-
-# ==========================================
-# WORKSPACE INTELLIGENCE ROUTES  (RAG)
-# ==========================================
-
-try:
-    from backend.api.workspace_routes import router as workspace_router
-    app.include_router(workspace_router)
-    logging.getLogger(__name__).info("Workspace Intelligence routes registered")
-except Exception as _ws_err:
-    _ws_fallback = APIRouter()
-
-    @_ws_fallback.get("/api/workspace/health")
-    async def workspace_health_fallback():
-        return {"status": "unavailable", "detail": str(_ws_err)}
-
-    app.include_router(_ws_fallback)
-    logging.getLogger(__name__).warning(f"Workspace routes unavailable: {_ws_err}")
-
-
-# ==========================================
-# VOICE V2 ROUTES  (LiveKit + Pipecat)
-# ==========================================
-
-try:
-    from backend.voice_v2.voice_routes_v2 import router as voice_v2_router
-    app.include_router(voice_v2_router)
-    logging.getLogger(__name__).info("Voice V2 routes registered")
-except Exception as _voice_v2_err:
-    _voice_v2_fallback = APIRouter()
-
-    @_voice_v2_fallback.get("/api/voice/v2/health")
-    async def voice_v2_health_fallback():
-        return {"status": "unavailable", "detail": str(_voice_v2_err)}
-
-    app.include_router(_voice_v2_fallback)
-    logging.getLogger(__name__).warning(f"Voice V2 routes unavailable: {_voice_v2_err}")
-
-
-# ==========================================
-# LLM ROUTER HEALTH ROUTES
-# ==========================================
-
-try:
-    from backend.api.llm_health_routes import router as llm_health_router
-    app.include_router(llm_health_router)
-    logging.getLogger(__name__).info("LLM health routes registered at /health/llm")
-except Exception as _llm_health_err:
-    _llm_health_fallback = APIRouter()
-
-    @_llm_health_fallback.get("/health/llm")
-    async def llm_health_fallback():
-        return {"status": "unavailable", "detail": str(_llm_health_err)}
-
-    app.include_router(_llm_health_fallback)
-    logging.getLogger(__name__).warning(f"LLM health routes unavailable: {_llm_health_err}")
-
-
-# ==========================================
-# SYSTEM HEALTH (aggregated)
-# ==========================================
-
-try:
-    from backend.api.system_health_routes import router as system_health_router
-    app.include_router(system_health_router)
-    logging.getLogger(__name__).info("System health route registered at /health/system")
-except Exception as _sys_health_err:
-    _sys_health_fallback = APIRouter()
-
-    @_sys_health_fallback.get("/health/system")
-    async def system_health_fallback():
-        return {"status": "unavailable", "detail": str(_sys_health_err)}
-
-    app.include_router(_sys_health_fallback)
-    logging.getLogger(__name__).warning(f"System health route unavailable: {_sys_health_err}")
-
-
-# ==========================================
-# PROMETHEUS METRICS + MIDDLEWARE
-# ==========================================
-
-try:
-    from backend.api.metrics_routes import router as metrics_router, PrometheusMiddleware
-    app.add_middleware(PrometheusMiddleware)
-    app.include_router(metrics_router)
-    logging.getLogger(__name__).info("Prometheus /metrics endpoint registered")
-except Exception as _prom_err:
-    logging.getLogger(__name__).warning(f"Prometheus metrics unavailable: {_prom_err}")
-
-
-# ==========================================
-# COST ENGINE ROUTES
-# ==========================================
-
-try:
-    from backend.api.cost_routes import router as cost_router
-    app.include_router(cost_router)
-    logging.getLogger(__name__).info("Cost Engine routes registered at /api/costs")
-except Exception as _cost_err:
-    _cost_fallback = APIRouter()
-
-    @_cost_fallback.get("/api/costs/summary")
-    async def cost_summary_fallback():
-        return {"error": str(_cost_err), "today_spend": 0.0, "month_spend": 0.0}
-
-    app.include_router(_cost_fallback)
-    logging.getLogger(__name__).warning(f"Cost Engine routes unavailable: {_cost_err}")
-
+from backend.api.router_registry import register_all_routers
+router_availability = register_all_routers(app)
 
 # ==========================================
 # ROOT ROUTE
@@ -1356,7 +1286,7 @@ async def root():
             "active",
 
         "version":
-            "3.0.0"
+            os.getenv("APP_VERSION", "1.0.0-rc.1")
     }
 
 
@@ -1387,6 +1317,24 @@ async def health_check():
         infra["neo4j"] = "connected" if neo4j_connection.is_available else "disconnected"
     except Exception:
         infra["neo4j"] = "unavailable"
+
+    try:
+        from backend.infrastructure.object_storage import object_storage
+        infra["object_storage"] = "connected" if object_storage.is_available else "disconnected"
+    except Exception:
+        infra["object_storage"] = "unavailable"
+
+    try:
+        from backend.infrastructure.opensearch import opensearch_client
+        infra["opensearch"] = "connected" if opensearch_client.is_available else "disconnected"
+    except Exception:
+        infra["opensearch"] = "unavailable"
+
+    try:
+        from backend.infrastructure.vault import vault_client
+        infra["vault"] = "connected" if vault_client.is_available else "disconnected"
+    except Exception:
+        infra["vault"] = "unavailable"
 
     return {
 
@@ -1419,8 +1367,8 @@ async def health_check():
 
 @app.get("/health/database")
 async def database_health():
-    from backend.database.health    import check_database_health
-    from backend.database.migrator  import get_migration_status
+    from backend.database.health import check_database_health
+    from backend.database.migrator import get_migration_status
 
     connectivity = await check_database_health()
     migration    = await get_migration_status()
@@ -1440,12 +1388,29 @@ async def database_health():
 
 
 # ==========================================
+# IDENTITY RUNTIME HEALTH
+# ==========================================
+
+@app.get("/health/identity")
+async def identity_health():
+    try:
+        from backend.core.dependency_container import container
+        health = container.resolve("identity_health")
+        return await health.check()
+    except Exception as exc:
+        return {
+            "status": "unavailable",
+            "error": str(exc),
+        }
+
+
+# ==========================================
 # EMBEDDING HEALTH
 # ==========================================
 
 @app.get("/health/embeddings")
 async def embedding_health():
-    from backend.memory.embedding_pipeline import embedding_pipeline, EMBED_DIM
+    from backend.memory.embedding_pipeline import EMBED_DIM, embedding_pipeline
 
     telemetry = embedding_pipeline.get_telemetry()
     status    = telemetry["embedding_status"]
@@ -1473,8 +1438,8 @@ async def embedding_health():
 
 @app.get("/health/research")
 async def research_health():
-    from backend.research.tavily_client      import tavily_client
     from backend.research.research_telemetry import research_telemetry
+    from backend.research.tavily_client import tavily_client
 
     configured = tavily_client.is_configured()
     snap       = research_telemetry.snapshot(recent_n=10)
@@ -1584,126 +1549,4 @@ async def get_runtime_state():
     return runtime_state.get_state()
 
 
-# ==========================================
-# TEST EVENT
-# ==========================================
 
-from backend.events.event_models import CognitionEvent, EventTypes
-
-@app.get("/test-event")
-
-async def test_event():
-
-    await event_bus.publish(
-
-        CognitionEvent(
-
-            agent="system",
-
-            event_type=(
-
-                EventTypes
-                .EXECUTION_STARTED
-            ),
-
-            status="running",
-
-            message=(
-
-                "CortexPrime "
-                "Cognitive Runtime Active"
-            ),
-
-            payload={
-
-                "source":
-                    "test-event-endpoint",
-
-                "runtime":
-                    "enterprise-cognitive-engine"
-            }
-        )
-    )
-
-    return {
-
-        "status":
-            "event_published"
-    }
-
-
-# ==========================================
-# STARTUP EVENT
-# ==========================================
-
-@app.on_event("startup")
-
-async def startup_event():
-
-    print(
-        "\nCortexPrime Runtime Initialized\n"
-    )
-
-    print(
-        "Multi-Agent System Online"
-    )
-
-    print(
-        "WebSocket Streaming Active"
-    )
-
-    print(
-        "Runtime State Engine Active"
-    )
-
-    print(
-        "Registered Agents:"
-    )
-
-    for agent in (
-
-        agent_registry
-        .list_agents()
-    ):
-
-        print(
-            f"  - {agent}"
-        )
-
-    print()
-
-    # ==========================================
-    # STARTUP EVENT
-    # ==========================================
-
-    await event_bus.publish(
-
-        CognitionEvent(
-
-            agent="system",
-
-            event_type=(
-
-                EventTypes
-                .EXECUTION_STARTED
-            ),
-
-            status="completed",
-
-            message=(
-
-                "CortexPrime Runtime Boot Complete"
-            ),
-
-            payload={
-
-                "registered_agents":
-
-                    agent_registry
-                    .list_agents(),
-
-                "runtime":
-                    "initialized"
-            }
-        )
-    )

@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { integrationInsights } from "./mockData";
+import { integrationInsights } from "./dashboardData";
 import { variants } from "@/lib/motion-tokens";
 import { ShieldCheck, Activity, Brain, Clock, ShieldAlert, Zap } from "lucide-react";
 import { cn } from "@/utils/cn";

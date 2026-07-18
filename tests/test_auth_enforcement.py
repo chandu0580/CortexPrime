@@ -48,8 +48,7 @@ import pytest
 # Add project root to path so `backend.*` imports resolve
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-# ── Import order matters: set AUTH_DISABLED before importing the app ──────────
-os.environ.setdefault("AUTH_DISABLED", "false")  # enforce real auth in tests
+# ── Import order matters: set env vars before importing the app ──────────────
 
 # ── Minimal env to avoid crash on import ──────────────────────────────────────
 os.environ.setdefault("OPENAI_API_KEY",              "test-key")

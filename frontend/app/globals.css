@@ -58,9 +58,9 @@ canvas { transition: none !important; }
     --accent-secondary: #4a8c70;
     --accent-2-muted:   rgba(74, 140, 112, 0.14);
 
-    --success:        #4a8c70;
-    --success-muted:  rgba(74, 140, 112, 0.16);
-    --success-border: rgba(74, 140, 112, 0.32);
+    --success:        #38b88a;
+    --success-muted:  rgba(56, 184, 138, 0.16);
+    --success-border: rgba(56, 184, 138, 0.32);
     --warning:        #f9a825;
     --warning-muted:  rgba(249, 168, 37, 0.14);
     --danger:         #f87171;
@@ -138,9 +138,9 @@ canvas { transition: none !important; }
     --accent-secondary: #4a8c70;
     --accent-2-muted:   rgba(74, 140, 112, 0.12);
 
-    --success:        #4a8c70;
-    --success-muted:  rgba(74, 140, 112, 0.12);
-    --success-border: rgba(74, 140, 112, 0.26);
+    --success:        #38b88a;
+    --success-muted:  rgba(56, 184, 138, 0.12);
+    --success-border: rgba(56, 184, 138, 0.26);
     --warning:        #f9a825;
     --warning-muted:  rgba(249, 168, 37, 0.12);
     --danger:         #dc2626;
@@ -242,41 +242,6 @@ canvas { transition: none !important; }
     /* Navigation / label scale bump */
     --font-size-nav:  0.8675rem;  /* ~13.9px nav links   */
     --font-size-label:0.7995rem;  /* ~12.8px label text  */
-
-    /* ── Radius tokens (soft, rounded UI) ──── */
-    --radius-sm:   8px;
-    --radius-md:   16px;
-    --radius-lg:   20px;
-    --radius-xl:   24px;
-    --radius-pill: 999px;
-
-    /* ── Spacing tokens ─────────────────────── */
-    --space-1: 4px;
-    --space-2: 8px;
-    --space-3: 12px;
-    --space-4: 16px;
-    --space-5: 20px;
-    --space-6: 24px;
-    --space-8: 32px;
-    --space-10: 40px;
-
-    /* ── Motion tokens ──────────────────────── */
-    --duration-fast:  120ms;
-    --duration-base:  200ms;
-    --duration-slow:  350ms;
-    --ease-out:       cubic-bezier(0.16, 1, 0.3, 1);
-    --ease-in-out:    cubic-bezier(0.4, 0, 0.2, 1);
-
-    /* ── Typography scale ───────────────────── */
-    --font-size-xs:   0.7025rem;
-    --font-size-sm:   0.8285rem;
-    --font-size-base: 0.8925rem;
-    --font-size-md:   1.02rem;
-    --font-size-lg:   1.1475rem;
-    --font-size-xl:   1.4025rem;
-    --font-size-2xl:  1.785rem;
-    --font-size-3xl:  2.295rem;
-    --font-size-4xl:  3.06rem;
 
     /* ── Radius tokens (soft, rounded UI) ──── */
     --radius-sm:   8px;

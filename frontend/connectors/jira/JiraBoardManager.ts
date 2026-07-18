@@ -40,6 +40,8 @@ export const JiraBoardManager = {
   },
 
   async moveIssue(boardId: string, issueKey: string, column: string, rank: number): Promise<{ success: boolean }> {
-    return { success: true }
+    const result = await JiraClient.post<Record<string, unknown>>(`/rest/agile/1.0/board/${boardId}/issue`, { issues: [issueKey], rankBefore: rank, rankCustomFieldId: column })
+    if (result.success) return { success: true }
+    return { success: false }
   },
 }

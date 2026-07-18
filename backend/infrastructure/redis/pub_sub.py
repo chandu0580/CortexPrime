@@ -28,7 +28,7 @@ import logging
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Set
 
 from backend.infrastructure.redis.connection import redis_connection
-from backend.infrastructure.redis.keys       import RedisKeys, TTL
+from backend.infrastructure.redis.keys import RedisKeys
 
 log = logging.getLogger(__name__)
 

@@ -10,14 +10,12 @@ Centralized definition of:
 """
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
-
 
 # =========================================================
 # QUEUE NAMES
@@ -513,117 +511,3 @@ def reflection_trigger_message(
         },
     )
 
-
-# =========================================================
-# MESSAGE TYPES
-# =========================================================
-
-class MessageType(str, Enum):
-
-    # Orchestration
-    MISSION_START        = "mission.start"
-    MISSION_COMPLETE     = "mission.complete"
-    MISSION_FAILED       = "mission.failed"
-
-    # Agent lifecycle
-    AGENT_TASK_DISPATCH  = "agent.task.dispatch"
-    AGENT_TASK_RESULT    = "agent.task.result"
-    AGENT_STATUS_UPDATE  = "agent.status.update"
-
-    # Cognition pipeline stages
-    PIPELINE_STAGE_START  = "pipeline.stage.start"
-    PIPELINE_STAGE_DONE   = "pipeline.stage.done"
-
-    # Memory
-    MEMORY_STORE          = "memory.store"
-    MEMORY_RETRIEVED      = "memory.retrieved"
-
-    # Reflection
-    REFLECTION_TRIGGER    = "reflection.trigger"
-    REFLECTION_COMPLETE   = "reflection.complete"
-
-    # Execution events (forwarded to WebSocket)
-    EXECUTION_EVENT       = "execution.event"
-
-
-# =========================================================
-# BASE MESSAGE
-# =========================================================
-
-class RabbitMessage(BaseModel):
-
-    message_id:   str = str(uuid4())
-    message_type: MessageType
-    timestamp:    str = datetime.utcnow().isoformat()
-
-    # Routing
-    execution_id:      Optional[str] = None
-    parent_message_id: Optional[str] = None
-    retry_count:       int = 0
-
-    # Payload
-    payload: Dict[str, Any] = {}
-
-    def to_bytes(self) -> bytes:
-        return self.model_dump_json().encode()
-
-    @classmethod
-    def from_bytes(cls, data: bytes) -> "RabbitMessage":
-        return cls.model_validate_json(data)
-
-
-# =========================================================
-# TYPED MESSAGE FACTORIES
-# =========================================================
-
-def mission_start_message(
-    execution_id: str,
-    objective: str,
-    priority: int = 5,
-) -> RabbitMessage:
-    return RabbitMessage(
-        message_type=MessageType.MISSION_START,
-        execution_id=execution_id,
-        payload={
-            "objective": objective,
-            "priority": priority,
-        },
-    )
-
-
-def agent_task_message(
-    execution_id: str,
-    agent_name: str,
-    task: Dict[str, Any],
-    priority: int = 5,
-) -> RabbitMessage:
-    return RabbitMessage(
-        message_type=MessageType.AGENT_TASK_DISPATCH,
-        execution_id=execution_id,
-        payload={
-            "agent_name": agent_name,
-            "task": task,
-            "priority": priority,
-        },
-    )
-
-
-def execution_event_message(
-    execution_id: str,
-    agent: str,
-    event_type: str,
-    status: str,
-    message: str,
-    payload: Dict[str, Any] = {},
-) -> RabbitMessage:
-    return RabbitMessage(
-        message_type=MessageType.EXECUTION_EVENT,
-        execution_id=execution_id,
-        payload={
-            "agent": agent,
-            "event_type": event_type,
-            "status": status,
-            "message": message,
-            "data": payload,
-        },
-    )

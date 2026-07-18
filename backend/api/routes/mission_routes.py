@@ -1,9 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 
-from backend.orchestrator.master_agent_runtime import (
-    master_agent_runtime
-)
 from backend.auth.dependencies import require_user
+from backend.orchestrator.master_agent_runtime import master_agent_runtime
 
 router = APIRouter(dependencies=[Depends(require_user)])
 

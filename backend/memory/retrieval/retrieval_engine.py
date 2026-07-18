@@ -9,20 +9,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from backend.memory.models import (
     AssembledContext,
     EpisodicEntry,
-    SemanticEntry,
-    ReflectionEntry,
 )
-from backend.memory.stores.episodic_store    import episodic_store
-from backend.memory.stores.semantic_store    import semantic_store
-from backend.memory.stores.reflection_store  import reflection_store
-from backend.memory.stores.context_store     import context_store
 from backend.memory.retrieval.ranking_engine import ranking_engine
+from backend.memory.stores.context_store import context_store
+from backend.memory.stores.episodic_store import episodic_store
+from backend.memory.stores.reflection_store import reflection_store
+from backend.memory.stores.semantic_store import semantic_store
 
 logger = logging.getLogger(__name__)
 

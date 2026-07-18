@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { policiesData, PolicyData } from "./mockData";
+import { policiesData, PolicyData } from "./dashboardData";
 import { Search, ChevronDown, Check, AlertTriangle, Play, HelpCircle, MoreVertical } from "lucide-react";
 import StatusBadge from "./StatusBadge";
 

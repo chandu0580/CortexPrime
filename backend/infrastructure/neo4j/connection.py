@@ -9,7 +9,7 @@ from typing import Optional
 log = logging.getLogger(__name__)
 
 try:
-    from neo4j import AsyncGraphDatabase, AsyncDriver
+    from neo4j import AsyncGraphDatabase
     _NEO4J_AVAILABLE = True
 except ImportError:
     _NEO4J_AVAILABLE = False

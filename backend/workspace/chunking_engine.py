@@ -16,7 +16,6 @@ from typing import List
 from backend.workspace.document_processor import PageContent
 from backend.workspace.models import DocumentChunk
 
-
 _CHUNK_SIZE    = 1600   # characters
 _OVERLAP       = 320    # characters (20 % of chunk size)
 _SENTENCE_SEPS = re.compile(r"(?<=[.!?])\s+|(?<=\n)\n+")

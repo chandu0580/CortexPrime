@@ -28,7 +28,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp
 
-from backend.safety.guardrails_engine import guardrails_engine, GuardrailDecision
+from backend.safety.guardrails_engine import GuardrailDecision, guardrails_engine
 
 logger = logging.getLogger(__name__)
 

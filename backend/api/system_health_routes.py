@@ -136,7 +136,6 @@ def _check_observability() -> Dict[str, Any]:
     # ── request_tracing ─────────────────────────────────────────────────
     t0 = time.monotonic()
     try:
-        from backend.middleware.request_id import RequestIDMiddleware
         from backend.core.logging import get_request_id, set_request_id
         # Verify the context var roundtrip works
         set_request_id("health-check-probe")
@@ -156,8 +155,7 @@ def _check_observability() -> Dict[str, Any]:
     # ── exception_handler ────────────────────────────────────────────────
     t0 = time.monotonic()
     try:
-        from backend.core.exception_handlers import register_exception_handlers
-        from backend.core.errors import CortexError, error_response, ErrorCode
+        from backend.core.errors import CortexError, ErrorCode
         # Verify classes are importable and functional
         _ = CortexError(500, ErrorCode.INTERNAL_SERVER_ERROR, "test")
         results["exception_handler"] = {

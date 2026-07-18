@@ -14,17 +14,14 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 log = logging.getLogger(__name__)
 
 # Delegate to the new services
-from backend.infrastructure.redis.connection            import redis_connection
+from backend.infrastructure.redis.cognition_cache import cognition_cache
+from backend.infrastructure.redis.keys import TTL
 from backend.infrastructure.redis.runtime_state_manager import runtime_state
-from backend.infrastructure.redis.cognition_cache       import cognition_cache
-from backend.infrastructure.redis.keys                  import RedisKeys, TTL
-
 
 # =========================================================
 # BACKWARD-COMPAT KEY CONSTANTS  (legacy names)

@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { departmentAdoption } from "./mockData";
+import { departmentAdoption } from "./dashboardData";
 import { variants } from "@/lib/motion-tokens";
 import { Users, Zap, Clock, TrendingUp } from "lucide-react";
 

@@ -13,17 +13,19 @@ the legacy asyncpg postgres_client so both can share the same .env):
 
 Pool settings
 -------------
-  DB_POOL_SIZE      default: 5
-  DB_MAX_OVERFLOW   default: 10
+  DB_POOL_SIZE      default: 10 (increased from 5 for production concurrency)
+  DB_MAX_OVERFLOW   default: 20
   DB_POOL_TIMEOUT   default: 30   (seconds)
   DB_POOL_RECYCLE   default: 1800 (seconds — recycle idle connections every 30 min)
   DB_ECHO_SQL       default: false (set to "true" to log all SQL)
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
-from typing import AsyncGenerator
+from functools import wraps
+from typing import Any, Callable, TypeVar
 
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -35,6 +37,39 @@ from sqlalchemy.ext.asyncio import (
 from backend.database.base import Base
 
 logger = logging.getLogger(__name__)
+
+F = TypeVar("F", bound=Callable[..., Any])
+
+_DB_RETRY_MAX = int(os.getenv("DB_RETRY_MAX", "3"))
+_DB_RETRY_DELAY = float(os.getenv("DB_RETRY_DELAY", "0.5"))
+
+
+def db_retry(max_retries: int = _DB_RETRY_MAX, delay: float = _DB_RETRY_DELAY):
+    """Decorator that retries database operations on transient failures.
+
+    Catches sqlalchemy.exc.OperationalError and retries with exponential back-off.
+    """
+    from sqlalchemy.exc import OperationalError
+
+    def decorator(func: F) -> F:
+        @wraps(func)
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
+            last_exc: Exception | None = None
+            for attempt in range(1, max_retries + 1):
+                try:
+                    return await func(*args, **kwargs)
+                except OperationalError as exc:
+                    last_exc = exc
+                    if attempt < max_retries:
+                        wait = delay * (2 ** (attempt - 1))
+                        logger.warning(
+                            "DB retry %d/%d after %.1fs: %s",
+                            attempt, max_retries, wait, exc,
+                        )
+                        await asyncio.sleep(wait)
+            raise last_exc  # type: ignore[union-attr]
+        return wrapper  # type: ignore[return-value]
+    return decorator
 
 # ---------------------------------------------------------------------------
 # DSN construction
@@ -63,8 +98,8 @@ def _create_engine() -> AsyncEngine:
     dsn = _build_dsn()
     return create_async_engine(
         dsn,
-        pool_size      = int(os.getenv("DB_POOL_SIZE",    "5")),
-        max_overflow   = int(os.getenv("DB_MAX_OVERFLOW", "10")),
+        pool_size      = int(os.getenv("DB_POOL_SIZE",    "10")),
+        max_overflow   = int(os.getenv("DB_MAX_OVERFLOW", "20")),
         pool_timeout   = int(os.getenv("DB_POOL_TIMEOUT", "30")),
         pool_recycle   = int(os.getenv("DB_POOL_RECYCLE", "1800")),
         pool_pre_ping  = True,                  # evict stale connections
@@ -99,8 +134,9 @@ async def init_db() -> None:
     Safe to call on startup — uses CREATE TABLE IF NOT EXISTS semantics.
     In production, prefer Alembic migrations instead.
     """
+    from backend.database.models import _ensure_bc_models
+    _ensure_bc_models()
     async with engine.begin() as conn:
-        # Enable pgvector extension before creating tables
         await conn.execute(
             __import__("sqlalchemy", fromlist=["text"]).text(
                 "CREATE EXTENSION IF NOT EXISTS vector"

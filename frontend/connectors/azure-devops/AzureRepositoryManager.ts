@@ -68,5 +68,12 @@ export const AzureRepositoryManager = {
     return null
   },
 
-  async getRepository(id: string): Promise<AzureRepository | null> { return null },
+  async getRepository(id: string): Promise<AzureRepository | null> {
+    const parts = id.split("/")
+    const projectId = parts[0] ?? ""
+    const repoId = parts[1] ?? id
+    const result = await AzureDevOpsClient.get<Record<string, unknown>>(`/${projectId}/_apis/git/repositories/${repoId}`)
+    if (result.success && result.data) return mapApiRepo(result.data, projectId)
+    return null
+  },
 }

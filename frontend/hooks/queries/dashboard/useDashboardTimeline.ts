@@ -8,7 +8,6 @@ export function useDashboardTimeline() {
     const query = useQuery({
         queryKey: queryKeys.dashboard.timeline(),
         queryFn: fetchDashboardTimeline,
-        refetchInterval: 15_000,
     })
 
     return {

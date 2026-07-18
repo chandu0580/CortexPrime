@@ -3,14 +3,13 @@ EpisodicRepository — async CRUD + vector similarity search for episodic_memory
 """
 from __future__ import annotations
 
-import uuid
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database.models.episodic_memory import EpisodicMemoryRecord
-from backend.database.repositories.base      import BaseRepository
+from backend.database.repositories.base import BaseRepository
 
 
 class EpisodicRepository(BaseRepository[EpisodicMemoryRecord]):
@@ -70,14 +69,21 @@ class EpisodicRepository(BaseRepository[EpisodicMemoryRecord]):
         """
         embed_literal = f"[{','.join(str(v) for v in embedding)}]"
 
-        where_clauses = [
+        where_parts = [
             "embedding IS NOT NULL",
-            f"1 - (embedding <=> '{embed_literal}'::vector) >= {min_similarity}",
+            "1 - (embedding <=> CAST(:embedding AS vector)) >= :min_sim",
         ]
-        if session_id:
-            where_clauses.append(f"session_id = '{session_id}'")
+        params: Dict[str, Any] = {
+            "embedding": embed_literal,
+            "min_sim": min_similarity,
+            "lim": limit,
+        }
 
-        where_sql = " AND ".join(where_clauses)
+        if session_id:
+            where_parts.append("session_id = :session_id")
+            params["session_id"] = session_id
+
+        where_sql = " AND ".join(where_parts)
 
         stmt = text(f"""
             SELECT
@@ -88,14 +94,14 @@ class EpisodicRepository(BaseRepository[EpisodicMemoryRecord]):
                 content,
                 metadata,
                 created_at,
-                1 - (embedding <=> '{embed_literal}'::vector) AS similarity
+                1 - (embedding <=> CAST(:embedding AS vector)) AS similarity
             FROM episodic_memory
             WHERE {where_sql}
-            ORDER BY embedding <=> '{embed_literal}'::vector
-            LIMIT {limit}
-        """)  # nosec — embed_literal is built from float values, not user input
+            ORDER BY embedding <=> CAST(:embedding AS vector)
+            LIMIT :lim
+        """)
 
-        rows = (await self._session.execute(stmt)).mappings().all()
+        rows = (await self._session.execute(stmt, params)).mappings().all()
         return [dict(r) for r in rows]
 
     # ------------------------------------------------------------------

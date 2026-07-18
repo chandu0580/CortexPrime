@@ -1,0 +1,270 @@
+import type { Connector } from "./types";
+
+export const connectors: Connector[] = [
+  {
+    id: "github",
+    name: "GitHub",
+    description: "Code repositories and collaboration",
+    status: "connected",
+    stats: [
+      { label: "Repositories", value: "54" },
+      { label: "Issues", value: "623" },
+      { label: "PRs", value: "84" },
+    ],
+    latency: "183 ms",
+    lastSync: "15s ago",
+    capabilities: [
+      { label: "Repositories" },
+      { label: "Pull Requests" },
+      { label: "Issues" },
+      { label: "Actions" },
+    ],
+    authFields: [
+      {
+        key: "token",
+        label: "Personal Access Token",
+        type: "password",
+        placeholder: "ghp_xxxxxxxxxxxxxxxxxxxx",
+      },
+    ],
+    permissions: [
+      { key: "repo",     label: "repo",     scope: "Full control of private repositories" },
+      { key: "workflow", label: "workflow",  scope: "Update GitHub Action workflows" },
+      { key: "issues",   label: "issues",    scope: "Read and write issues" },
+      { key: "actions",  label: "actions",   scope: "Read and write Actions" },
+      { key: "packages", label: "packages",  scope: "Read and write packages" },
+    ],
+    longDescription:
+      "Connect your GitHub organization to allow CortexPrime AI Agents to manage repositories, review pull requests, triage issues, and orchestrate CI/CD workflows.",
+    operations: ["Repository Management", "Pull Requests", "Issues", "Releases", "Workflows"],
+  },
+  {
+    id: "jira",
+    name: "Jira",
+    description: "Project and issue tracking",
+    status: "connected",
+    stats: [
+      { label: "Projects", value: "12" },
+      { label: "Issues", value: "1,532" },
+      { label: "Sprint", value: "14" },
+    ],
+    latency: "174 ms",
+    lastSync: "30s ago",
+    capabilities: [
+      { label: "Projects" },
+      { label: "Issues" },
+      { label: "Boards" },
+      { label: "Sprints" },
+    ],
+    authFields: [
+      { key: "baseUrl", label: "Base URL",   type: "url",      placeholder: "https://your-domain.atlassian.net" },
+      { key: "email",   label: "Email",      type: "email",    placeholder: "user@company.com" },
+      { key: "token",   label: "API Token",  type: "password", placeholder: "xxxxxxxxxxxxxxxxxxxx" },
+    ],
+    permissions: [
+      { key: "read",     label: "read",     scope: "Read project and issue data" },
+      { key: "write",    label: "write",    scope: "Create and update issues" },
+      { key: "projects", label: "projects", scope: "Manage project configuration" },
+      { key: "issues",   label: "issues",   scope: "Full issue management" },
+    ],
+    longDescription:
+      "Connect your Jira instance to let CortexPrime AI Agents create and manage issues, update sprints, generate reports, and automate project workflows across your organization.",
+    operations: ["Project Management", "Issue Tracking", "Sprint Planning", "Workflow Automation"],
+  },
+  {
+    id: "slack",
+    name: "Slack",
+    description: "Team communication platform",
+    status: "connected",
+    stats: [
+      { label: "Channels", value: "42" },
+      { label: "Members", value: "218" },
+      { label: "Msgs (Today)", value: "512" },
+    ],
+    latency: "168 ms",
+    lastSync: "10s ago",
+    capabilities: [
+      { label: "Channels" },
+      { label: "Messages" },
+      { label: "Notifications" },
+      { label: "Threads" },
+    ],
+    authFields: [
+      { key: "botToken",  label: "Bot Token",  type: "password", placeholder: "xoxb-xxxxxxxxxxxx-xxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxx" },
+      { key: "workspace", label: "Workspace",  type: "text",     placeholder: "your-workspace.slack.com" },
+    ],
+    permissions: [
+      { key: "chat:write",      label: "chat:write",      scope: "Send messages as the bot" },
+      { key: "channels:read",   label: "channels:read",   scope: "View public channels" },
+      { key: "channels:manage", label: "channels:manage", scope: "Manage public channels" },
+      { key: "reactions:write", label: "reactions:write", scope: "Add reactions to messages" },
+    ],
+    longDescription:
+      "Connect your Slack workspace so CortexPrime AI Agents can send notifications, monitor channels, and interact with your team through natural language.",
+    operations: ["Messaging", "Channel Management", "Notifications", "Thread Replies"],
+  },
+  {
+    id: "azure-devops",
+    name: "Azure DevOps",
+    description: "DevOps and CI/CD platform",
+    status: "connected",
+    stats: [
+      { label: "Projects", value: "6" },
+      { label: "Pipelines", value: "12" },
+      { label: "Work Items", value: "512" },
+    ],
+    latency: "192 ms",
+    lastSync: "25s ago",
+    capabilities: [
+      { label: "Pipelines" },
+      { label: "Boards" },
+      { label: "Repos" },
+      { label: "Artifacts" },
+    ],
+    authFields: [
+      { key: "organization", label: "Organization",          type: "text",     placeholder: "your-organization" },
+      { key: "project",      label: "Project",               type: "text",     placeholder: "your-project" },
+      { key: "pat",          label: "Personal Access Token", type: "password", placeholder: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" },
+    ],
+    permissions: [
+      { key: "build",      label: "build",      scope: "Read and manage build pipelines" },
+      { key: "release",    label: "release",    scope: "Manage release pipelines" },
+      { key: "workitems",  label: "work_items", scope: "Read and write work items" },
+      { key: "code",       label: "code",       scope: "Read and write repository code" },
+    ],
+    longDescription:
+      "Connect Azure DevOps to allow CortexPrime AI Agents to manage pipelines, track work items, review code, and orchestrate end-to-end DevOps workflows.",
+    operations: ["Pipeline Management", "Work Item Tracking", "Code Reviews", "Release Management"],
+  },
+  {
+    id: "microsoft-teams",
+    name: "Microsoft Teams",
+    description: "Meetings, chat and collaboration",
+    status: "connected",
+    stats: [
+      { label: "Teams", value: "8" },
+      { label: "Channels", value: "26" },
+      { label: "Meetings", value: "18" },
+    ],
+    latency: "181 ms",
+    lastSync: "1m ago",
+    capabilities: [
+      { label: "Teams" },
+      { label: "Channels" },
+      { label: "Messages" },
+      { label: "Meetings" },
+    ],
+    authFields: [
+      { key: "accessToken", label: "Access Token", type: "password", placeholder: "eyJhbGciOiJSUzI1NiIs..." },
+      { key: "tenantId",    label: "Tenant ID",    type: "text",     placeholder: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" },
+    ],
+    permissions: [
+      { key: "team.read",    label: "Team.Read",    scope: "Read team data" },
+      { key: "channel.read", label: "Channel.Read", scope: "Read channel messages" },
+      { key: "channel.send", label: "Channel.Send", scope: "Send messages to channels" },
+      { key: "meeting.read", label: "Meeting.Read", scope: "Read meeting details" },
+    ],
+    longDescription:
+      "Connect Microsoft Teams to enable CortexPrime AI Agents to monitor channels, send announcements, manage meetings, and collaborate across your organization.",
+    operations: ["Team Management", "Messaging", "Meeting Scheduling", "Channel Moderation"],
+  },
+  {
+    id: "confluence",
+    name: "Confluence",
+    description: "Documentation and knowledge base",
+    status: "connected",
+    stats: [
+      { label: "Spaces", value: "12" },
+      { label: "Pages", value: "1,432" },
+      { label: "Comments", value: "823" },
+    ],
+    latency: "176 ms",
+    lastSync: "45s ago",
+    capabilities: [
+      { label: "Pages" },
+      { label: "Spaces" },
+      { label: "Blogs" },
+      { label: "Comments" },
+    ],
+    authFields: [
+      { key: "siteUrl", label: "Site URL",   type: "url",      placeholder: "https://your-domain.atlassian.net/wiki" },
+      { key: "email",   label: "Email",      type: "email",    placeholder: "user@company.com" },
+      { key: "token",   label: "API Token",  type: "password", placeholder: "xxxxxxxxxxxxxxxxxxxx" },
+    ],
+    permissions: [
+      { key: "page.read",    label: "page.read",    scope: "Read pages" },
+      { key: "page.write",   label: "page.write",   scope: "Create and edit pages" },
+      { key: "space.read",   label: "space.read",   scope: "View spaces" },
+      { key: "comment.write",label: "comment.write",scope: "Add comments" },
+    ],
+    longDescription:
+      "Connect Confluence to enable CortexPrime AI Agents to create and update documentation, manage spaces, and keep your knowledge base synchronized.",
+    operations: ["Page Management", "Space Organization", "Documentation", "Knowledge Base Sync"],
+  },
+  {
+    id: "notion",
+    name: "Notion",
+    description: "All-in-one workspace",
+    status: "connected",
+    stats: [
+      { label: "Pages", value: "382" },
+      { label: "Databases", value: "24" },
+      { label: "Users", value: "32" },
+    ],
+    latency: "165 ms",
+    lastSync: "20s ago",
+    capabilities: [
+      { label: "Databases" },
+      { label: "Pages" },
+      { label: "Wikis" },
+      { label: "Docs" },
+    ],
+    authFields: [
+      { key: "integrationToken", label: "Integration Token", type: "password", placeholder: "secret_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" },
+      { key: "workspace",        label: "Workspace",         type: "text",     placeholder: "your-workspace" },
+    ],
+    permissions: [
+      { key: "read",          label: "read",          scope: "Read content" },
+      { key: "write",         label: "write",         scope: "Create and edit content" },
+      { key: "database.read", label: "database.read", scope: "Query databases" },
+      { key: "comment.write", label: "comment.write", scope: "Add comments" },
+    ],
+    longDescription:
+      "Connect your Notion workspace to let CortexPrime AI Agents query databases, create pages, manage wikis, and keep your documentation in sync.",
+    operations: ["Database Queries", "Page Creation", "Wiki Management", "Content Sync"],
+  },
+  {
+    id: "servicenow",
+    name: "ServiceNow",
+    description: "IT service management platform",
+    status: "disconnected",
+    stats: [
+      { label: "Incidents", value: "--" },
+      { label: "Changes",   value: "--" },
+      { label: "Requests",  value: "--" },
+      { label: "CMDB",      value: "--" },
+    ],
+    latency: null,
+    lastSync: null,
+    capabilities: [
+      { label: "Incidents" },
+      { label: "Changes" },
+      { label: "Requests" },
+      { label: "CMDB" },
+    ],
+    authFields: [
+      { key: "instanceUrl", label: "Instance URL", type: "url",      placeholder: "https://your-instance.service-now.com" },
+      { key: "username",    label: "Username",     type: "text",     placeholder: "admin" },
+      { key: "password",    label: "Password",     type: "password", placeholder: "················" },
+    ],
+    permissions: [
+      { key: "incident.read",  label: "incident.read",  scope: "View incidents" },
+      { key: "incident.write", label: "incident.write", scope: "Create and update incidents" },
+      { key: "change.read",    label: "change.read",    scope: "View change requests" },
+      { key: "cmdb.read",      label: "cmdb.read",      scope: "View CMDB records" },
+    ],
+    longDescription:
+      "Connect your ServiceNow instance so CortexPrime AI Agents can manage incidents, process change requests, and access your CMDB for enterprise IT operations.",
+    operations: ["Incident Management", "Change Requests", "Service Catalog", "CMDB Queries"],
+  },
+];

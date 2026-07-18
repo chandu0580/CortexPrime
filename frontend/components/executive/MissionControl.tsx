@@ -64,8 +64,9 @@ function ProgressArc({ pct, color, size = 80 }: { pct: number; color: string; si
 // ── Main ──────────────────────────────────────────────────────────────────
 
 export function MissionControl() {
-  const snapshot    = useExecutiveStore((s) => s.snapshot);
-  const rStore      = useRuntimeStore();
+  const snapshot      = useExecutiveStore((s) => s.snapshot);
+  const agentActivity = useRuntimeStore((s) => s.agentActivity);
+  const agentLastAction = useRuntimeStore((s) => s.agentLastAction);
 
   // Live mission from store (WebSocket driven)
   const liveStage   = useMissionStore?.((s: {stage: string}) => s.stage) ?? "idle";
@@ -80,8 +81,6 @@ export function MissionControl() {
 
   const hasMission  = stage !== "idle" && stage !== "completed";
 
-  // Agent activity overlay
-  const agentActivity = rStore.agentActivity;
   const activeAgentId = Object.entries(agentActivity).find(([, s]) => s === "active" || s === "processing")?.[0];
 
   const AGENT_COLORS: Record<string, string> = {
@@ -177,7 +176,7 @@ export function MissionControl() {
               {activeAgentId}
             </span>
             <span style={{ fontSize: "var(--font-size-xs)", color: "var(--text-muted)" }}>
-              {rStore.agentLastAction[activeAgentId] || "Processing…"}
+              {agentLastAction[activeAgentId] || "Processing…"}
             </span>
             <motion.span
               animate={{ opacity: [1, 0] }}

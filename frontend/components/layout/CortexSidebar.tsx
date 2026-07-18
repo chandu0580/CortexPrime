@@ -3,7 +3,7 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { motion } from "framer-motion"
 import {
-    Cpu, Users, Brain, Database, BarChart2, Mic, Settings, Zap, LogOut, FolderOpen, PlayCircle, Search, Shield, LayoutDashboard, Sparkles, Activity, DollarSign, Plug,
+    Cpu, Users, Brain, Database, BarChart2, Mic, Settings, Zap, LogOut, FolderOpen, PlayCircle, Search, Shield, LayoutDashboard, Sparkles, Activity, DollarSign, Plug, Rocket, Radio, Box, FileCode, GitBranch, GitPullRequest, GitMerge, Building2, BrainCircuit, GitBranch as Github, Layers, Server, AlertTriangle, Target, ListRestart, MessageSquare,
 } from "lucide-react"
 import { useAuthStore } from "@/store/authStore"
 import { cn } from "@/utils/cn"
@@ -13,22 +13,61 @@ import ThemeToggle from "@/components/theme/ThemeToggle"
 // NAV ITEMS
 // ==========================================
 
-const navItems = [
-    { href: "/executive",         label: "Executive",  icon: LayoutDashboard },
-    { href: "/command",           label: "Command",    icon: Zap        },
-    { href: "/agents",            label: "Agents",     icon: Users      },
-    { href: "/memory",            label: "Memory",     icon: Database   },
-    { href: "/memory-explorer",   label: "Mem Explore",icon: Search     },
-    { href: "/replay",            label: "Replay",     icon: PlayCircle },
-    { href: "/governance-center", label: "Governance", icon: Shield     },
-    { href: "/workspace",         label: "Workspace",  icon: FolderOpen },
-    { href: "/analytics",         label: "Analytics",  icon: BarChart2  },
-    { href: "/costs",             label: "Costs",      icon: DollarSign },
-    { href: "/system-status",     label: "Sys Status", icon: Activity   },
-    { href: "/integrations",      label: "Integrations", icon: Plug      },
-    { href: "/voice",             label: "Voice",      icon: Mic        },
-    { href: "/chat",              label: "Chat",       icon: Sparkles   },
-    { href: "/settings",          label: "Settings",   icon: Settings   },
+interface NavSection {
+    label: string
+    items: { href: string; label: string; icon: React.ComponentType<{ size?: number; className?: string }> }[]
+}
+
+const navSections: NavSection[] = [
+    {
+        label: "Main",
+        items: [
+            { href: "/",                   label: "Home",         icon: LayoutDashboard },
+            { href: "/executive",         label: "Executive",    icon: Cpu             },
+            { href: "/digital-twin",      label: "Digital Twin", icon: Box             },
+            { href: "/missions",          label: "Missions",     icon: Target          },
+            { href: "/agents",            label: "Agents",       icon: Users           },
+            { href: "/memory-explorer",   label: "Knowledge",    icon: Brain           },
+            { href: "/chat",              label: "AI Chat",      icon: MessageSquare   },
+            { href: "/replay",            label: "Replay",       icon: ListRestart     },
+        ],
+    },
+    {
+        label: "Operations",
+        items: [
+            { href: "/operations-center", label: "Operations",   icon: Activity        },
+            { href: "/governance-center", label: "Governance",   icon: Shield          },
+            { href: "/settings",          label: "Settings",     icon: Settings        },
+        ],
+    },
+    {
+        label: "Platform",
+        items: [
+            { href: "/enterprise-engineering-executive", label: "Engineering Executive", icon: BrainCircuit },
+            { href: "/enterprise-architecture", label: "Architecture", icon: Building2      },
+            { href: "/enterprise-execution",    label: "Execution",    icon: Zap            },
+            { href: "/enterprise-pipeline",     label: "Pipeline",     icon: GitMerge       },
+            { href: "/enterprise-git",          label: "Git Ops",      icon: GitPullRequest },
+            { href: "/enterprise-patches",      label: "Patches",      icon: GitBranch      },
+            { href: "/code-intelligence",       label: "Code Intel",   icon: FileCode       },
+            { href: "/enterprise-github",       label: "GitHub",       icon: Github         },
+            { href: "/enterprise-cicd",         label: "CI/CD",        icon: Layers         },
+            { href: "/enterprise-infrastructure", label: "Infrastructure", icon: Server      },
+            { href: "/enterprise-rca",           label: "RCA",          icon: AlertTriangle  },
+            { href: "/enterprise-sandbox",      label: "Sandbox",      icon: Box            },
+            { href: "/autonomous-runtime",      label: "Auto Run",     icon: Radio          },
+            { href: "/enterprise-delivery",     label: "Delivery",     icon: Rocket         },
+            { href: "/enterprise-cognition",    label: "Cognition",    icon: BrainCircuit   },
+        ],
+    },
+    {
+        label: "Admin",
+        items: [
+            { href: "/settings/autonomy",  label: "Autonomy Settings", icon: Settings },
+            { href: "/settings/retention", label: "Data Retention",    icon: Database },
+            { href: "/settings/tenants",   label: "Tenants",           icon: Building2 },
+        ],
+    },
 ]
 
 // ==========================================
@@ -68,41 +107,51 @@ export default function CortexSidebar() {
             </div>
 
             {/* Nav */}
-            <nav className="flex w-full flex-1 flex-col gap-0.5 px-2">
-                {navItems.map(({ href, label, icon: Icon }) => {
-                    const active = pathname === href || (href !== "/" && pathname.startsWith(href))
-                    return (
-                        <Link key={href} href={href}>
-                            <motion.div
-                                whileHover={{ x: 1 }}
-                                className="flex items-center gap-3 px-3 py-2 rounded-lg"
-                                style={{
-                                    color:      active ? "var(--accent-primary)" : "var(--text-secondary)",
-                                    background: active ? "var(--accent-muted)"   : "transparent",
-                                    border:     active ? "1px solid var(--accent-border)" : "1px solid transparent",
-                                    transition: "color 0.15s, background 0.15s, border-color 0.15s",
-                                }}
-                                onMouseEnter={(e) => {
-                                    if (!active) (e.currentTarget as HTMLElement).style.color = "var(--text-primary)";
-                                }}
-                                onMouseLeave={(e) => {
-                                    if (!active) (e.currentTarget as HTMLElement).style.color = "var(--text-secondary)";
-                                }}
-                            >
-                                <Icon size={16} className="shrink-0" />
-                                <span style={{ fontSize: "var(--font-size-nav)", fontWeight: 600, letterSpacing: "-0.005em" }} className="hidden lg:block">
-                                    {label}
-                                </span>
-                                {active && (
-                                    <div
-                                        className="ml-auto w-1.5 h-1.5 rounded-full hidden lg:block"
-                                        style={{ background: "var(--accent-primary)" }}
-                                    />
-                                )}
-                            </motion.div>
-                        </Link>
-                    )
-                })}
+            <nav className="flex w-full flex-1 flex-col gap-1 px-2 overflow-y-auto" aria-label="Main navigation">
+                {navSections.map((section) => (
+                    <div key={section.label} className="mb-1">
+                        <span
+                            className="hidden lg:block px-3 py-1 text-xs font-semibold uppercase tracking-wider"
+                            style={{ color: "var(--text-muted)", fontSize: "var(--font-size-xs)" }}
+                        >
+                            {section.label}
+                        </span>
+                        {section.items.map(({ href, label, icon: Icon }) => {
+                            const active = pathname === href || (href !== "/" && pathname.startsWith(href))
+                            return (
+                                <Link key={href} href={href}>
+                                    <motion.div
+                                        whileHover={{ x: 1 }}
+                                        className="flex items-center gap-3 px-3 py-2 rounded-lg"
+                                        style={{
+                                            color:      active ? "var(--accent-primary)" : "var(--text-secondary)",
+                                            background: active ? "var(--accent-muted)"   : "transparent",
+                                            border:     active ? "1px solid var(--accent-border)" : "1px solid transparent",
+                                            transition: "color 0.15s, background 0.15s, border-color 0.15s",
+                                        }}
+                                        onMouseEnter={(e) => {
+                                            if (!active) (e.currentTarget as HTMLElement).style.color = "var(--text-primary)";
+                                        }}
+                                        onMouseLeave={(e) => {
+                                            if (!active) (e.currentTarget as HTMLElement).style.color = "var(--text-secondary)";
+                                        }}
+                                    >
+                                        <Icon size={16} className="shrink-0" />
+                                        <span style={{ fontSize: "var(--font-size-nav)", fontWeight: 600, letterSpacing: "-0.005em" }} className="hidden lg:block">
+                                            {label}
+                                        </span>
+                                        {active && (
+                                            <div
+                                                className="ml-auto w-1.5 h-1.5 rounded-full hidden lg:block"
+                                                style={{ background: "var(--accent-primary)" }}
+                                            />
+                                        )}
+                                    </motion.div>
+                                </Link>
+                            )
+                        })}
+                    </div>
+                ))}
             </nav>
 
             {/* Theme + Logout */}

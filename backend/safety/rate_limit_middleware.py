@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -111,8 +111,9 @@ def _should_skip(request: Request) -> bool:
 async def _audit_rate_limit(identity: str, endpoint: str, path: str) -> None:
     """Fire-and-forget audit log for rate limit violations."""
     try:
-        from backend.safety.audit_logger import audit_logger
         import asyncio
+
+        from backend.safety.audit_logger import audit_logger
 
         loop = asyncio.get_event_loop()
         if loop.is_running():

@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { webhookEventLogs } from "./mockData";
+import { webhookEventLogs } from "./dashboardData";
 import { Code, MessageSquare, RefreshCw, AlertTriangle, FileText, Send, Zap } from "lucide-react";
 import { cn } from "@/utils/cn";
 

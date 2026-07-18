@@ -19,11 +19,50 @@ export const AzureArtifactManager = {
   },
 
   async publishPackage(feedId: string, name: string, version: string, description: string, packageType: AzurePackage["packageType"]): Promise<AzurePackage | null> {
+    const parts = feedId.split("/")
+    const projectId = parts[0] ?? ""
+    const fid = parts[1] ?? feedId
+    const body = { name, version, description, packageType }
+    const result = await AzureDevOpsClient.post<Record<string, unknown>>(`/${projectId}/_apis/artifacts/feeds/${fid}/packages`, body)
     const now = new Date().toISOString()
-    return { id: "", feedId, name, version, description, packageType, published: true, createdAt: now, updatedAt: now }
+    if (result.success && result.data) {
+      return { id: String(result.data.id), feedId, name: String(result.data.name), version: String(result.data.version), description: String(result.data.description ?? ""), packageType, published: true, createdAt: String(result.data.createdDate ?? now), updatedAt: String(result.data.updatedDate ?? now) }
+    }
+    return { id: "", feedId, name, version, description, packageType, published: false, createdAt: now, updatedAt: now }
   },
 
-  async archivePackage(id: string): Promise<AzurePackage | null> { return null },
-  async getFeed(id: string): Promise<AzureFeed | null> { return null },
-  async listPackages(feedId: string): Promise<AzurePackage[]> { return [] },
+  async archivePackage(id: string): Promise<AzurePackage | null> {
+    const parts = id.split("/")
+    const projectId = parts[0] ?? ""
+    const packageId = parts[1] ?? id
+    const result = await AzureDevOpsClient.patch<Record<string, unknown>>(`/${projectId}/_apis/artifacts/feeds/packages/${packageId}`, { deprecated: true })
+    if (result.success && result.data) {
+      return { id: String(result.data.id), feedId: "", name: String(result.data.name), version: String(result.data.version), description: String(result.data.description ?? ""), packageType: (result.data.protocolType as string) as AzurePackage["packageType"] ?? "generic", published: false, createdAt: String(result.data.createdDate ?? ""), updatedAt: String(result.data.updatedDate ?? "") }
+    }
+    return null
+  },
+
+  async getFeed(id: string): Promise<AzureFeed | null> {
+    const parts = id.split("/")
+    const projectId = parts[0] ?? ""
+    const fid = parts[1] ?? id
+    const result = await AzureDevOpsClient.get<Record<string, unknown>>(`/${projectId}/_apis/artifacts/feeds/${fid}`)
+    if (result.success && result.data) return mapApiFeed(result.data, projectId)
+    return null
+  },
+
+  async listPackages(feedId: string): Promise<AzurePackage[]> {
+    const parts = feedId.split("/")
+    const projectId = parts[0] ?? ""
+    const fid = parts[1] ?? feedId
+    const result = await AzureDevOpsClient.get<Record<string, unknown>>(`/${projectId}/_apis/artifacts/feeds/${fid}/packages?$top=100`)
+    if (result.success && result.data?.value) {
+      return (result.data.value as Record<string, unknown>[]).map((p) => ({
+        id: String(p.id), feedId, name: String(p.name), version: String(p.version), description: String(p.description ?? ""),
+        packageType: (p.protocolType as string) as AzurePackage["packageType"] ?? "generic", published: !p.deprecated,
+        createdAt: String(p.createdDate ?? ""), updatedAt: String(p.updatedDate ?? ""),
+      }))
+    }
+    return []
+  },
 }

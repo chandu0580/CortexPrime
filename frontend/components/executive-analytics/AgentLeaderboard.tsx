@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { workforcePerformance } from "./mockData";
+import { workforcePerformance } from "./dashboardData";
 import { Award, Zap, Heart, ShieldCheck } from "lucide-react";
 import StatusBadge from "./StatusBadge";
 

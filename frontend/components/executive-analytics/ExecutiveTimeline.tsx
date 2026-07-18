@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { timelineEvents } from "./mockData";
+import { timelineEvents } from "./dashboardData";
 import { Zap, Cpu, ShieldAlert, Award, FileSpreadsheet, Activity } from "lucide-react";
 
 export default function ExecutiveTimeline() {

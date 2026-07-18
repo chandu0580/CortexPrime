@@ -61,17 +61,23 @@ def set_context(
     session_id: Optional[str] = None,
 ) -> None:
     """Attach optional identifiers to all subsequent logs in this async context."""
-    if user_id    is not None: _user_id_ctx.set(user_id)
-    if mission_id is not None: _mission_id_ctx.set(mission_id)
-    if session_id is not None: _session_id_ctx.set(session_id)
+    if user_id    is not None:
+        _user_id_ctx.set(user_id)
+    if mission_id is not None:
+        _mission_id_ctx.set(mission_id)
+    if session_id is not None:
+        _session_id_ctx.set(session_id)
 
 
 def get_log_context() -> Dict[str, Any]:
     """Return the full correlation context for the current async context."""
     ctx: Dict[str, Any] = {"request_id": get_request_id()}
-    if _user_id_ctx.get():    ctx["user_id"]    = _user_id_ctx.get()
-    if _mission_id_ctx.get(): ctx["mission_id"] = _mission_id_ctx.get()
-    if _session_id_ctx.get(): ctx["session_id"] = _session_id_ctx.get()
+    if _user_id_ctx.get():
+        ctx["user_id"] = _user_id_ctx.get()
+    if _mission_id_ctx.get():
+        ctx["mission_id"] = _mission_id_ctx.get()
+    if _session_id_ctx.get():
+        ctx["session_id"] = _session_id_ctx.get()
     return ctx
 
 
@@ -105,9 +111,12 @@ class _StructuredFormatter(logging.Formatter):
         }
 
         # Merge optional correlation context
-        if _user_id_ctx.get():    obj["user_id"]    = _user_id_ctx.get()
-        if _mission_id_ctx.get(): obj["mission_id"] = _mission_id_ctx.get()
-        if _session_id_ctx.get(): obj["session_id"] = _session_id_ctx.get()
+        if _user_id_ctx.get():
+            obj["user_id"] = _user_id_ctx.get()
+        if _mission_id_ctx.get():
+            obj["mission_id"] = _mission_id_ctx.get()
+        if _session_id_ctx.get():
+            obj["session_id"] = _session_id_ctx.get()
 
         # Merge caller-supplied extra= fields (skip standard LogRecord attrs)
         for key, value in record.__dict__.items():
@@ -141,7 +150,9 @@ class _PlainFormatter(logging.Formatter):
 
 # ─── Root logger configuration ─────────────────────────────────────────────
 
-def configure_root_logger(level: int = logging.INFO) -> None:
+def configure_root_logger(level: Optional[int] = None) -> None:
+    if level is None:
+        level = getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO)
     """
     Configure the root logger once.
     Should be called at application startup (before any log is emitted).

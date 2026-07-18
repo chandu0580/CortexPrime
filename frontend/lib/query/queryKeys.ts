@@ -90,4 +90,28 @@ export const queryKeys = {
         activity:    (id: string) => [...queryKeys.missionControl.all, "activity", id] as const,
         timeline:    (id: string) => [...queryKeys.missionControl.all, "timeline", id] as const,
     },
+    connectors: {
+        all:            ["connectors"] as const,
+        list:           () => [...queryKeys.connectors.all, "list"] as const,
+        detail:         (type: string) => [...queryKeys.connectors.all, "detail", type] as const,
+        health:         (type: string) => [...queryKeys.connectors.all, "health", type] as const,
+        activity:       (type: string) => [...queryKeys.connectors.all, "activity", type] as const,
+    },
+    executiveDashboard: {
+        all:     ["executiveDashboard"] as const,
+        data:    () => [...queryKeys.executiveDashboard.all, "data"] as const,
+    },
+    analyticsDashboard: {
+        all:     ["analyticsDashboard"] as const,
+        data:    () => [...queryKeys.analyticsDashboard.all, "data"] as const,
+    },
+    enterpriseCognition: {
+        all:     ["enterpriseCognition"] as const,
+    },
+    execution: {
+        all:         ["execution"] as const,
+        dashboard:   () => [...queryKeys.execution.all, "dashboard"] as const,
+        list:        () => [...queryKeys.execution.all, "list"] as const,
+        detail:      (id: string) => [...queryKeys.execution.all, "detail", id] as const,
+    },
 }

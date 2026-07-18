@@ -1,20 +1,10 @@
 
-from typing import Dict, Any, List
+from typing import Any, Dict, List
 from uuid import uuid4
 
-from backend.runtime.base_agent import (
-    BaseAgent
-)
-
-from backend.events.event_bus import (
-    event_bus
-)
-
-from backend.events.event_models import (
-    CognitionEvent,
-    EventTypes
-)
-
+from backend.events.event_bus import event_bus
+from backend.events.event_models import CognitionEvent
+from backend.runtime.base_agent import BaseAgent
 
 # ==========================================
 # DYNAMIC AGENT

@@ -1,19 +1,9 @@
-from typing import Dict, Any, List
+from typing import Any, Dict, List
 from uuid import uuid4
-from datetime import datetime
 
-from backend.events.event_bus import (
-    event_bus
-)
-
-from backend.events.event_models import (
-    CognitionEvent
-)
-
-from backend.tools.tool_registry import (
-    tool_registry
-)
-
+from backend.events.event_bus import event_bus
+from backend.events.event_models import CognitionEvent
+from backend.tools.tool_registry import tool_registry
 
 # ==========================================
 # TOOL EXECUTION ENGINE

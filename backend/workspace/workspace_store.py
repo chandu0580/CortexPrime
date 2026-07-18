@@ -17,17 +17,15 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
-from typing import Any, Dict, List, Optional
-from uuid import uuid4
+from typing import Dict, List, Optional
 
 from backend.memory.db.postgres_client import postgres_client
-from backend.memory.embedding_pipeline import embedding_pipeline, pgvector_str
+from backend.memory.embedding_pipeline import pgvector_str
 from backend.workspace.models import (
-    Workspace,
-    WorkspaceDocument,
     DocumentChunk,
     RetrievedChunk,
+    Workspace,
+    WorkspaceDocument,
 )
 
 logger = logging.getLogger(__name__)

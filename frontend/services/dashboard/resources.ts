@@ -30,19 +30,28 @@ interface SystemHealthResponse {
     components: Record<string, SystemHealthComponent>
 }
 
-function sparkline(base: number, count = 9): number[] {
-    const pts: number[] = []
-    let v = base * (0.8 + Math.random() * 0.4)
-    for (let i = 0; i < count; i++) {
-        v = Math.max(1, v + (Math.random() - 0.5) * v * 0.18)
-        pts.push(Math.round(v * 10) / 10)
-    }
-    return pts
-}
-
 function pct(value: number, max: number): number {
     if (max <= 0) return 0
     return Math.min(100, Math.round((value / max) * 100))
+}
+
+function buildSparkline(value: number, count = 9): number[] {
+    return Array.from({ length: count }, (_, i) => {
+        const t = (i + 1) / count
+        const noise = Math.sin(t * Math.PI * 2) * value * 0.05
+        return Math.round(value + noise)
+    })
+}
+
+interface CostSummaryResponse {
+    daily_spend?:     number
+    monthly_spend?:   number
+    projected_spend?: number
+    tokens?:          number
+    token_usage?:     number
+    model_cost?:      number
+    infra_cost?:      number
+    [key: string]: unknown
 }
 
 export async function fetchDashboardResources(): Promise<DashboardResources> {
@@ -50,13 +59,15 @@ export async function fetchDashboardResources(): Promise<DashboardResources> {
         api.get<TelemetryResponse>("/api/telemetry/runtime"),
         api.get<SystemHealthResponse>("/health/system"),
         api.get<EmbeddingHealth>("/health/embeddings"),
+        api.get<CostSummaryResponse>("/api/costs/summary"),
     ])
 
-    const [telemetryResult, healthResult, embeddingResult] = results
+    const [telemetryResult, healthResult, embeddingResult, costResult] = results
 
     const telemetry = telemetryResult.status === "fulfilled" ? telemetryResult.value : null
     const health = healthResult.status === "fulfilled" ? healthResult.value : null
     const embedding = embeddingResult.status === "fulfilled" ? embeddingResult.value : null
+    const costData = costResult.status === "fulfilled" ? costResult.value : null
 
     const degraded = results.some((r) => r.status === "rejected")
 
@@ -90,11 +101,28 @@ export async function fetchDashboardResources(): Promise<DashboardResources> {
         }
     }
 
+    // Token usage from cost summary
+    const tokenUsage = costData?.tokens ?? costData?.token_usage ?? 0
+    const tokenStr = tokenUsage >= 1_000_000
+        ? `${(tokenUsage / 1_000_000).toFixed(1)}M`
+        : tokenUsage >= 1_000
+            ? `${(tokenUsage / 1_000).toFixed(0)}K`
+            : String(tokenUsage)
+
+    // Cost today from cost summary
+    const costToday = costData?.daily_spend ?? 0
+
+    // Queue length from telemetry
+    const queueLen = telemetry?.queue_depth ?? 0
+
     const resources: ResourceMetric[] = [
-        { label: "CPU",      value: `${cpuValue}%`,  color: "#38B88A", data: sparkline(cpuValue) },
-        { label: "Memory",   value: `${memValue}%`,  color: "#3B82F6", data: sparkline(memValue) },
-        { label: "GPU",      value: `${gpuValue}%`,  color: "#8B5CF6", data: sparkline(gpuValue) },
-        { label: "Disk I/O", value: `${diskValue}%`, color: "#F59E0B", data: sparkline(diskValue) },
+        { label: "CPU",        value: `${cpuValue}%`,    color: "#38B88A", data: buildSparkline(cpuValue) },
+        { label: "Memory",     value: `${memValue}%`,    color: "#3B82F6", data: buildSparkline(memValue) },
+        { label: "GPU",        value: `${gpuValue}%`,    color: "#8B5CF6", data: buildSparkline(gpuValue) },
+        { label: "Disk I/O",   value: `${diskValue}%`,   color: "#F59E0B", data: buildSparkline(diskValue) },
+        { label: "Token Usage",value: tokenStr,           color: "#6366F1", data: buildSparkline(tokenUsage > 0 ? Math.min(100, tokenUsage / 10000) : 50) },
+        { label: "Queue Len",  value: String(queueLen),   color: "#EC4899", data: buildSparkline(queueLen) },
+        { label: "Cost Today", value: `$${Math.round(costToday)}`, color: "#14B8A6", data: buildSparkline(costToday > 0 ? Math.min(100, costToday / 10) : 50) },
     ]
 
     return { resources, degraded }

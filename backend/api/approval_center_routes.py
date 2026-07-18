@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
 
@@ -236,7 +236,6 @@ async def get_analytics():
     pending_count = 0
     active_escalations = 0
     break_glass_count = 0
-    approval_times: List[float] = []
 
     for wf in workflows:
         rl = wf.risk_level.value

@@ -341,7 +341,7 @@ for cfg in ["docker-compose.yml", "docker-compose.prod.yml"]:
         check(f"{cfg} validates", False, str(e))
 
 # Check infra configs
-infra_dir = "infra/helm/cortexprime"
+infra_dir = "helm/cortexprime"
 if os.path.exists(infra_dir):
     check("Helm chart exists", True)
     helm_files = os.listdir(infra_dir)

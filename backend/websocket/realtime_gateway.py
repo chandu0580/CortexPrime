@@ -38,14 +38,14 @@ import json
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from fastapi import WebSocket, WebSocketDisconnect
 
-from backend.infrastructure.redis.pub_sub              import pub_sub
-from backend.infrastructure.redis.websocket_session_store import ws_session_store
+from backend.infrastructure.redis.keys import RedisKeys
+from backend.infrastructure.redis.pub_sub import pub_sub
 from backend.infrastructure.redis.runtime_state_manager import runtime_state
-from backend.infrastructure.redis.keys                 import RedisKeys
+from backend.infrastructure.redis.websocket_session_store import ws_session_store
 
 log = logging.getLogger(__name__)
 

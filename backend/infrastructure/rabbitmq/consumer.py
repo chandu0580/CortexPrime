@@ -17,26 +17,24 @@ Features
 """
 from __future__ import annotations
 
-import asyncio
 import logging
-from typing import Any, Callable, Dict, List, Optional
+from typing import Callable, Dict, List
 
 log = logging.getLogger(__name__)
 
 try:
-    import aio_pika
+    import aio_pika  # noqa: F401
     _AIO_PIKA_AVAILABLE = True
 except ImportError:
     _AIO_PIKA_AVAILABLE = False
 
 from backend.infrastructure.rabbitmq.connection import rabbitmq_connection
-from backend.infrastructure.rabbitmq.tracing    import message_tracer
-from backend.infrastructure.rabbitmq.schemas    import (
+from backend.infrastructure.rabbitmq.schemas import (
     MessageType,
     Queues,
     RabbitMessage,
 )
-
+from backend.infrastructure.rabbitmq.tracing import message_tracer
 
 # =========================================================
 # CONSUMER
@@ -193,7 +191,8 @@ class RabbitMQConsumer:
                     max_retries = msg.max_retries or self.DEFAULT_MAX_RETRIES
 
                     from backend.infrastructure.rabbitmq.retry_policy import (
-                        default_retry_policy, dlq_manager,
+                        default_retry_policy,
+                        dlq_manager,
                     )
 
                     if default_retry_policy.should_retry(retry_count):

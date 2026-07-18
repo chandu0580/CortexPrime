@@ -11,11 +11,11 @@ import hashlib
 from typing import List
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy          import Index, String, Text
-from sqlalchemy.orm      import Mapped, mapped_column
+from sqlalchemy import Index, String, Text
+from sqlalchemy.orm import Mapped, mapped_column
 
-from backend.database.base          import Base
-from backend.database.models.mixins import UUIDPrimaryKeyMixin, TimestampMixin
+from backend.database.base import Base
+from backend.database.models.mixins import TimestampMixin, UUIDPrimaryKeyMixin
 
 _EMBED_DIM = 1536
 

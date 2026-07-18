@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { defaultIntegrationPreferences, ConnectedIntegrationPreference } from "./mockData";
+import { defaultIntegrationPreferences, ConnectedIntegrationPreference } from "./dashboardData";
 import { Settings, RefreshCw, LogOut, CheckCircle2, XCircle } from "lucide-react";
 import { variants } from "@/lib/motion-tokens";
 import StatusBadge, { SettingsStatusType } from "./StatusBadge";

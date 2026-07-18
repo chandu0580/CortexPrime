@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { governanceInsights } from "./mockData";
+import { governanceInsights } from "./dashboardData";
 import { variants } from "@/lib/motion-tokens";
 import { Award, Compass, ShieldAlert, Layers, CheckCircle2, TrendingUp } from "lucide-react";
 

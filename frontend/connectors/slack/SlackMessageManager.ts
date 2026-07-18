@@ -64,6 +64,15 @@ export const SlackMessageManager = {
 
   async getMessage(id: string): Promise<SlackMessage | null> {
     const tsParts = id.split("-")
+    if (tsParts.length >= 2) {
+      const channelId = tsParts[0]
+      const ts = tsParts.slice(1).join("-")
+      const result = await SlackClient.post<Record<string, unknown>>("/conversations.history", { channel: channelId, latest: ts, limit: 1, inclusive: true })
+      if (result.success && result.data?.messages) {
+        const msgs = result.data.messages as Record<string, unknown>[]
+        if (msgs.length > 0) return mapApiMessage(msgs[0], channelId)
+      }
+    }
     return null
   },
 }

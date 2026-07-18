@@ -6,7 +6,13 @@
     "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "postinstall": "npx playwright install --with-deps chromium"
   },
   "dependencies": {
     "@livekit/components-react": "^2.9.21",
@@ -22,8 +28,10 @@
     "axios": "^1.16.0",
     "clsx": "^2.1.1",
     "framer-motion": "^12.40.0",
+    "ioredis": "^5.6.1",
     "livekit-client": "^2.19.1",
     "lucide-react": "^1.14.0",
+    "neo4j-driver": "^5.28.0",
     "next": "16.2.9",
     "playwright": "^1.52.0",
     "postcss": "^8.5.14",
@@ -33,18 +41,22 @@
     "reactflow": "^11.11.4",
     "recharts": "^3.8.1",
     "tailwind-merge": "^3.6.0",
-    "ioredis": "^5.6.1",
-    "neo4j-driver": "^5.28.0",
     "zustand": "^5.0.13"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.0",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^6.0.3",
     "eslint": "^9",
     "eslint-config-next": "16.2.9",
+    "jsdom": "^29.1.1",
     "tailwindcss": "^4.3.0",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.10"
   }
 }

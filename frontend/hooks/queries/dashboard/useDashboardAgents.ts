@@ -8,7 +8,6 @@ export function useDashboardAgents() {
     const query = useQuery({
         queryKey: queryKeys.dashboard.agents(),
         queryFn: fetchDashboardAgents,
-        refetchInterval: 15_000,
     })
 
     return {

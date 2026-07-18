@@ -16,11 +16,10 @@ from backend.auth.dependencies import require_user
 from backend.memory.memory_orchestrator import memory_orchestrator
 from backend.memory.models import (
     AssembledContext,
-    MemoryStatusResponse,
+    MemoryType,
     ReflectRequest,
     SearchRequest,
     StoreMemoryRequest,
-    MemoryType,
 )
 
 router = APIRouter(prefix="/api/memory", tags=["Memory"], dependencies=[Depends(require_user)])

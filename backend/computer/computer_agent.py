@@ -1,37 +1,15 @@
 
-from typing import Dict, Any, List
-from uuid import uuid4
-from datetime import datetime
 import asyncio
+from datetime import datetime
+from typing import Any, Dict
+from uuid import uuid4
 
-from backend.events.event_bus import (
-    event_bus
-)
-
-from backend.events.event_models import (
-    CognitionEvent
-)
-
-from backend.tools.tool_registry import (
-    tool_registry
-)
-
-from backend.computer.visual_ui_engine import (
-    visual_ui_engine
-)
-
-from backend.computer.desktop_controller import (
-    desktop_controller
-)
-
-from backend.computer.computer_task_engine import (
-    computer_task_engine
-)
-
-from backend.computer.window_manager import (
-    window_manager
-)
-
+from backend.computer.computer_task_engine import computer_task_engine
+from backend.computer.desktop_controller import desktop_controller
+from backend.computer.visual_ui_engine import visual_ui_engine
+from backend.events.event_bus import event_bus, publish_event
+from backend.events.event_models import CognitionEvent
+from backend.tools.tool_registry import tool_registry
 
 # ==========================================
 # COMPUTER AGENT HIGH-RISK ACTIONS
@@ -67,9 +45,9 @@ async def _computer_governance_check(
     Requests approval for all high-risk OS-level operations.
     """
     try:
-        from backend.safety.safety_guard   import safety_guard
-        from backend.safety.audit_logger   import audit_logger
+        from backend.safety.audit_logger import audit_logger
         from backend.safety.emergency_stop import emergency_stop
+        from backend.safety.safety_guard import safety_guard
 
         if emergency_stop.is_stopped(execution_id):
             return False
@@ -166,35 +144,10 @@ class ComputerAgent:
 
         message: str,
 
-        payload: Dict[str, Any] = {}
+        payload: Dict[str, Any] = None
     ):
 
-        await event_bus.publish(
-
-            CognitionEvent(
-
-                agent=
-                    "computer_agent",
-
-                event_type=
-                    event_type,
-
-                status=
-                    status,
-
-                phase=
-                    phase,
-
-                execution_id=
-                    execution_id,
-
-                message=
-                    message,
-
-                payload=
-                    payload
-            )
-        )
+        await publish_event("computer_agent", execution_id, event_type, status, phase, message, payload)
 
 
     # ==========================================

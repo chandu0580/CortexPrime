@@ -35,22 +35,17 @@ import {
 
 import { cn } from "@/utils/cn";
 import { stagger, variants } from "@/lib/motion-tokens";
-import {
-  kpiMetrics,
-  performanceSeries,
-  usageByCategory,
-  topAgents,
-  actionTypes,
-  successRateOverTime,
-  keyInsights,
-  heatmapData,
-  heatmapHours,
-  summaryItems,
-  type KPICardData,
-  type InsightData,
-  type PerformanceData,
-  type SuccessRateData,
-} from "./data";
+import { useAnalyticsDashboard } from "@/hooks/queries/analytics";
+import type {
+  KPICardDTO,
+  InsightDTO,
+  PerformancePointDTO,
+  SuccessRatePointDTO,
+  ActionTypeDTO,
+  AgentActivityDTO,
+  SummaryItemDTO,
+  AnalyticsDashboardResponse,
+} from "@/services/dashboard/analytics";
 
 // ─── NAV ─────────────────────────────────────────────────────────────────────
 const NAV = [
@@ -228,8 +223,8 @@ const iconMap = {
   errors: { icon: AlertTriangle, bg: "bg-[#FEF2F2]", text: "text-[#EF4444]", border: "border-[#FEE2E2]" },
 };
 
-function KPICard({ item }: { item: KPICardData }) {
-  const style = iconMap[item.icon];
+function KPICard({ item }: { item: KPICardDTO }) {
+  const style = iconMap[item.icon as keyof typeof iconMap];
   const Icon = style.icon;
 
   return (
@@ -255,7 +250,7 @@ function KPICard({ item }: { item: KPICardData }) {
 }
 
 // ─── PERFORMANCE OVER TIME CHART ──────────────────────────────────────────────
-function PerformanceLineChart({ data }: { data: PerformanceData[] }) {
+function PerformanceLineChart({ data }: { data: PerformancePointDTO[] }) {
   const W = 600;
   const H = 220;
   const padL = 40;
@@ -343,7 +338,7 @@ function PerformanceLineChart({ data }: { data: PerformanceData[] }) {
 }
 
 // ─── SUCCESS RATE OVER TIME ──────────────────────────────────────────────────
-function SuccessRateLineChart({ data }: { data: SuccessRateData[] }) {
+function SuccessRateLineChart({ data }: { data: SuccessRatePointDTO[] }) {
   const W = 400;
   const H = 220;
   const padL = 36;
@@ -394,20 +389,19 @@ function SuccessRateLineChart({ data }: { data: SuccessRateData[] }) {
 }
 
 // ─── DONUT CHART ──────────────────────────────────────────────────────────────
-function DonutChart() {
+function DonutChart({ actionTypes }: { actionTypes: ActionTypeDTO[] }) {
   const radius = 70;
-  const circumference = 2 * Math.PI * radius; // 439.82
+  const circumference = 2 * Math.PI * radius;
+
+  const totalActions = actionTypes.reduce((sum, a) => sum + a.actions, 0);
 
   let accumulatedPercent = 0;
-  const sectors = usageByCategory.map((item) => {
-    const dashArray = `${(item.percentage / 100) * circumference} ${circumference}`;
+  const sectors = actionTypes.map((item) => {
+    const pct = totalActions > 0 ? (item.actions / totalActions) * 100 : 0;
+    const dashArray = `${(pct / 100) * circumference} ${circumference}`;
     const dashOffset = -((accumulatedPercent / 100) * circumference);
-    accumulatedPercent += item.percentage;
-    return {
-      ...item,
-      dashArray,
-      dashOffset,
-    };
+    accumulatedPercent += pct;
+    return { ...item, pct, dashArray, dashOffset };
   });
 
   return (
@@ -430,19 +424,19 @@ function DonutChart() {
           ))}
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-          <span className="text-[1.4rem] font-bold text-[#111827]">12,842</span>
+          <span className="text-[1.4rem] font-bold text-[#111827]">{totalActions.toLocaleString()}</span>
           <span className="text-[0.62rem] font-bold text-[#6B7280]">Total Actions</span>
         </div>
       </div>
       <div className="mt-4 w-full space-y-1 px-2">
-        {usageByCategory.map((c) => (
-          <div key={c.category} className="flex items-center justify-between text-[0.74rem]">
+        {sectors.map((c) => (
+          <div key={c.type} className="flex items-center justify-between text-[0.74rem]">
             <div className="flex items-center gap-2 text-[#374151] font-semibold">
               <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
-              <span>{c.category}</span>
+              <span>{c.type}</span>
             </div>
             <div className="flex gap-1.5 text-[#6B7280] font-semibold">
-              <span className="text-[#111827]">{c.percentage}%</span>
+              <span className="text-[#111827]">{c.pct.toFixed(1)}%</span>
               <span>({c.actions.toLocaleString()})</span>
             </div>
           </div>
@@ -460,8 +454,8 @@ const insightStyles = {
   warning: { bg: "bg-[#FFFBEB]", border: "border-[#FDECC8]", text: "text-[#B45309]", icon: AlertTriangle },
 };
 
-function InsightRow({ insight }: { insight: InsightData }) {
-  const style = insightStyles[insight.type];
+function InsightRow({ insight }: { insight: InsightDTO }) {
+  const style = insightStyles[insight.type as keyof typeof insightStyles];
   const Icon = style.icon;
   return (
     <div className="flex items-start gap-3 rounded-[12px] border border-[#E8EDF3] bg-white p-3 shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
@@ -481,6 +475,30 @@ export default function AnalyticsCenter() {
   const [collapsed, setCollapsed] = useState(false);
   const sidebarWidth = collapsed ? 60 : 152;
 
+  const { data, isLoading, refetch } = useAnalyticsDashboard();
+
+  const live = data ?? ({} as AnalyticsDashboardResponse);
+
+  const kpiCards = live.kpiCards ?? []
+  const perfSeries = live.performanceSeries ?? []
+  const agentsTop = live.topAgents ?? []
+  const actTypes = live.actionTypes ?? []
+  const successRateData = live.successRateOverTime ?? []
+  const insights = live.keyInsights ?? []
+  const heatmap = live.activityHeatmap ?? []
+  const heatHours = live.heatmapHours ?? []
+  const summaryList = live.summary ?? []
+
+  // Derive usage by category from action types (as donut replacement)
+  const usageByCategory = actTypes.map((a) => ({
+    category: a.type,
+    percentage: a.percentage,
+    actions: a.actions,
+    color: a.color,
+  }))
+
+  const maxAgentActions = agentsTop.length > 0 ? Math.max(...agentsTop.map((a) => a.actions)) : 1
+
   return (
     <div className="min-h-screen bg-[#F4F7FA] text-[#111827]">
       <Sidebar collapsed={collapsed} onCollapse={() => setCollapsed(!collapsed)} />
@@ -499,20 +517,27 @@ export default function AnalyticsCenter() {
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <button className="flex items-center gap-1.5 rounded-[12px] border border-[#E8EDF3] bg-white px-3 py-2 text-[0.76rem] font-semibold text-[#374151] hover:bg-[#F8FAFC]">
-                <Clock className="h-3.5 w-3.5 text-[#9CA3AF]" />
-                <span>May 6 – May 12, 2024</span>
-                <ChevronDown className="h-3 w-3 text-[#9CA3AF]" />
-              </button>
-              <button className="flex items-center gap-1 rounded-[12px] bg-[#38B88A] hover:bg-[#2F9F77] px-3.5 py-2 text-[0.76rem] font-bold text-white transition-colors">
-                <Plus className="h-3.5 w-3.5" />
-                <span>Export</span>
-                <ChevronDown className="h-3 w-3" />
+              <button onClick={() => refetch()} className="flex items-center gap-1 rounded-[12px] border border-[#E8EDF3] bg-white px-3 py-2 text-[0.76rem] font-semibold text-[#374151] hover:bg-[#F8FAFC]">
+                <RefreshCw className={cn("h-3.5 w-3.5", isLoading && "animate-spin")} />
+                <span>Refresh</span>
               </button>
             </div>
           </div>
 
-          {/* Staggered container for dashboard components */}
+          {/* Loading skeleton */}
+          {isLoading && !data && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="rounded-[16px] border border-[#E8EDF3] bg-white p-4 h-32 animate-pulse" />
+                ))}
+              </div>
+              <div className="rounded-[16px] border border-[#E8EDF3] bg-white p-4 h-64 animate-pulse" />
+            </div>
+          )}
+
+          {/* Dashboard content */}
+          {!isLoading || data ? (
           <motion.div
             initial="hidden"
             animate="visible"
@@ -521,7 +546,7 @@ export default function AnalyticsCenter() {
           >
             {/* Row 1: KPI Cards */}
             <motion.div variants={variants.fadeUp} className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
-              {kpiMetrics.map((kpi) => (
+              {kpiCards.map((kpi) => (
                 <KPICard key={kpi.title} item={kpi} />
               ))}
             </motion.div>
@@ -533,10 +558,6 @@ export default function AnalyticsCenter() {
                 <div>
                   <div className="flex items-center justify-between mb-4">
                     <p className="text-[0.88rem] font-bold text-[#111827]">Performance Over Time</p>
-                    <button className="flex items-center gap-1 rounded-[8px] border border-[#E8EDF3] px-2 py-1 text-[0.66rem] font-semibold text-[#6B7280] hover:bg-[#F8FAFC]">
-                      <span>Last 7 Days</span>
-                      <ChevronDown className="h-3 w-3 text-[#9CA3AF]" />
-                    </button>
                   </div>
                   <div className="flex items-center gap-4 mb-4 text-[0.7rem] font-bold">
                     <div className="flex items-center gap-1.5">
@@ -553,13 +574,13 @@ export default function AnalyticsCenter() {
                     </div>
                   </div>
                 </div>
-                <PerformanceLineChart data={performanceSeries} />
+                <PerformanceLineChart data={perfSeries} />
               </div>
 
               {/* Usage by Category */}
               <div className="rounded-[16px] border border-[#E8EDF3] bg-white p-4 shadow-sm lg:col-span-3">
                 <p className="text-[0.88rem] font-bold text-[#111827] mb-4">Usage by Category</p>
-                <DonutChart />
+                <DonutChart actionTypes={actTypes} />
               </div>
 
               {/* Top Agents */}
@@ -567,10 +588,6 @@ export default function AnalyticsCenter() {
                 <div>
                   <div className="flex items-center justify-between mb-4">
                     <p className="text-[0.88rem] font-bold text-[#111827]">Top Agents by Activity</p>
-                    <button className="flex items-center gap-1 rounded-[8px] border border-[#E8EDF3] px-2 py-1 text-[0.66rem] font-semibold text-[#6B7280] hover:bg-[#F8FAFC]">
-                      <span>This Week</span>
-                      <ChevronDown className="h-3 w-3 text-[#9CA3AF]" />
-                    </button>
                   </div>
                   <div className="flex items-center justify-between border-b border-[#F1F5F9] pb-1.5 text-[0.68rem] font-bold text-[#9CA3AF] uppercase tracking-wider mb-2">
                     <span>Agent</span>
@@ -580,7 +597,7 @@ export default function AnalyticsCenter() {
                     </div>
                   </div>
                   <div className="space-y-3">
-                    {topAgents.map((agent) => (
+                    {agentsTop.map((agent) => (
                       <div key={agent.name} className="flex items-center justify-between text-[0.74rem] font-semibold">
                         <div className="flex items-center gap-2 min-w-0">
                           <div className="flex h-6 w-6 items-center justify-center rounded-[6px] border border-[#F1F5F9] bg-[#F8FAF9] shrink-0 text-[#6B7280]">
@@ -589,9 +606,8 @@ export default function AnalyticsCenter() {
                           <span className="truncate text-[#374151]">{agent.name}</span>
                         </div>
                         <div className="flex items-center gap-4 shrink-0">
-                          {/* visual miniature bar */}
                           <div className="hidden sm:block w-16 h-1.5 rounded-full bg-[#F1F5F9] overflow-hidden">
-                            <div className="h-full rounded-full" style={{ width: `${(agent.actions / 4158) * 100}%`, backgroundColor: agent.color }} />
+                            <div className="h-full rounded-full" style={{ width: `${(agent.actions / maxAgentActions) * 100}%`, backgroundColor: agent.color }} />
                           </div>
                           <span className="text-[#111827] font-bold w-10 text-right">{agent.actions.toLocaleString()}</span>
                           <span className={cn("text-[0.68rem] font-bold w-10 text-right", agent.isPositive ? "text-[#38B88A]" : "text-[#EF4444]")}>
@@ -612,13 +628,9 @@ export default function AnalyticsCenter() {
                 <div>
                   <div className="flex items-center justify-between mb-4">
                     <p className="text-[0.88rem] font-bold text-[#111827]">Actions by Type</p>
-                    <button className="flex items-center gap-1 rounded-[8px] border border-[#E8EDF3] px-2 py-1 text-[0.66rem] font-semibold text-[#6B7280] hover:bg-[#F8FAFC]">
-                      <span>This Week</span>
-                      <ChevronDown className="h-3 w-3 text-[#9CA3AF]" />
-                    </button>
                   </div>
                   <div className="space-y-3.5 mt-2">
-                    {actionTypes.map((act) => (
+                    {actTypes.map((act) => (
                       <div key={act.type} className="space-y-1">
                         <div className="flex items-center justify-between text-[0.74rem] font-semibold">
                           <span className="text-[#374151]">{act.type}</span>
@@ -633,7 +645,6 @@ export default function AnalyticsCenter() {
                     ))}
                   </div>
                 </div>
-                {/* Horizontal scale */}
                 <div className="mt-4 border-t border-[#F1F5F9] pt-2 flex justify-between text-[0.64rem] font-bold text-[#9CA3AF] px-1">
                   <span>0</span>
                   <span>1K</span>
@@ -647,19 +658,15 @@ export default function AnalyticsCenter() {
               <div className="rounded-[16px] border border-[#E8EDF3] bg-white p-4 shadow-sm lg:col-span-5 flex flex-col justify-between">
                 <div className="flex items-center justify-between mb-4">
                   <p className="text-[0.88rem] font-bold text-[#111827]">Success Rate Over Time</p>
-                  <button className="flex items-center gap-1 rounded-[8px] border border-[#E8EDF3] px-2 py-1 text-[0.66rem] font-semibold text-[#6B7280] hover:bg-[#F8FAFC]">
-                    <span>Last 7 Days</span>
-                    <ChevronDown className="h-3 w-3 text-[#9CA3AF]" />
-                  </button>
                 </div>
-                <SuccessRateLineChart data={successRateOverTime} />
+                <SuccessRateLineChart data={successRateData} />
               </div>
 
               {/* Key Insights */}
               <div className="rounded-[16px] border border-[#E8EDF3] bg-white p-4 shadow-sm lg:col-span-3">
                 <p className="text-[0.88rem] font-bold text-[#111827] mb-3">Key Insights</p>
                 <div className="space-y-2.5">
-                  {keyInsights.map((insight, idx) => (
+                  {insights.map((insight, idx) => (
                     <InsightRow key={idx} insight={insight} />
                   ))}
                 </div>
@@ -673,17 +680,13 @@ export default function AnalyticsCenter() {
                 <div>
                   <div className="flex items-center justify-between mb-4">
                     <p className="text-[0.88rem] font-bold text-[#111827]">Activity Heatmap</p>
-                    <button className="flex items-center gap-1 rounded-[8px] border border-[#E8EDF3] px-2 py-1 text-[0.66rem] font-semibold text-[#6B7280] hover:bg-[#F8FAFC]">
-                      <span>This Week</span>
-                      <ChevronDown className="h-3 w-3 text-[#9CA3AF]" />
-                    </button>
                   </div>
 
                   <div className="overflow-x-auto">
                     <div className="min-w-[600px] mt-2">
                       <div className="grid gap-1 text-[0.64rem] font-bold text-[#9CA3AF] text-center mb-1" style={{ gridTemplateColumns: 'repeat(13, minmax(0, 1fr))' }}>
                         <div className="w-8 shrink-0 text-left"></div>
-                        {heatmapHours.map((h, i) => (
+                        {heatHours.map((h, i) => (
                           <div key={i} className="flex-1">{h}</div>
                         ))}
                       </div>
@@ -691,19 +694,18 @@ export default function AnalyticsCenter() {
                         {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day, rIdx) => (
                           <div key={day} className="grid gap-1 items-center" style={{ gridTemplateColumns: 'repeat(13, minmax(0, 1fr))' }}>
                             <div className="w-8 shrink-0 text-[0.66rem] font-bold text-[#6B7280] text-left">{day}</div>
-                            {heatmapData[rIdx].map((val, cIdx) => {
-                              // Shade colors based on intensity
-                              let bg = "bg-[#ECFBF4]"; // default min (very light green)
-                              if (val > 8) bg = "bg-[#1B664B]"; // dark green
-                              else if (val > 6) bg = "bg-[#288B67]";
-                              else if (val > 4) bg = "bg-[#38B88A]"; // brand green
-                              else if (val > 2) bg = "bg-[#71D2AC]";
-                              else if (val > 1) bg = "bg-[#A7ECCE]";
+                            {(heatmap[rIdx] || []).map((val, cIdx) => {
+                              let bg = "bg-[#ECFBF4]"
+                              if (val > 8) bg = "bg-[#1B664B]"
+                              else if (val > 6) bg = "bg-[#288B67]"
+                              else if (val > 4) bg = "bg-[#38B88A]"
+                              else if (val > 2) bg = "bg-[#71D2AC]"
+                              else if (val > 1) bg = "bg-[#A7ECCE]"
                               return (
                                 <div
                                   key={cIdx}
                                   className={cn("h-7 rounded-[4px] border border-white flex-1 transition-all duration-300", bg)}
-                                  title={`${day} @ Hour ${heatmapHours[cIdx]}: Intensity ${val}`}
+                                  title={`${day} @ Hour ${heatHours[cIdx]}: Intensity ${val}`}
                                 />
                               );
                             })}
@@ -720,14 +722,16 @@ export default function AnalyticsCenter() {
                 <div>
                   <p className="text-[0.88rem] font-bold text-[#111827] mb-3">Summary</p>
                   <div className="divide-y divide-[#F1F5F9]">
-                    {summaryItems.map((item) => (
+                    {summaryList.map((item) => (
                       <div key={item.label} className="py-2.5 flex items-center justify-between text-[0.74rem] font-semibold">
                         <div className="flex items-center gap-2 text-[#6B7280]">
                           {item.label === "Total Users" && <Users className="h-4 w-4 shrink-0 text-[#9CA3AF]" />}
                           {item.label === "Active Missions" && <Target className="h-4 w-4 shrink-0 text-[#9CA3AF]" />}
                           {item.label === "Active Agents" && <Bot className="h-4 w-4 shrink-0 text-[#9CA3AF]" />}
+                          {item.label === "Total Agents" && <Bot className="h-4 w-4 shrink-0 text-[#9CA3AF]" />}
                           {item.label === "System Uptime" && <Activity className="h-4 w-4 shrink-0 text-[#9CA3AF]" />}
                           {item.label === "Avg. Response Time" && <Clock className="h-4 w-4 shrink-0 text-[#9CA3AF]" />}
+                          {item.label === "Month Spend" && <Database className="h-4 w-4 shrink-0 text-[#9CA3AF]" />}
                           <span>{item.label}</span>
                         </div>
                         <div className="flex items-center gap-1.5 font-bold">
@@ -745,6 +749,7 @@ export default function AnalyticsCenter() {
               </div>
             </motion.div>
           </motion.div>
+          ) : null}
         </main>
 
         {/* Footer */}

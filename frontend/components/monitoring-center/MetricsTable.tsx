@@ -1,6 +1,6 @@
 "use client";
 
-import { liveSystemMetrics } from "./mockData";
+import { liveSystemMetrics } from "./dashboardData";
 import { Cpu, Layers, MoreVertical } from "lucide-react";
 import StatusBadge, { HealthStatusType } from "./StatusBadge";
 

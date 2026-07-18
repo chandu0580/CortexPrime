@@ -1,30 +1,20 @@
+import logging
 import os
-
+from typing import Any, Dict, Optional
 from uuid import uuid4
-
-from typing import Dict, Any
 
 from dotenv import load_dotenv
 
-from openai import (
-    AsyncOpenAI,
-    AsyncAzureOpenAI
-)
-
-from backend.events.event_bus import (
-    event_bus
-)
-
-from backend.events.event_models import (
-    CognitionEvent
-)
-
+from backend.events.event_bus import event_bus, publish_event
+from backend.events.event_models import CognitionEvent
 
 # =========================================================
 # LOAD ENVIRONMENT VARIABLES
 # =========================================================
 
 load_dotenv()
+
+log = logging.getLogger(__name__)
 
 
 # =========================================================
@@ -35,55 +25,42 @@ class LLMGateway:
 
     def __init__(self):
 
-        # =================================================
-        # DEBUG ENV VARIABLES
-        # =================================================
+        self._llm_service: Optional[Any] = None
+        self._openai_client: Optional[Any] = None
+        self._azure_client: Optional[Any] = None
 
-        print("\n🔥 INITIALIZING CORTEXPRIME LLM GATEWAY")
+    async def _ensure_llm_service(self) -> Any:
+        if self._llm_service is not None:
+            return self._llm_service
+        try:
+            from backend.llm_provider.registry import registry
+            registry.discover()
+            from backend.llm_provider.service import LLMService
+            svc = LLMService()
+            await svc.initialize()
+            self._llm_service = svc
+        except Exception as exc:
+            log.warning("LLM Provider Runtime unavailable, using direct clients: %s", exc)
+            self._llm_service = None
+        return self._llm_service
 
-        print(
-            "🔥 AZURE API VERSION:",
-            os.getenv(
-                "AZURE_OPENAI_API_VERSION"
+    def _get_openai_client(self):
+        if self._openai_client is None:
+            from openai import AsyncOpenAI
+            self._openai_client = AsyncOpenAI(
+                api_key=os.getenv("OPENAI_API_KEY")
             )
-        )
+        return self._openai_client
 
-        print(
-            "🔥 AZURE ENDPOINT:",
-            os.getenv(
-                "AZURE_OPENAI_ENDPOINT"
+    def _get_azure_client(self):
+        if self._azure_client is None:
+            from openai import AsyncAzureOpenAI
+            self._azure_client = AsyncAzureOpenAI(
+                api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+                api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
+                azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
             )
-        )
-
-        # =================================================
-        # OPENAI CLIENT
-        # =================================================
-
-        self.openai_client = AsyncOpenAI(
-
-            api_key=os.getenv(
-                "OPENAI_API_KEY"
-            )
-        )
-
-        # =================================================
-        # AZURE OPENAI CLIENT
-        # =================================================
-
-        self.azure_client = AsyncAzureOpenAI(
-
-            api_key=os.getenv(
-                "AZURE_OPENAI_API_KEY"
-            ),
-
-            api_version=os.getenv(
-                "AZURE_OPENAI_API_VERSION"
-            ),
-
-            azure_endpoint=os.getenv(
-                "AZURE_OPENAI_ENDPOINT"
-            )
-        )
+        return self._azure_client
 
 
     # =====================================================
@@ -104,28 +81,10 @@ class LLMGateway:
 
         message: str,
 
-        payload: Dict[str, Any] = {}
+        payload: Dict[str, Any] = None
     ):
 
-        await event_bus.publish(
-
-            CognitionEvent(
-
-                agent="llm_gateway",
-
-                event_type=event_type,
-
-                status=status,
-
-                phase=phase,
-
-                execution_id=execution_id,
-
-                message=message,
-
-                payload=payload
-            )
-        )
+        await publish_event("llm_gateway", execution_id, event_type, status, phase, message, payload)
 
 
     # =====================================================
@@ -191,153 +150,63 @@ class LLMGateway:
     # =====================================================
 
     async def generate_azure(
-
         self,
-
         prompt: str,
-
         agent_type: str = "general",
-
         system_prompt: str = (
             "You are CortexPrime, "
             "an autonomous AI assistant."
         )
     ) -> Dict[str, Any]:
 
-        execution_id = str(
-            uuid4()
-        )
+        execution_id = str(uuid4())
+        model = self.get_model_for_agent(agent_type)
 
-        model = self.get_model_for_agent(
-            agent_type
-        )
+        svc = await self._ensure_llm_service()
+        if svc:
+            try:
+                response = await svc.generate(
+                    prompt=prompt,
+                    model=model,
+                    provider="openai",
+                    system_prompt=system_prompt,
+                )
+                if response.content:
+                    return {
+                        "success": True,
+                        "provider": "azure_openai",
+                        "model": model,
+                        "agent_type": agent_type,
+                        "output": response.content,
+                    }
+            except Exception as exc:
+                log.warning("LLM Provider Runtime azure fallback: %s", exc)
 
         try:
-
-            await self.publish_event(
-
-                execution_id,
-
-                "azure_generation_started",
-
-                "running",
-
-                "llm_generation",
-
-                f"Using Azure model: {model}",
-
-                {
-                    "agent_type": agent_type
-                }
+            client = self._get_azure_client()
+            response = await client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt},
+                ],
+                timeout=60,
             )
-
-            response = await (
-
-                self.azure_client
-                .chat.completions.create(
-
-                    model=model,
-
-                    messages=[
-
-                        {
-
-                            "role":
-                                "system",
-
-                            "content":
-                                system_prompt
-                        },
-
-                        {
-
-                            "role":
-                                "user",
-
-                            "content":
-                                prompt
-                        }
-                    ],
-
-                    # Note: temperature omitted — o-series reasoning models do not support it
-
-                    timeout=60
-                )
-            )
-
-            output = (
-
-                response
-                .choices[0]
-                .message.content
-            )
-
-            await self.publish_event(
-
-                execution_id,
-
-                "azure_generation_completed",
-
-                "completed",
-
-                "llm_generation",
-
-                "Azure generation completed",
-
-                {
-                    "model": model
-                }
-            )
-
+            output = response.choices[0].message.content
             return {
-
                 "success": True,
-
-                "provider":
-                    "azure_openai",
-
-                "model":
-                    model,
-
-                "agent_type":
-                    agent_type,
-
-                "output":
-                    output
+                "provider": "azure_openai",
+                "model": model,
+                "agent_type": agent_type,
+                "output": output,
             }
-
         except Exception as error:
-
-            print(
-                "\n❌ AZURE ERROR:",
-                str(error)
-            )
-
-            await self.publish_event(
-
-                execution_id,
-
-                "azure_generation_failed",
-
-                "failed",
-
-                "llm_generation",
-
-                str(error)
-            )
-
+            log.error("AZURE ERROR: %s", error)
             return {
-
                 "success": False,
-
-                "provider":
-                    "azure_openai",
-
-                "model":
-                    model,
-
-                "error":
-                    str(error)
+                "provider": "azure_openai",
+                "model": model,
+                "error": str(error),
             }
 
 
@@ -346,91 +215,94 @@ class LLMGateway:
     # =====================================================
 
     async def generate_openai(
-
         self,
-
         prompt: str,
-
         model: str = "gpt-4o-mini"
     ) -> Dict[str, Any]:
 
-        try:
-
-            response = await (
-
-                self.openai_client
-                .chat.completions.create(
-
+        svc = await self._ensure_llm_service()
+        if svc:
+            try:
+                response = await svc.generate(
+                    prompt=prompt,
                     model=model,
-
-                    messages=[
-
-                        {
-
-                            "role":
-                                "system",
-
-                            "content":
-                                (
-                                    "You are CortexPrime, "
-                                    "an autonomous AI assistant."
-                                )
-                        },
-
-                        {
-
-                            "role":
-                                "user",
-
-                            "content":
-                                prompt
-                        }
-                    ],
-
-                    temperature=0.7,
-
-                    timeout=60
+                    provider="openai",
                 )
+                if response.content:
+                    return {
+                        "success": True,
+                        "provider": "openai",
+                        "model": model,
+                        "output": response.content,
+                    }
+            except Exception as exc:
+                log.warning("LLM Provider Runtime openai fallback: %s", exc)
+
+        try:
+            client = self._get_openai_client()
+            response = await client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": "You are CortexPrime, an autonomous AI assistant."},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.7,
+                timeout=60,
             )
-
-            output = (
-
-                response
-                .choices[0]
-                .message.content
-            )
-
+            output = response.choices[0].message.content
             return {
-
                 "success": True,
-
-                "provider":
-                    "openai",
-
-                "model":
-                    model,
-
-                "output":
-                    output
+                "provider": "openai",
+                "model": model,
+                "output": output,
             }
-
         except Exception as error:
-
-            print(
-                "\n❌ OPENAI ERROR:",
-                str(error)
-            )
-
+            log.error("OPENAI ERROR: %s", error)
             return {
-
                 "success": False,
-
-                "provider":
-                    "openai",
-
-                "error":
-                    str(error)
+                "provider": "openai",
+                "error": str(error),
             }
+
+
+    # =====================================================
+    # COMPLETE (backward-compat for callers using llm_gateway.complete())
+    # =====================================================
+
+    async def complete(
+        self,
+        prompt: str,
+        system_prompt: str = "You are CortexPrime, an autonomous AI assistant.",
+        model: str = "gpt-4o",
+    ) -> str:
+        svc = await self._ensure_llm_service()
+        if svc:
+            try:
+                response = await svc.generate(
+                    prompt=prompt,
+                    model=model,
+                    system_prompt=system_prompt,
+                )
+                if response.content:
+                    return response.content
+            except Exception as exc:
+                log.warning("LLM Provider Runtime complete() fallback: %s", exc)
+
+        try:
+            client = self._get_openai_client()
+            response = await client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.7,
+                timeout=60,
+            )
+            return response.choices[0].message.content or ""
+        except Exception as error:
+            log.error("complete() error: %s", error)
+            return ""
 
 
     # =====================================================

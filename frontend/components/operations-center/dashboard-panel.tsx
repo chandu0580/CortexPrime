@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState, useMemo } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import {
   Activity,
@@ -14,8 +14,6 @@ import {
   ShieldCheck,
   HardDrive,
   Wifi,
-  Play,
-  ChevronRight,
   Server,
   Clock,
 } from "lucide-react"
@@ -23,10 +21,14 @@ import {
 import { cn } from "@/utils/cn"
 import { stagger, variants } from "@/lib/motion-tokens"
 import { StatusBadge, KpiCard, DataTable, SectionHeader } from "./shared"
+import { fetchDashboardResources } from "@/services/dashboard/resources"
+import { fetchDashboardHealth } from "@/services/dashboard/health"
+import { runtimeService } from "@/services/runtime"
+import { api } from "@/services/api"
 
-// ─── MOCK DATA ─────────────────────────────────────────────────────────────────
+// ─── TYPES ─────────────────────────────────────────────────────────────────────
 
-interface Alert {
+interface AlertItem {
   id: string
   severity: "critical" | "high" | "medium" | "low"
   title: string
@@ -34,15 +36,7 @@ interface Alert {
   time: string
 }
 
-interface Resource {
-  label: string
-  used: number
-  total: number
-  percent: number
-  color: string
-}
-
-interface ActiveMission {
+interface OpsMission {
   execution_id: string
   objective: string
   status: "running" | "pending" | "completed" | "failed"
@@ -50,34 +44,138 @@ interface ActiveMission {
   agent: string
 }
 
-const ALERTS: Alert[] = [
-  { id: "ALT-001", severity: "critical", title: "Worker Node Failure", message: "Worker node w-1024 unresponsive for 5 minutes", time: "2 min ago" },
-  { id: "ALT-002", severity: "high", title: "API Rate Limit Breach", message: "OpenAI rate limit at 92% capacity", time: "15 min ago" },
-  { id: "ALT-003", severity: "medium", title: "Connector Sync Delay", message: "GitHub connector sync delayed by 30 minutes", time: "1 hour ago" },
-  { id: "ALT-004", severity: "medium", title: "Memory Usage Warning", message: "Neo4j memory usage crossed 75% threshold", time: "2 hours ago" },
-  { id: "ALT-005", severity: "low", title: "Certificate Expiry", message: "SSL certificate for api.cortexprime.io expires in 14 days", time: "1 day ago" },
-]
-
-const RESOURCES: Resource[] = [
-  { label: "CPU", used: 42, total: 100, percent: 42, color: "#38B88A" },
-  { label: "Memory", used: 68, total: 100, percent: 68, color: "#F59E0B" },
-  { label: "Storage", used: 54, total: 100, percent: 54, color: "#38B88A" },
-  { label: "API Rate", used: 23, total: 100, percent: 23, color: "#38B88A" },
-]
-
-const ACTIVE_MISSIONS: ActiveMission[] = [
-  { execution_id: "EX-2401", objective: "Penetration test - network segment B", status: "running", started_at: "2026-07-04 09:30", agent: "Atlas" },
-  { execution_id: "EX-2402", objective: "Vulnerability scan - web assets", status: "running", started_at: "2026-07-04 09:15", agent: "Nexus" },
-  { execution_id: "EX-2403", objective: "Phishing simulation campaign", status: "pending", started_at: "2026-07-04 08:00", agent: "Aegis" },
-  { execution_id: "EX-2404", objective: "Compliance audit - SOC2 controls", status: "running", started_at: "2026-07-03 14:00", agent: "Oracle" },
-]
+interface OpsSnapshot {
+  platformHealthy: boolean
+  orgCount: number
+  userCount: number
+  activeWorkers: number
+  idleWorkers: number
+  activeConnectors: number
+  connectorErrors: number
+  modelCount: number
+}
 
 const SEVERITY_ORDER: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 }
+
+function classifySeverity(status: string): AlertItem["severity"] {
+  const s = status.toLowerCase()
+  if (s === "failed" || s === "error" || s === "blocked" || s === "rejected" || s === "stopped") return "critical"
+  if (s === "warning" || s === "degraded") return "high"
+  if (s === "info" || s === "pending") return "medium"
+  return "low"
+}
+
+function relativeTime(date: Date): string {
+  const s = Math.floor((Date.now() - date.getTime()) / 1000)
+  if (s < 60) return `${s}s ago`
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m}m ago`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}h ago`
+  const d = Math.floor(h / 24)
+  return `${d}d ago`
+}
+
+async function fetchOpsSnapshot(): Promise<OpsSnapshot> {
+  const results = await Promise.allSettled([
+    runtimeService.getAgents(),
+    api.get<Record<string, unknown>>("/api/telemetry/runtime"),
+    api.get<{ status: string }>("/health"),
+    api.get<{ users?: unknown[] }>("/api/auth/me"),
+    api.get<{ data?: unknown[] }>("/api/connectors/activity").catch(() => null),
+  ])
+
+  const [agentsRes, telemetryRes, healthRes, , connRes] = results
+
+  const agents = agentsRes.status === "fulfilled" ? agentsRes.value.registered_agents : []
+  const telemetry = telemetryRes.status === "fulfilled" ? telemetryRes.value as Record<string, unknown> : null
+  const health = healthRes.status === "fulfilled" ? healthRes.value : null
+  const connectors = connRes && connRes.status === "fulfilled" ? connRes.value : null
+
+  const activeWorkers = telemetry?.active_agents != null ? Number(telemetry.active_agents) : agents.length
+  const totalWorkers = agents.length
+  const connectorList = (connectors?.data as unknown[] | undefined) ?? []
+  const connectorErrors = connectorList.filter((c: unknown) => {
+    const entry = c as Record<string, unknown>
+    return entry.status === "error" || entry.status === "failed"
+  }).length
+
+  return {
+    platformHealthy: health?.status === "healthy" || health?.status === "running",
+    orgCount: 0,
+    userCount: agents.length,
+    activeWorkers,
+    idleWorkers: Math.max(0, totalWorkers - activeWorkers),
+    activeConnectors: connectorList.length - connectorErrors,
+    connectorErrors,
+    modelCount: 6,
+  }
+}
+
+function extractMissions(raw: unknown): OpsMission[] {
+  const missions: OpsMission[] = []
+  if (!raw || typeof raw !== "object") return missions
+  const body = raw as Record<string, unknown>
+
+  const active = body["active_missions"]
+  if (active && typeof active === "object" && !Array.isArray(active)) {
+    for (const [execId, entry] of Object.entries(active)) {
+      if (!entry || typeof entry !== "object") continue
+      const e = entry as Record<string, unknown>
+      const agentsInvolved = e["agentsInvolved"]
+      missions.push({
+        execution_id: execId,
+        objective: typeof e["goal"] === "string" ? e["goal"] : execId,
+        status: "running",
+        started_at: typeof e["started_at"] === "string" ? e["started_at"] : "",
+        agent: Array.isArray(agentsInvolved) && agentsInvolved.length > 0 ? String(agentsInvolved[0]) : "Unknown",
+      })
+    }
+  }
+
+  return missions
+}
+
+function extractAlertsFromEvents(raw: unknown): AlertItem[] {
+  const alerts: AlertItem[] = []
+  if (!raw || typeof raw !== "object") return alerts
+  const body = raw as Record<string, unknown>
+  const events = body["events"]
+  if (!Array.isArray(events)) return alerts
+
+  for (const entry of events.slice(-20)) {
+    if (!entry || typeof entry !== "object") continue
+    const e = entry as Record<string, unknown>
+    const status = String(e["status"] ?? "").toLowerCase()
+    const message = String(e["message"] ?? "")
+    const eventType = String(e["event_type"] ?? e["type"] ?? "")
+    const timestamp = typeof e["timestamp"] === "string" ? new Date(e["timestamp"]) : new Date()
+
+    const severity = classifySeverity(status)
+    if (severity === "low" && !message) continue
+
+    alerts.push({
+      id: typeof e["event_id"] === "string" ? e["event_id"] : `alert-${alerts.length}`,
+      severity,
+      title: eventType.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+      message: message || `${eventType} event occurred`,
+      time: relativeTime(timestamp),
+    })
+  }
+
+  alerts.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity])
+  return alerts.slice(0, 8)
+}
 
 const missionColumns = [
   { label: "Execution ID", key: "execution_id" },
   { label: "Objective", key: "objective" },
-  { label: "Status", key: "status", render: (row: ActiveMission) => <StatusBadge tone={row.status === "running" ? "active" : row.status === "pending" ? "pending" : row.status === "completed" ? "active" : "error"} label={row.status} /> },
+  { label: "Status", key: "status", render: (row: OpsMission) => (
+    <StatusBadge
+      tone={row.status === "running" ? "active" : row.status === "pending" ? "pending" : "error"}
+      label={row.status}
+    />
+  )},
   { label: "Started At", key: "started_at" },
   { label: "Agent", key: "agent" },
 ]
@@ -85,26 +183,108 @@ const missionColumns = [
 // ─── COMPONENT ─────────────────────────────────────────────────────────────────
 
 export default function DashboardPanel() {
-  const [selectedMission, setSelectedMission] = useState<ActiveMission | null>(null)
+  const [snapshot, setSnapshot] = useState<OpsSnapshot | null>(null)
+  const [alerts, setAlerts] = useState<AlertItem[]>([])
+  const [resources, setResources] = useState<{ label: string; used: number; percent: number; color: string }[]>([])
+  const [missions, setMissions] = useState<OpsMission[]>([])
+  const [selectedMission, setSelectedMission] = useState<OpsMission | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let mounted = true
+
+    async function load() {
+      const results = await Promise.allSettled([
+        fetchOpsSnapshot(),
+        fetchDashboardResources(),
+        fetchDashboardHealth(),
+        runtimeService.getActiveMissions(),
+        runtimeService.getEvents(),
+      ])
+
+      if (!mounted) return
+
+      const [snapRes, resRes, , missionsRes, eventsRes] = results
+
+      if (snapRes.status === "fulfilled") setSnapshot(snapRes.value)
+      if (resRes.status === "fulfilled") {
+        setResources(
+          resRes.value.resources.map((r) => ({
+            label: r.label,
+            used: parseInt(r.value),
+            percent: parseInt(r.value),
+            color: r.color,
+          })),
+        )
+      }
+      if (missionsRes.status === "fulfilled") {
+        setMissions(extractMissions(missionsRes.value))
+      }
+      if (eventsRes.status === "fulfilled") {
+        setAlerts(extractAlertsFromEvents(eventsRes.value))
+      }
+
+      setLoading(false)
+    }
+
+    load()
+
+    const interval = setInterval(load, 30000)
+    return () => {
+      mounted = false
+      clearInterval(interval)
+    }
+  }, [])
+
+  const isLoading = loading && !snapshot
 
   return (
     <div className="space-y-6">
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-        <KpiCard label="Platform Status" value="Operational" icon={Server} color="#38B88A" />
-        <KpiCard label="Organizations" value="3" icon={Building2} trend={{ value: "+1 this month", direction: "up" }} color="#6366F1" />
-        <KpiCard label="Users" value="48" icon={Users} trend={{ value: "+12%", direction: "up" }} color="#38B88A" />
-        <KpiCard label="Active Workers" value="12" icon={Cpu} trend={{ value: "7 idle", direction: "down" }} color="#F59E0B" />
-        <KpiCard label="Active Connectors" value="8" icon={Plug} trend={{ value: "1 error", direction: "down" }} color="#3B82F6" />
-        <KpiCard label="AI Models" value="6" icon={Brain} color="#8B5CF6" />
+        <KpiCard
+          label="Platform Status"
+          value={snapshot?.platformHealthy ? "Operational" : "Degraded"}
+          icon={Server}
+          color={snapshot?.platformHealthy ? "#38B88A" : "#F59E0B"}
+        />
+        <KpiCard label="Organizations" value={snapshot?.orgCount ?? 0} icon={Building2} color="#6366F1" />
+        <KpiCard label="Users" value={snapshot?.userCount ?? 0} icon={Users} trend={{ value: "Active", direction: "up" }} color="#38B88A" />
+        <KpiCard
+          label="Active Workers"
+          value={snapshot?.activeWorkers ?? 0}
+          icon={Cpu}
+          trend={{ value: `${snapshot?.idleWorkers ?? 0} idle`, direction: (snapshot?.idleWorkers ?? 0) > 0 ? "down" : "up" }}
+          color="#F59E0B"
+        />
+        <KpiCard
+          label="Active Connectors"
+          value={snapshot?.activeConnectors ?? 0}
+          icon={Plug}
+          trend={snapshot?.connectorErrors ? { value: `${snapshot.connectorErrors} error`, direction: "down" } : undefined}
+          color="#3B82F6"
+        />
+        <KpiCard label="AI Models" value={snapshot?.modelCount ?? 0} icon={Brain} color="#8B5CF6" />
       </div>
 
       {/* System Alerts */}
       <div>
-        <SectionHeader title="System Alerts" subtitle="Recent platform notifications" />
+        <SectionHeader title="System Alerts" subtitle={isLoading ? "Loading..." : "Recent platform notifications"} />
         <div className="border border-[#E8EDF3] bg-white rounded-[18px] overflow-hidden">
           <div className="divide-y divide-[#E8EDF3]">
-            {ALERTS.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]).map((alert) => {
+            {alerts.length === 0 && !isLoading && (
+              <div className="flex flex-col items-center gap-2 py-10 text-center">
+                <ShieldCheck className="h-8 w-8 text-[#38B88A]" />
+                <p className="text-sm font-medium text-[#111827]">No active alerts</p>
+                <p className="text-xs text-[#6B7280]">All systems operating normally</p>
+              </div>
+            )}
+            {isLoading && (
+              <div className="flex items-center justify-center py-10">
+                <Activity className="h-5 w-5 text-[#9CA3AF] animate-spin" />
+              </div>
+            )}
+            {alerts.map((alert) => {
               const severityColors: Record<string, { dot: string; bg: string; text: string; icon: typeof AlertTriangle }> = {
                 critical: { dot: "#EF4444", bg: "bg-[#FEE2E2]", text: "text-[#B91C1C]", icon: AlertTriangle },
                 high: { dot: "#F97316", bg: "bg-[#FFEDD5]", text: "text-[#C2410C]", icon: AlertTriangle },
@@ -139,7 +319,18 @@ export default function DashboardPanel() {
       <div>
         <SectionHeader title="Resource Utilization" subtitle="Real-time system resource usage" />
         <div className="border border-[#E8EDF3] bg-white rounded-[18px] p-5 space-y-4">
-          {RESOURCES.map((r) => (
+          {isLoading && (
+            <div className="flex items-center justify-center py-6">
+              <Activity className="h-5 w-5 text-[#9CA3AF] animate-spin" />
+            </div>
+          )}
+          {!isLoading && resources.length === 0 && (
+            <div className="flex flex-col items-center gap-2 py-6 text-center">
+              <Activity className="h-8 w-8 text-[#D1D5DB]" />
+              <p className="text-sm font-medium text-[#9CA3AF]">No resource data</p>
+            </div>
+          )}
+          {resources.map((r) => (
             <div key={r.label}>
               <div className="flex items-center justify-between mb-1.5">
                 <span className="text-sm font-medium text-[#111827]">{r.label}</span>
@@ -161,10 +352,10 @@ export default function DashboardPanel() {
 
       {/* Active Missions */}
       <div>
-        <SectionHeader title="Active Missions" subtitle="Currently running and pending missions" />
+        <SectionHeader title="Active Missions" subtitle={isLoading ? "Loading..." : "Currently running and pending missions"} />
         <DataTable
           columns={missionColumns}
-          data={ACTIVE_MISSIONS}
+          data={missions}
           onRowClick={setSelectedMission}
           selectedId={selectedMission?.execution_id}
           idKey="execution_id"

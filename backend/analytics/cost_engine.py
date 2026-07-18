@@ -24,11 +24,10 @@ Usage
 from __future__ import annotations
 
 import logging
-import os
-from datetime import date, datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from datetime import date, timedelta
+from typing import Dict, List, Optional
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 
 log = logging.getLogger(__name__)
 
@@ -121,9 +120,10 @@ class CostEngine:
         If cost_usd is None, it is estimated from the built-in cost table.
         """
         try:
+            from datetime import date as _date
+
             from backend.database.engine import AsyncSessionLocal as async_session
             from backend.database.models.cost_tracking import CostRecord
-            from datetime import date as _date
 
             if cost_usd is None:
                 cost_usd = estimate_cost(

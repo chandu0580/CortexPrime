@@ -8,13 +8,13 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from pgvector.sqlalchemy            import Vector
-from sqlalchemy                     import Float, Index, String, Text
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import Float, Index, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm                 import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column
 
-from backend.database.base          import Base
-from backend.database.models.mixins import UUIDPrimaryKeyMixin, TimestampMixin
+from backend.database.base import Base
+from backend.database.models.mixins import TimestampMixin, UUIDPrimaryKeyMixin
 
 _EMBED_DIM = 1536
 

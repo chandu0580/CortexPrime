@@ -20,9 +20,9 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
-from backend.computer.screen_observer import ScreenObserver, ScreenSnapshot, screen_observer
+from backend.computer.screen_observer import ScreenSnapshot, screen_observer
 
 log = logging.getLogger(__name__)
 

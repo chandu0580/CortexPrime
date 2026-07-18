@@ -6,7 +6,6 @@ from typing import Any, Dict, List, Optional
 from backend.security_center.identity import identity_manager
 from backend.security_center.models import (
     ApiKey,
-    Permission,
     PermissionAction,
     ResourceType,
     User,

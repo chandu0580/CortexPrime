@@ -20,7 +20,12 @@ function mapApiWorkItem(api: Record<string, unknown>, projectId: string): AzureW
 
 export const AzureBoardManager = {
   async createBoard(projectId: string, name: string, description: string = "", columns: string[] = ["New", "Active", "Resolved", "Closed"]): Promise<AzureBoard> {
+    const body = { name, description, filter: "", columns: columns.map((c) => ({ name: c, itemLimit: 0 })) }
+    const result = await AzureDevOpsClient.post<Record<string, unknown>>(`/${projectId}/_apis/work/boards`, body)
     const now = new Date().toISOString()
+    if (result.success && result.data) {
+      return { id: String(result.data.id), projectId, name: String(result.data.name), description: String(result.data.description ?? ""), columns: (result.data.columns as Record<string, unknown>[] ?? []).map((c) => String(c.name ?? c)), workItems: [], createdAt: String(result.data.createdDate ?? now), updatedAt: String(result.data.updatedDate ?? now) }
+    }
     return { id: name, projectId, name, description, columns, workItems: [], createdAt: now, updatedAt: now }
   },
 
@@ -64,8 +69,43 @@ export const AzureBoardManager = {
     return []
   },
 
-  async listBoards(projectId: string): Promise<AzureBoard[]> { return [] },
-  async getBoard(id: string): Promise<AzureBoard | null> { return null },
-  async getWorkItem(id: string): Promise<AzureWorkItem | null> { return null },
-  async listWorkItems(boardId: string): Promise<AzureWorkItem[]> { return [] },
+  async listBoards(projectId: string): Promise<AzureBoard[]> {
+    const result = await AzureDevOpsClient.get<Record<string, unknown>>(`/${projectId}/_apis/work/boards?$top=100`)
+    if (result.success && result.data?.value) {
+      return (result.data.value as Record<string, unknown>[]).map((b) => ({
+        id: String(b.id), projectId, name: String(b.name), description: String(b.description ?? ""),
+        columns: (b.columns as Record<string, unknown>[] ?? []).map((c) => String(c.name ?? c)),
+        workItems: [], createdAt: "", updatedAt: "",
+      }))
+    }
+    return []
+  },
+
+  async getBoard(id: string): Promise<AzureBoard | null> {
+    const projectId = id.split("/")[0] ?? ""
+    const boardId = id.split("/")[1] ?? id
+    const result = await AzureDevOpsClient.get<Record<string, unknown>>(`/${projectId}/_apis/work/boards/${boardId}`)
+    if (result.success && result.data) {
+      return {
+        id: String(result.data.id), projectId, name: String(result.data.name), description: String(result.data.description ?? ""),
+        columns: (result.data.columns as Record<string, unknown>[] ?? []).map((c) => String(c.name ?? c)),
+        workItems: [], createdAt: "", updatedAt: "",
+      }
+    }
+    return null
+  },
+
+  async getWorkItem(id: string): Promise<AzureWorkItem | null> {
+    const result = await AzureDevOpsClient.get<Record<string, unknown>>(`/_apis/wit/workitems/${id}?$expand=all`)
+    if (result.success && result.data) return mapApiWorkItem(result.data, "")
+    return null
+  },
+
+  async listWorkItems(boardId: string): Promise<AzureWorkItem[]> {
+    const ids = boardId.split("/")
+    const projectId = ids[0] ?? ""
+    const boardName = ids[1] ?? boardId
+    const wiql = `SELECT [System.Id] FROM WorkItems WHERE [System.BoardName] = '${boardName}'`
+    return this.queryWorkItems(projectId, wiql)
+  },
 }

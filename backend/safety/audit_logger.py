@@ -231,7 +231,8 @@ class AuditLogger:
     ) -> List[Dict[str, Any]]:
         """Paginated audit log query from PostgreSQL."""
         try:
-            from sqlalchemy import select, desc
+            from sqlalchemy import desc, select
+
             from backend.database.engine import AsyncSessionLocal
             from backend.database.models.audit_log import AuditLog
 
@@ -261,6 +262,7 @@ class AuditLogger:
     async def get_by_execution_async(self, execution_id: str) -> List[Dict[str, Any]]:
         try:
             from sqlalchemy import select
+
             from backend.database.engine import AsyncSessionLocal
             from backend.database.models.audit_log import AuditLog
 
@@ -287,7 +289,8 @@ class AuditLogger:
     ) -> Dict[str, Any]:
         """Return a paginated result set with total count."""
         try:
-            from sqlalchemy import select, desc, func
+            from sqlalchemy import desc, func, select
+
             from backend.database.engine import AsyncSessionLocal
             from backend.database.models.audit_log import AuditLog
 
@@ -350,7 +353,8 @@ class AuditLogger:
     async def get_summary_async(self) -> Dict[str, Any]:
         """Aggregate statistics from PostgreSQL."""
         try:
-            from sqlalchemy import select, func
+            from sqlalchemy import func, select
+
             from backend.database.engine import AsyncSessionLocal
             from backend.database.models.audit_log import AuditLog
 

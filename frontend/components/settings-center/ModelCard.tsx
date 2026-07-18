@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { defaultAIModels, AIModelConfig } from "./mockData";
+import { defaultAIModels, AIModelConfig } from "./dashboardData";
 import { Cpu, CheckCircle2, AlertTriangle, Layers, Sliders } from "lucide-react";
 import StatusBadge, { SettingsStatusType } from "./StatusBadge";
 import { variants } from "@/lib/motion-tokens";

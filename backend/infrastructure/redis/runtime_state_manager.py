@@ -25,16 +25,15 @@ from __future__ import annotations
 
 import json
 import logging
-from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from backend.infrastructure.redis.connection       import redis_connection
-from backend.infrastructure.redis.keys             import RedisKeys, TTL
-from backend.infrastructure.redis.cognition_cache  import cognition_cache
 from backend.infrastructure.redis.agent_activity_store import agent_activity_store
+from backend.infrastructure.redis.cognition_cache import cognition_cache
+from backend.infrastructure.redis.connection import redis_connection
+from backend.infrastructure.redis.keys import TTL, RedisKeys
+from backend.infrastructure.redis.pub_sub import pub_sub
 from backend.infrastructure.redis.transient_memory import transient_memory
-from backend.infrastructure.redis.pub_sub          import pub_sub
 
 log = logging.getLogger(__name__)
 
@@ -358,3 +357,4 @@ class RuntimeStateManager:
 # ===========================================================================
 
 runtime_state = RuntimeStateManager()
+runtime_state_manager = runtime_state  # alias: main.py imports this name

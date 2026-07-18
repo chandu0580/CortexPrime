@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "CortexPrime Helm Chart Values",
+  "type": "object",
+  "required": ["backend"],
+  "properties": {
+    "backend": {
+      "type": "object",
+      "required": ["env"],
+      "properties": {
+        "env": {
+          "type": "object",
+          "required": ["AUTH_DISABLED", "WS_AUTH_REQUIRED"],
+          "properties": {
+            "AUTH_DISABLED": {
+              "type": "string",
+              "enum": ["true", "false"],
+              "description": "Disable authentication globally. MUST be 'false' in production."
+            },
+            "WS_AUTH_REQUIRED": {
+              "type": "string",
+              "enum": ["true", "false"],
+              "description": "Require authentication for WebSocket connections."
+            },
+            "RATE_LIMIT_ENABLED": {
+              "type": "string",
+              "enum": ["true", "false"]
+            },
+            "BLOCK_ON_MIGRATION_FAILURE": {
+              "type": "string",
+              "enum": ["true", "false"]
+            },
+            "STRICT_EMBEDDING_VALIDATION": {
+              "type": "string",
+              "enum": ["true", "false"]
+            }
+          }
+        },
+        "secrets": {
+          "type": "object",
+          "required": ["POSTGRES_PASSWORD", "JWT_SECRET_KEY", "JWT_REFRESH_SECRET"],
+          "properties": {
+            "POSTGRES_PASSWORD": { "type": "string", "minLength": 8 },
+            "REDIS_PASSWORD": { "type": "string", "minLength": 8 },
+            "RABBITMQ_PASSWORD": { "type": "string", "minLength": 8 },
+            "NEO4J_PASSWORD": { "type": "string", "minLength": 8 },
+            "JWT_SECRET_KEY": { "type": "string", "minLength": 32 },
+            "JWT_REFRESH_SECRET": { "type": "string", "minLength": 32 }
+          }
+        },
+        "chromaStorageSize": {
+          "type": "string",
+          "pattern": "^[0-9]+(Gi|Mi)$",
+          "default": "10Gi"
+        }
+      }
+    },
+    "global": {
+      "type": "object",
+      "properties": {
+        "environment": {
+          "type": "string",
+          "enum": ["development", "staging", "production"]
+        },
+        "storageClass": { "type": "string" }
+      }
+    },
+    "postgresql": {
+      "type": "object",
+      "properties": {
+        "auth": {
+          "type": "object",
+          "required": ["password"],
+          "properties": {
+            "password": { "type": "string", "minLength": 8 }
+          }
+        }
+      }
+    }
+  }
+}

@@ -5,8 +5,7 @@ import heapq
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
-from uuid import uuid4
+from typing import Any, Dict, List, Optional
 
 log = logging.getLogger(__name__)
 

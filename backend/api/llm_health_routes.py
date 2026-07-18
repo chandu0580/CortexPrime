@@ -7,10 +7,9 @@ POST /health/llm/reset       — reset stats for one or all providers (admin-onl
 """
 from __future__ import annotations
 
-import os
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
 from backend.auth.dependencies import require_admin, require_user

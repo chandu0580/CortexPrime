@@ -7,7 +7,6 @@ GET  /status/{execution_id} — check mission status
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends

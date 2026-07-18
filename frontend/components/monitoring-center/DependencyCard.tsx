@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { dependenciesStatus, DependencyStatusData } from "./mockData";
+import { dependenciesStatus, DependencyStatusData } from "./dashboardData";
 import { variants } from "@/lib/motion-tokens";
 import { Database, Link2, Clock, Cpu } from "lucide-react";
 import StatusBadge, { HealthStatusType } from "./StatusBadge";

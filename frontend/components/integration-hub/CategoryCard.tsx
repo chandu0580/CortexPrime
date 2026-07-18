@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { integrationCategories } from "./mockData";
+import { integrationCategories } from "./dashboardData";
 import { variants } from "@/lib/motion-tokens";
 import { Layers, MessageSquare, Cloud, Cpu, Code, ShieldCheck, Database, HardDrive, BookOpen, Key } from "lucide-react";
 

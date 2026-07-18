@@ -1,0 +1,135 @@
+{
+  "mission": {
+    "objective": "Release version 1.0.1 owner: chandu0580 repo: Pocket-IoT with require_approval: False",
+    "execution_id": "3e1b7435-9e57-4c91-b7cf-d8adbd26384f",
+    "started_at": "2026-07-10T07:09:26.817226+00:00",
+    "completed_at": "2026-07-10T07:11:49.744673+00:00",
+    "duration_ms": 142921,
+    "status": "completed"
+  },
+  "stages": [
+    {
+      "name": "import_validation",
+      "status": "passed",
+      "duration_ms": 38922,
+      "details": {}
+    },
+    {
+      "name": "infrastructure",
+      "status": "completed",
+      "duration_ms": 5452,
+      "details": {
+        "redis": "failed",
+        "neo4j": "unavailable",
+        "github_connector": "not_registered",
+        "prometheus": "recording"
+      }
+    },
+    {
+      "name": "skill_definition",
+      "status": "passed",
+      "duration_ms": 0,
+      "details": {}
+    },
+    {
+      "name": "connector_registration",
+      "status": "passed",
+      "duration_ms": 32,
+      "details": {}
+    },
+    {
+      "name": "connector_initialization",
+      "status": "passed",
+      "duration_ms": 7108,
+      "details": {}
+    },
+    {
+      "name": "mission_execution",
+      "status": "completed",
+      "duration_ms": 142921,
+      "details": {
+        "execution_id": "3e1b7435-9e57-4c91-b7cf-d8adbd26384f",
+        "confidence": 0.88
+      }
+    },
+    {
+      "name": "post_execution",
+      "status": "completed",
+      "duration_ms": 0,
+      "details": {
+        "redis_pipeline_context": "found (10 keys)",
+        "replay_events": "17 events",
+        "audit_log": "5 entries",
+        "neo4j_graph": "not_checked"
+      }
+    }
+  ],
+  "errors": [],
+  "connector_requests": [],
+  "retry_behavior": [],
+  "replay_events": [
+    "memory_retrieved",
+    "memory_retrieved",
+    "memory_ranked",
+    "memory_retrieved",
+    "agent_started",
+    "agent_completed",
+    "tool_called",
+    "tool_failed",
+    "workflow_started",
+    "workflow_step_started",
+    "workflow_step_failed",
+    "workflow_completed",
+    "agent_started",
+    "agent_completed",
+    "agent_started",
+    "agent_completed",
+    "mission_completed"
+  ],
+  "redis_state": {
+    "pipeline_context_keys": [
+      "execution_id",
+      "status",
+      "objective",
+      "started_at",
+      "completed_at",
+      "confidence_score",
+      "response_length",
+      "stages",
+      "tools",
+      "agents"
+    ],
+    "tool_count": "N/A",
+    "has_skill_execution": false
+  },
+  "neo4j_state": null,
+  "audit_entries": [
+    {
+      "action": "mission_start",
+      "outcome": "started",
+      "target": ""
+    },
+    {
+      "action": "execute_mission",
+      "outcome": "allowed",
+      "target": ""
+    },
+    {
+      "action": "create_branch",
+      "outcome": "failed",
+      "target": "github/create_release_branch"
+    },
+    {
+      "action": "mission_complete",
+      "outcome": "completed",
+      "target": ""
+    },
+    {
+      "action": "mission_complete",
+      "outcome": "completed",
+      "target": ""
+    }
+  ],
+  "prometheus_metrics": {},
+  "integration_bugs": []
+}

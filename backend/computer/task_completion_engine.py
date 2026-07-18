@@ -21,10 +21,10 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from backend.computer.screen_observer     import ScreenObserver, ScreenSnapshot, screen_observer
-from backend.computer.vision_reasoner     import VisionReasoner, ActionDecision, vision_reasoner
-from backend.computer.verification_engine import VerificationEngine, VerificationResult, verification_engine
-from backend.computer.recovery_engine     import RecoveryEngine, RecoveryResult, recovery_engine
+from backend.computer.recovery_engine import recovery_engine
+from backend.computer.screen_observer import ScreenSnapshot, screen_observer
+from backend.computer.verification_engine import VerificationResult, verification_engine
+from backend.computer.vision_reasoner import ActionDecision, vision_reasoner
 
 log = logging.getLogger(__name__)
 
@@ -538,7 +538,7 @@ class TaskCompletionEngine:
         session_id:   Optional[str]         = None,
     ) -> None:
         try:
-            from backend.events.event_bus    import event_bus
+            from backend.events.event_bus import event_bus
             from backend.events.event_models import CognitionEvent
             await event_bus.publish(CognitionEvent(
                 agent        = "computer_agent_v2",
@@ -597,7 +597,6 @@ def _audit_computer_action(
 ) -> None:
     """Fire-and-forget audit log entry for a computer agent desktop action."""
     try:
-        import asyncio
         from backend.safety.audit_logger import audit_logger
         audit_logger.log(
             execution_id = execution_id,
@@ -624,8 +623,8 @@ async def _governance_check(
 ) -> bool:
     """Gate risky computer actions through the governance layer."""
     try:
-        from backend.safety.safety_guard import safety_guard
         from backend.safety.audit_logger import audit_logger
+        from backend.safety.safety_guard import safety_guard
 
         assessment = safety_guard.assess_action(
             action = decision.action,

@@ -77,6 +77,18 @@ export const GitHubDiscussionManager = {
   },
 
   async lockDiscussion(owner: string, repo: string, discussionId: string): Promise<GitHubDiscussion | null> {
+    const lockQuery = `
+      mutation($discussionId: ID!) {
+        lockLockable(input: { lockableId: $discussionId, lockReason: RESOLVED }) {
+          lockable { ... on Discussion { id locked lockedReason } }
+        }
+      }
+    `
+    const result = await GitHubClient.graphql<Record<string, unknown>>(lockQuery, { discussionId })
+    if (result.success && result.data) {
+      const lockable = ((result.data as Record<string, unknown>).lockLockable as Record<string, unknown>)?.lockable as Record<string, unknown> ?? {}
+      return { id: String(lockable.id), repositoryId: `${owner}/${repo}`, number: 0, title: "", body: "", author: "", category: "", locked: true, answerChosen: false, comments: 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+    }
     return null
   },
 

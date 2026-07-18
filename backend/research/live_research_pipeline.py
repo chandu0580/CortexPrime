@@ -36,10 +36,10 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from backend.research.tavily_client    import tavily_client, TavilyResponse
-from backend.research.source_ranker    import source_ranker
-from backend.research.citation_engine  import citation_engine, Citation
+from backend.research.citation_engine import citation_engine
 from backend.research.research_telemetry import research_telemetry
+from backend.research.source_ranker import source_ranker
+from backend.research.tavily_client import TavilyResponse, tavily_client
 
 logger = logging.getLogger(__name__)
 

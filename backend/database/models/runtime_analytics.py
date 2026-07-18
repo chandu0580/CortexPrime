@@ -9,12 +9,12 @@ from __future__ import annotations
 import uuid
 from typing import Any, Dict, Optional
 
-from sqlalchemy                     import BigInteger, Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm                 import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column
 
-from backend.database.base          import Base
-from backend.database.models.mixins import UUIDPrimaryKeyMixin, TimestampMixin
+from backend.database.base import Base
+from backend.database.models.mixins import TimestampMixin, UUIDPrimaryKeyMixin
 
 
 class RuntimeAnalyticsRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):

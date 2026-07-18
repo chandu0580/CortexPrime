@@ -5,7 +5,6 @@ import hmac
 import logging
 import os
 import secrets
-import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -19,8 +18,8 @@ from backend.security_center.models import (
     PermissionAction,
     ResourceType,
     Role,
-    SecretReference,
     SecretProvider,
+    SecretReference,
     ServiceIdentity,
     User,
     new_id,

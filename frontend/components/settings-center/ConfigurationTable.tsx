@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { initialApiKeys, APIKeyRow } from "./mockData";
+import { initialApiKeys, APIKeyRow } from "./dashboardData";
 import { Key, RefreshCw, AlertTriangle, ShieldCheck, Clipboard, Plus, Trash2 } from "lucide-react";
 import StatusBadge, { SettingsStatusType } from "./StatusBadge";
 

@@ -17,17 +17,17 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
 from backend.auth.dependencies import require_user
-from backend.memory.stores.episodic_store    import episodic_store
-from backend.memory.stores.semantic_store    import semantic_store
-from backend.memory.stores.reflection_store  import reflection_store
-from backend.memory.db.postgres_client       import postgres_client
+from backend.memory.db.postgres_client import postgres_client
+from backend.memory.stores.episodic_store import episodic_store
+from backend.memory.stores.reflection_store import reflection_store
+from backend.memory.stores.semantic_store import semantic_store
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/memory/explorer", tags=["Memory Explorer"])

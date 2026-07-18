@@ -17,8 +17,8 @@ import logging
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
-from backend.websocket.connection_manager import connection_manager
 from backend.events.event_bus import event_bus
+from backend.websocket.connection_manager import connection_manager
 
 log = logging.getLogger(__name__)
 

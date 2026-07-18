@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { authStatusCards } from "./mockData";
+import { authStatusCards } from "./dashboardData";
 import { Key, ShieldAlert, CheckCircle, Clock, RefreshCw } from "lucide-react";
 import StatusBadge, { IntegrationStatusType } from "./StatusBadge";
 import { variants } from "@/lib/motion-tokens";

@@ -31,7 +31,6 @@ except ImportError:
 
 from backend.infrastructure.rabbitmq.schemas import Exchanges, Queues
 
-
 # =========================================================
 # MESSAGE TTL  (default 30 minutes)
 # =========================================================

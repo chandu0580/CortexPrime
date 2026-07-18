@@ -250,7 +250,7 @@ async def _emit_governance_event(
 ) -> None:
     """Broadcast a governance event over the WebSocket event bus."""
     try:
-        from backend.events.event_bus    import event_bus
+        from backend.events.event_bus import event_bus
         from backend.events.event_models import CognitionEvent
         await event_bus.publish(CognitionEvent(
             agent            = "governance",

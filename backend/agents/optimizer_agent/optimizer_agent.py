@@ -1,22 +1,11 @@
-from typing import Dict, Any
-from datetime import datetime
 import json
+from datetime import datetime
+from typing import Any, Dict
 
+from backend.events.event_bus import event_bus
+from backend.events.event_models import CognitionEvent, EventTypes
+from backend.providers.openai_provider import openai_provider
 from backend.runtime.base_agent import BaseAgent
-
-from backend.providers.openai_provider import (
-    openai_provider
-)
-
-from backend.events.event_bus import (
-    event_bus
-)
-
-from backend.events.event_models import (
-    CognitionEvent,
-    EventTypes
-)
-
 
 # ==========================================
 # OPTIMIZER AGENT

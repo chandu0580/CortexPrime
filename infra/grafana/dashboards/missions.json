@@ -1,0 +1,81 @@
+{
+  "title": "CortexPrime — Mission Dashboard",
+  "uid": "cortex-missions",
+  "tags": ["cortexprime", "missions"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "Active Missions",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [{ "expr": "cortex_active_missions", "datasource": "Prometheus" }]
+    },
+    {
+      "id": 2, "type": "stat", "title": "Completed (24h)",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{"color":"green","value":null}] } } },
+      "targets": [{ "expr": "increase(cortex_missions_completed_total[24h])", "datasource": "Prometheus" }]
+    },
+    {
+      "id": 3, "type": "stat", "title": "Failed (24h)",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{"color":"green","value":null},{"color":"red","value":1}] } } },
+      "targets": [{ "expr": "increase(cortex_missions_failed_total[24h])", "datasource": "Prometheus" }]
+    },
+    {
+      "id": 4, "type": "stat", "title": "Avg Duration (5m)",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [{ "expr": "rate(cortex_mission_duration_seconds_sum[5m]) / rate(cortex_mission_duration_seconds_count[5m])", "datasource": "Prometheus" }]
+    },
+    {
+      "id": 5, "type": "stat", "title": "Success Rate (24h)",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": { "defaults": { "unit": "percent", "color": { "mode": "thresholds" }, "thresholds": { "steps": [{"color":"red","value":null},{"color":"yellow","value":90},{"color":"green","value":99}] } } },
+      "targets": [{ "expr": "sum(increase(cortex_missions_completed_total[24h])) / (sum(increase(cortex_missions_completed_total[24h])) + sum(increase(cortex_missions_failed_total[24h]))) * 100", "datasource": "Prometheus" }]
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "Mission Execution Rate",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "fieldConfig": { "defaults": { "custom": { "lineWidth": 2, "fillOpacity": 10 } } },
+      "targets": [
+        { "expr": "rate(cortex_missions_completed_total[1m])", "legendFormat": "completed", "datasource": "Prometheus" },
+        { "expr": "rate(cortex_missions_failed_total[1m])", "legendFormat": "failed", "datasource": "Prometheus" }
+      ]
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "Mission Duration p50 / p95 / p99",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, rate(cortex_mission_duration_seconds_bucket[5m]))", "legendFormat": "p50", "datasource": "Prometheus" },
+        { "expr": "histogram_quantile(0.95, rate(cortex_mission_duration_seconds_bucket[5m]))", "legendFormat": "p95", "datasource": "Prometheus" },
+        { "expr": "histogram_quantile(0.99, rate(cortex_mission_duration_seconds_bucket[5m]))", "legendFormat": "p99", "datasource": "Prometheus" }
+      ]
+    },
+    {
+      "id": 8, "type": "timeseries", "title": "Missions by Agent",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "targets": [{ "expr": "rate(cortex_missions_by_agent_total[5m])", "legendFormat": "{{agent}}", "datasource": "Prometheus" }]
+    },
+    {
+      "id": 9, "type": "timeseries", "title": "Mission Queue Depth",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{"color":"green","value":null},{"color":"yellow","value":100},{"color":"red","value":500}] } } },
+      "targets": [{ "expr": "cortex_mission_queue_depth", "legendFormat": "queue_depth", "datasource": "Prometheus" }]
+    },
+    {
+      "id": 10, "type": "table", "title": "Recent Failures",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 20 },
+      "transformations": [{ "id": "filterFieldsByName", "options": { "include": { "names": ["mission", "agent", "error", "timestamp"] } } }],
+      "targets": [{ "expr": "topk(10, increase(cortex_mission_failures_total[1h]))", "datasource": "Prometheus" }]
+    }
+  ]
+}

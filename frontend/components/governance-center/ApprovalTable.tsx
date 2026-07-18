@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { approvalRequests, ApprovalRequest } from "./mockData";
+import { approvalRequests, ApprovalRequest } from "./dashboardData";
 import { Check, X, ShieldAlert, Cpu, User } from "lucide-react";
 import StatusBadge from "./StatusBadge";
 

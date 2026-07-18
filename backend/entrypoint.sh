@@ -41,13 +41,27 @@ CREATE TABLE IF NOT EXISTS alembic_version (
 );
 -- Only stamp if the table is empty (never been touched by alembic)
 INSERT INTO alembic_version (version_num)
-SELECT '0004'
+SELECT '0008'
 WHERE NOT EXISTS (SELECT 1 FROM alembic_version);
 SQL
     echo "[entrypoint] alembic_version table ready."
 else
     echo "[entrypoint] DATABASE_URL not set — skipping pre-stamp (will rely on alembic upgrade)."
 fi
+
+# Acquire a PostgreSQL advisory lock to prevent concurrent migrations in
+# multi-replica deployments. Only one replica will proceed; the others wait.
+echo "[entrypoint] Acquiring advisory lock for migration…"
+psql "$DATABASE_URL" -c "SELECT pg_advisory_lock(2024071801);" 2>/dev/null || true
+
+MIGRATION_LOCK_HELD=true
+cleanup() {
+    if [ "${MIGRATION_LOCK_HELD}" = "true" ]; then
+        echo "[entrypoint] Releasing advisory lock…"
+        psql "$DATABASE_URL" -c "SELECT pg_advisory_unlock(2024071801);" 2>/dev/null || true
+    fi
+}
+trap cleanup EXIT
 
 # Retry up to 10 times with 3-second back-off so the container can start
 # before PostgreSQL is fully ready (common in docker compose up --build).
@@ -78,6 +92,11 @@ while [ $attempt -le $MAX_RETRIES ]; do
     sleep $RETRY_DELAY
     attempt=$((attempt + 1))
 done
+
+# Release advisory lock explicitly before starting the app
+MIGRATION_LOCK_HELD=false
+psql "$DATABASE_URL" -c "SELECT pg_advisory_unlock(2024071801);" 2>/dev/null || true
+trap - EXIT
 
 echo "[entrypoint] -------------------------------------------------------"
 echo "[entrypoint] Starting application: $*"

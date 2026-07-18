@@ -8,6 +8,6 @@ import type { MissionsFilter } from "@/services/mission-control"
 export function useMissionList(filter?: MissionsFilter) {
     return useQuery({
         queryKey: [...queryKeys.missionControl.missions(), filter].filter(Boolean),
-        queryFn: () => getMissions(filter),
+        queryFn: () => getMissions(),
     })
 }

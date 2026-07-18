@@ -146,7 +146,7 @@ stages:
                   inputs:
                     command: upgrade
                     chartType: filepath
-                    chartPath: infra/helm/cortexprime
+                    chartPath: helm/cortexprime
                     releaseName: cortexprime
                     namespace: cortexprime
                     valueFile: configs/environments/production.yaml

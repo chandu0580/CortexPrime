@@ -1,21 +1,31 @@
+"use client"
+
+import { useWorkspaceExecutive } from "@/hooks"
 import { SectionHeader } from "@/components/mission-control/shared/SectionHeader"
-import { EmptyState } from "@/components/mission-control/shared/EmptyState"
+import { InfoCard } from "@/components/mission-control/shared/InfoCard"
 
 export function PortfolioOverview() {
+  const { data, isLoading } = useWorkspaceExecutive()
+
+  const items = [
+    { label: "Active Missions", value: isLoading ? "—" : String(data?.activeMissions ?? 0) },
+    { label: "Active Agents", value: isLoading ? "—" : String(data?.activeAgents ?? 0) },
+    { label: "Completed", value: isLoading ? "—" : String(data?.completedMissions ?? 0) },
+    { label: "Failed", value: isLoading ? "—" : String(data?.failedMissions ?? 0) },
+  ]
+
   return (
     <section>
       <SectionHeader title="Mission Portfolio Overview" />
 
-      <EmptyState
-        variant="shell"
-        icon={
-          <svg className="h-5 w-5 text-[#D1D5DB]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008h-.008v-.008zm0 3h.008v.008h-.008v-.008zm0 3h.008v.008h-.008v-.008z" />
-          </svg>
-        }
-        title="No active portfolio"
-        description="Commission missions to build the enterprise portfolio"
-      />
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {items.map((item) => (
+          <InfoCard key={item.label}>
+            <p className="mb-2 text-[0.78rem] font-medium text-[#111827]">{item.label}</p>
+            <p className="text-[1.1rem] font-bold text-[#111827]">{item.value}</p>
+          </InfoCard>
+        ))}
+      </div>
     </section>
   )
 }

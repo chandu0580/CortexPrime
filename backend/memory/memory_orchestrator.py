@@ -20,21 +20,18 @@ import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 
+from backend.events.event_bus import event_bus
+from backend.events.event_models import CognitionEvent
+from backend.memory.graph.cognition_graph import cognition_graph
 from backend.memory.models import (
     AssembledContext,
-    EpisodicEntry,
-    SemanticEntry,
-    ReflectionEntry,
 )
-from backend.memory.stores.episodic_store       import episodic_store
-from backend.memory.stores.semantic_store       import semantic_store
-from backend.memory.stores.reflection_store     import reflection_store
-from backend.memory.stores.context_store        import context_store
-from backend.memory.graph.cognition_graph       import cognition_graph
-from backend.memory.retrieval.retrieval_engine  import retrieval_engine, RetrievalConfig
 from backend.memory.retrieval.compression_engine import compression_engine
-from backend.events.event_bus                   import event_bus
-from backend.events.event_models                import CognitionEvent
+from backend.memory.retrieval.retrieval_engine import RetrievalConfig, retrieval_engine
+from backend.memory.stores.context_store import context_store
+from backend.memory.stores.episodic_store import episodic_store
+from backend.memory.stores.reflection_store import reflection_store
+from backend.memory.stores.semantic_store import semantic_store
 
 logger = logging.getLogger(__name__)
 
@@ -307,9 +304,9 @@ class MemoryOrchestrator:
 
     async def health(self) -> Dict[str, Any]:
         """Return availability status of each memory subsystem."""
+        from backend.memory.db.neo4j_client import neo4j_client
         from backend.memory.db.postgres_client import postgres_client
-        from backend.memory.db.redis_client    import redis_client
-        from backend.memory.db.neo4j_client    import neo4j_client
+        from backend.memory.db.redis_client import redis_client
         from backend.memory.embedding_pipeline import embedding_pipeline
 
         return {

@@ -8,7 +8,6 @@ Coordinates:
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 from typing import Any, Dict, List, Optional
@@ -17,7 +16,6 @@ from backend.memory.embedding_pipeline import embedding_pipeline
 from backend.workspace.chunking_engine import chunk_pages
 from backend.workspace.document_processor import document_processor
 from backend.workspace.models import (
-    Citation,
     Workspace,
     WorkspaceChatRequest,
     WorkspaceChatResponse,

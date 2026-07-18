@@ -9,7 +9,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database.models.semantic_memory import SemanticMemoryRecord
-from backend.database.repositories.base      import BaseRepository
+from backend.database.repositories.base import BaseRepository
 
 
 class SemanticRepository(BaseRepository[SemanticMemoryRecord]):
@@ -66,7 +66,7 @@ class SemanticRepository(BaseRepository[SemanticMemoryRecord]):
         """
         embed_literal = f"[{','.join(str(v) for v in embedding)}]"
 
-        stmt = text(f"""
+        stmt = text("""
             SELECT
                 id,
                 concept,
@@ -75,16 +75,23 @@ class SemanticRepository(BaseRepository[SemanticMemoryRecord]):
                 confidence,
                 metadata,
                 created_at,
-                1 - (embedding <=> '{embed_literal}'::vector) AS similarity
+                1 - (embedding <=> CAST(:embedding AS vector)) AS similarity
             FROM semantic_memory
             WHERE embedding IS NOT NULL
-              AND confidence >= {min_confidence}
-              AND 1 - (embedding <=> '{embed_literal}'::vector) >= {min_similarity}
-            ORDER BY embedding <=> '{embed_literal}'::vector
-            LIMIT {limit}
-        """)  # nosec — values are floats / ints, not user input
+              AND confidence >= :min_conf
+              AND 1 - (embedding <=> CAST(:embedding AS vector)) >= :min_sim
+            ORDER BY embedding <=> CAST(:embedding AS vector)
+            LIMIT :lim
+        """)
 
-        rows = (await self._session.execute(stmt)).mappings().all()
+        rows = (await self._session.execute(
+            stmt, {
+                "embedding": embed_literal,
+                "min_conf": min_confidence,
+                "min_sim": min_similarity,
+                "lim": limit,
+            }
+        )).mappings().all()
         return [dict(r) for r in rows]
 
     # ------------------------------------------------------------------

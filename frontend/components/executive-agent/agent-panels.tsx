@@ -6,7 +6,10 @@ import { GlassCard, StatusBadge, PulseDot } from "@/components/executive-platfor
 import { Bell, X, AlertTriangle, CheckCircle2, PlugZap, Shield, DollarSign, Lightbulb, TrendingUp } from "lucide-react"
 
 export function NotificationCenter() {
-  const { notifications, markRead, dismissNotification, startAgent } = useExecutiveAgentStore()
+  const notifications = useExecutiveAgentStore((s) => s.notifications)
+  const markRead = useExecutiveAgentStore((s) => s.markRead)
+  const dismissNotification = useExecutiveAgentStore((s) => s.dismissNotification)
+  const startAgent = useExecutiveAgentStore((s) => s.startAgent)
 
   useEffect(() => { startAgent() }, [startAgent])
 
@@ -77,7 +80,8 @@ export function NotificationCenter() {
 }
 
 export function SuggestionsPanel() {
-  const { suggestions, dismissSuggestion } = useExecutiveAgentStore()
+  const suggestions = useExecutiveAgentStore((s) => s.suggestions)
+  const dismissSuggestion = useExecutiveAgentStore((s) => s.dismissSuggestion)
 
   const priorityColor = (p: string) => {
     if (p === "critical") return "border-red-500/20 bg-red-500/5"

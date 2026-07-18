@@ -1,32 +1,13 @@
-from typing import Dict, Any, List
-from uuid import uuid4
-from datetime import datetime
 import asyncio
+from datetime import datetime
+from typing import Any, Dict, List
+from uuid import uuid4
 
-from backend.events.event_bus import (
-    event_bus
-)
-
-from backend.events.event_models import (
-    CognitionEvent
-)
-
-from backend.computer.computer_agent import (
-    computer_agent
-)
-
-from backend.tools.browser_agent import (
-    browser_agent
-)
-
-from backend.research.deep_research_engine import (
-    deep_research_engine
-)
-
-from backend.voice.voice_runtime import (
-    voice_runtime
-)
-
+from backend.computer.computer_agent import computer_agent
+from backend.events.event_bus import event_bus, publish_event
+from backend.events.event_models import CognitionEvent
+from backend.research.deep_research_engine import deep_research_engine
+from backend.tools.browser_agent import browser_agent
 
 # ==========================================
 # AGENT ROUTER
@@ -136,35 +117,10 @@ class AgentRouter:
 
         message: str,
 
-        payload: Dict[str, Any] = {}
+        payload: Dict[str, Any] = None
     ):
 
-        await event_bus.publish(
-
-            CognitionEvent(
-
-                agent=
-                    "agent_router",
-
-                event_type=
-                    event_type,
-
-                status=
-                    status,
-
-                phase=
-                    phase,
-
-                execution_id=
-                    execution_id,
-
-                message=
-                    message,
-
-                payload=
-                    payload
-            )
-        )
+        await publish_event("agent_router", execution_id, event_type, status, phase, message, payload)
 
 
     # ==========================================

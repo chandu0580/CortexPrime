@@ -35,7 +35,7 @@ import os
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Sequence
 
 try:
     from backend.core.logging import get_logger as _get_logger
@@ -215,8 +215,36 @@ _DEFAULT_SYSTEM = (
 )
 
 
+async def _llm_service_generate(prompt: str, system: str, provider: str, model: str = "") -> str:
+    """Try LLM Provider Runtime first, fall back to direct gateway."""
+    try:
+        from backend.llm_provider.registry import registry
+        from backend.llm_provider.service import LLMService
+        registry.discover()
+        svc = LLMService()
+        await svc.initialize()
+        response = await svc.generate(
+            prompt=prompt,
+            model=model,
+            provider=provider,
+            system_prompt=system,
+        )
+        if response.content:
+            return response.content
+    except Exception as exc:
+        log.warning("LLM Provider Runtime %s fallback: %s", provider, exc)
+
+    from backend.llm.llm_gateway import llm_gateway
+    raise RuntimeError(f"LLM Provider Runtime and gateway both failed for {provider}")
+
+
 async def _call_azure(prompt: str, system: str, agent_type: str) -> str:
-    """Call Azure OpenAI via the existing LLMGateway."""
+    """Call Azure OpenAI via LLM Provider Runtime, fallback to legacy gateway."""
+    try:
+        return await _llm_service_generate(prompt, system, "openai",
+                                           os.getenv("MODEL_ORCHESTRATOR", "gpt-4o"))
+    except RuntimeError:
+        pass
     from backend.llm.llm_gateway import llm_gateway
     result = await llm_gateway.generate_azure(
         prompt=prompt,
@@ -232,9 +260,12 @@ async def _call_azure(prompt: str, system: str, agent_type: str) -> str:
 
 
 async def _call_openai(prompt: str, system: str, model: str = "gpt-4o-mini") -> str:
-    """Call OpenAI directly via the existing LLMGateway."""
+    """Call OpenAI via LLM Provider Runtime, fallback to legacy gateway."""
+    try:
+        return await _llm_service_generate(prompt, system, "openai", model)
+    except RuntimeError:
+        pass
     from backend.llm.llm_gateway import llm_gateway
-    # Prefer gpt-5 on direct openai if available, fall back to gpt-4o
     result = await llm_gateway.generate_openai(prompt=prompt, model=model)
     if not result.get("success"):
         raise RuntimeError(result.get("error", "OpenAI call failed"))
@@ -245,7 +276,12 @@ async def _call_openai(prompt: str, system: str, model: str = "gpt-4o-mini") -> 
 
 
 async def _call_claude(prompt: str, system: str) -> str:
-    """Call Anthropic Claude."""
+    """Call Anthropic Claude via LLM Provider Runtime, fallback to direct."""
+    try:
+        return await _llm_service_generate(prompt, system, "anthropic",
+                                           os.getenv("MODEL_CLAUDE", "claude-opus-4-5"))
+    except RuntimeError:
+        pass
     api_key = os.getenv("ANTHROPIC_API_KEY", "")
     if not api_key:
         raise RuntimeError("ANTHROPIC_API_KEY not configured")
@@ -253,7 +289,6 @@ async def _call_claude(prompt: str, system: str) -> str:
         import anthropic
     except ImportError as exc:
         raise RuntimeError("anthropic package not installed") from exc
-
     model = os.getenv("MODEL_CLAUDE", "claude-opus-4-5")
     client = anthropic.AsyncAnthropic(api_key=api_key)
     response = await asyncio.wait_for(
@@ -272,7 +307,12 @@ async def _call_claude(prompt: str, system: str) -> str:
 
 
 async def _call_gemini(prompt: str, system: str) -> str:
-    """Call Google Gemini."""
+    """Call Google Gemini via LLM Provider Runtime, fallback to direct."""
+    try:
+        return await _llm_service_generate(prompt, system, "gemini",
+                                           os.getenv("MODEL_GEMINI", "gemini-2.0-flash-exp"))
+    except RuntimeError:
+        pass
     api_key = os.getenv("GOOGLE_API_KEY", "")
     if not api_key:
         raise RuntimeError("GOOGLE_API_KEY not configured")
@@ -280,7 +320,6 @@ async def _call_gemini(prompt: str, system: str) -> str:
         import google.generativeai as genai
     except ImportError as exc:
         raise RuntimeError("google-generativeai package not installed") from exc
-
     model_name = os.getenv("MODEL_GEMINI", "gemini-2.0-flash-exp")
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(
@@ -298,13 +337,16 @@ async def _call_gemini(prompt: str, system: str) -> str:
 
 
 async def _call_ollama(prompt: str, system: str) -> str:
-    """Call local Ollama instance via HTTP."""
+    """Call local Ollama via LLM Provider Runtime, fallback to direct HTTP."""
+    try:
+        return await _llm_service_generate(prompt, system, "ollama",
+                                           os.getenv("MODEL_OLLAMA", "llama3.2"))
+    except RuntimeError:
+        pass
     import httpx
-
     base_url  = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     model     = os.getenv("MODEL_OLLAMA", "llama3.2")
     full_prompt = f"{system}\n\nUser: {prompt}\nAssistant:"
-
     async with httpx.AsyncClient(timeout=CALL_TIMEOUT_SECS) as client:
         response = await client.post(
             f"{base_url}/api/generate",
@@ -555,6 +597,7 @@ class LLMRouter:
         """Fire-and-forget: push telemetry to Redis if available."""
         try:
             import json as _json
+
             from backend.infrastructure.redis.connection import redis_connection
             if not await redis_connection.ensure_connected():
                 return

@@ -1,0 +1,102 @@
+groups:
+  - name: cortexprime-core
+    interval: 30s
+    rules:
+      - alert: BackendDown
+        expr: up{job="cortex-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Backend instance {{ $labels.instance }} is down"
+          description: "Backend has been unreachable for more than 1 minute."
+
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High HTTP 5xx error rate ({{ $value | humanizePercentage }})"
+          description: "Error rate exceeds 5% threshold over 5 minutes."
+
+      - alert: HighLatency
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "P95 latency exceeds 5 seconds"
+          description: "P95 request latency is {{ $value }}s over 5 minutes."
+
+      - alert: MissionFailureRate
+        expr: rate(cortex_missions_failed_total[15m]) / rate(cortex_missions_started_total[15m]) > 0.1
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Mission failure rate exceeds 10%"
+          description: "Failure rate is {{ $value | humanizePercentage }} over 15 minutes."
+
+      - alert: WorkerDown
+        expr: up{job="cortex-worker"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Worker instance {{ $labels.instance }} is down"
+          description: "Worker has been unreachable for more than 2 minutes."
+
+      - alert: WorkerQueueBacklog
+        expr: celery_queue_length > 1000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Worker queue backlog exceeds 1000 tasks"
+          description: "Queue has {{ $value }} pending tasks."
+
+      - alert: DatabaseConnectionPoolExhausted
+        expr: postgresql_connections_available == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL connection pool exhausted"
+          description: "No database connections available."
+
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis instance {{ $labels.instance }} is down"
+          description: "Redis has been unreachable for more than 1 minute."
+
+      - alert: CertificateExpiring
+        expr: certificate_expiry_days < 30
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "TLS certificate expires in {{ $value }} days"
+          description: "Certificate for {{ $labels.domain }} expires in {{ $value }} days."
+
+      - alert: HighDiskUsage
+        expr: (node_filesystem_avail_bytes / node_filesystem_size_bytes) < 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk usage exceeds 90% on {{ $labels.mountpoint }}"
+          description: "Only {{ $value | humanizePercentage }} disk space remaining."
+
+      - alert: LLMProviderFailure
+        expr: rate(cortex_llm_errors_total[5m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High LLM provider error rate"
+          description: "LLM provider errors at {{ $value }} per second over 5 minutes."

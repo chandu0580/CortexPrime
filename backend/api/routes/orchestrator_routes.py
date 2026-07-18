@@ -1,23 +1,12 @@
+from typing import Any, Dict
+
 from fastapi import APIRouter, Depends, HTTPException
 
-from typing import Dict, Any
-
-from backend.orchestrator.master_agent_runtime import (
-    master_agent_runtime
-)
-
-from backend.orchestrator.autonomous_reasoning_loop import (
-    autonomous_reasoning_loop
-)
-
-from backend.orchestrator.agent_router import (
-    agent_router
-)
-
-from backend.orchestrator.reflection_engine import (
-    reflection_engine
-)
 from backend.auth.dependencies import require_user
+from backend.orchestrator.agent_router import agent_router
+from backend.orchestrator.autonomous_reasoning_loop import autonomous_reasoning_loop
+from backend.orchestrator.master_agent_runtime import master_agent_runtime
+from backend.orchestrator.reflection_engine import reflection_engine
 
 router = APIRouter(dependencies=[Depends(require_user)])
 

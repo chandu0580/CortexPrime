@@ -52,6 +52,24 @@ export const AzureTestManager = {
     return []
   },
 
-  async getTestPlan(id: string): Promise<AzureTestPlan | null> { return null },
-  async listTestPlans(projectId: string): Promise<AzureTestPlan[]> { return [] },
+  async getTestPlan(id: string): Promise<AzureTestPlan | null> {
+    const parts = id.split("/")
+    const projectId = parts[0] ?? ""
+    const planId = parts[1] ?? id
+    const result = await AzureDevOpsClient.get<Record<string, unknown>>(`/${projectId}/_apis/test/plans/${planId}`)
+    if (result.success && result.data) {
+      return { id: String(result.data.id), projectId, name: String(result.data.name), description: String(result.data.description ?? ""), suites: [], createdAt: String(result.data.createdDate ?? ""), updatedAt: String(result.data.updatedDate ?? "") }
+    }
+    return null
+  },
+
+  async listTestPlans(projectId: string): Promise<AzureTestPlan[]> {
+    const result = await AzureDevOpsClient.get<Record<string, unknown>>(`/${projectId}/_apis/test/plans?$top=100`)
+    if (result.success && result.data?.value) {
+      return (result.data.value as Record<string, unknown>[]).map((p) => ({
+        id: String(p.id), projectId, name: String(p.name), description: String(p.description ?? ""), suites: [], createdAt: String(p.createdDate ?? ""), updatedAt: String(p.updatedDate ?? ""),
+      }))
+    }
+    return []
+  },
 }

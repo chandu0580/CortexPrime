@@ -212,7 +212,8 @@ async def list_replays(
     except Exception:
         # PostgreSQL fallback
         try:
-            from sqlalchemy import select, distinct
+            from sqlalchemy import distinct, select
+
             from backend.database.engine import AsyncSessionLocal
             from backend.database.models.mission_replay import MissionReplayEvent
 

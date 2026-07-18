@@ -34,7 +34,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-from backend.core.logging import set_request_id, set_context, get_logger
+from backend.core.logging import get_logger, set_context, set_request_id
 
 log = get_logger(__name__)
 
@@ -98,7 +98,8 @@ def _attach_user_id_from_jwt(request: Request) -> None:
             return
         # Decode payload without signature verification (we're inside the
         # perimeter; we only want the sub claim for logging / Sentry tagging)
-        import base64, json as _json
+        import base64
+        import json as _json
         parts = token.split(".")
         if len(parts) != 3:
             return

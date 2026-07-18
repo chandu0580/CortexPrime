@@ -1,0 +1,46 @@
+name: Deploy Helm
+
+on:
+  push:
+    branches: [main, staging]
+    paths:
+      - "helm/**"
+      - "backend/**"
+      - "frontend/**"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: helm/chart-testing-action@v2
+      - run: ct lint --charts helm/cortexprime
+
+  deploy:
+    needs: lint
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || (github.ref_name == 'main' && 'production' || 'staging') }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - uses: azure/k8s-set-context@v4
+        with:
+          kubeconfig: ${{ secrets.KUBECONFIG }}
+
+      - name: Deploy Helm chart
+        run: |
+          ENV=${{ github.event.inputs.environment || (github.ref_name == 'main' && 'production' || 'staging') }}
+          helm upgrade --install cortexprime helm/cortexprime \
+            --namespace cortexprime --create-namespace \
+            -f helm/cortexprime/values-$ENV.yaml \
+            --wait --timeout 15m

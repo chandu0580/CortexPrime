@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { opsSummary } from "./mockData";
+import { opsSummary } from "./dashboardData";
 import { variants } from "@/lib/motion-tokens";
 import { ShieldCheck, TrendingUp, DollarSign, Activity, AlertCircle, Heart } from "lucide-react";
 

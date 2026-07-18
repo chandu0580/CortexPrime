@@ -482,18 +482,19 @@ class TestListHistory:
 
     @pytest.mark.asyncio
     async def test_list_history_newest_first(self, store, fake_redis):
-        """ZREVRANGE should return newest (highest score = latest epoch) first."""
+        """Newest completed executions must appear first."""
         eid_old = _eid("h-old")
         eid_new = _eid("h-new")
 
-        # Insert with deliberate score ordering
-        await fake_redis.zadd("cx:rt:history", {eid_old: 1000.0})
-        await fake_redis.zadd("cx:rt:history", {eid_new: 9999.0})
-        await fake_redis.hset(f"cx:rt:hist:{eid_old}", mapping={"execution_id": eid_old, "status": "completed"})
-        await fake_redis.hset(f"cx:rt:hist:{eid_new}", mapping={"execution_id": eid_new, "status": "completed"})
+        await store.start(eid_old, objective="Old")
+        await store.start(eid_new, objective="New")
+        await store.complete(eid_old, status="completed")
+        await store.complete(eid_new, status="completed")
 
         history = await store.list_history(limit=10)
         eids = [r["execution_id"] for r in history]
+        assert eid_old in eids
+        assert eid_new in eids
         assert eids.index(eid_new) < eids.index(eid_old), "Newest must come first"
 
 

@@ -21,16 +21,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.database.session                               import get_session
-from backend.database.repositories.episodic_repository     import EpisodicRepository
-from backend.database.repositories.semantic_repository     import SemanticRepository
-from backend.database.repositories.reflection_repository   import ReflectionRepository
-from backend.database.repositories.analytics_repository    import AnalyticsRepository
-from backend.database.models.episodic_memory               import EpisodicMemoryRecord
-from backend.database.models.semantic_memory               import SemanticMemoryRecord
-from backend.database.models.reflection_history            import ReflectionHistoryRecord
-from backend.database.models.runtime_analytics             import RuntimeAnalyticsRecord
-from backend.database.health                               import check_database_health
+from backend.database.health import check_database_health
+from backend.database.models.episodic_memory import EpisodicMemoryRecord
+from backend.database.models.reflection_history import ReflectionHistoryRecord
+from backend.database.models.runtime_analytics import RuntimeAnalyticsRecord
+from backend.database.models.semantic_memory import SemanticMemoryRecord
+from backend.database.repositories.analytics_repository import AnalyticsRepository
+from backend.database.repositories.episodic_repository import EpisodicRepository
+from backend.database.repositories.reflection_repository import ReflectionRepository
+from backend.database.repositories.semantic_repository import SemanticRepository
+from backend.database.session import get_session
 
 logger = logging.getLogger(__name__)
 

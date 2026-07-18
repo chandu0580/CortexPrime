@@ -18,16 +18,6 @@ export interface DashboardOverview {
     degraded:          boolean
 }
 
-function sparkline(base: number, count = 10): number[] {
-    const pts: number[] = []
-    let v = base * (0.85 + Math.random() * 0.3)
-    for (let i = 0; i < count; i++) {
-        v = Math.max(1, v + (Math.random() - 0.5) * v * 0.15)
-        pts.push(Math.round(v * 10) / 10)
-    }
-    return pts
-}
-
 function computeSuccessRate(
     embedding: EmbeddingHealth | null,
     activeMissions: Mission[],
@@ -44,6 +34,14 @@ function computeSuccessRate(
         return Math.round((completedMissions.length / total) * 1000) / 10
     }
     return null
+}
+
+function buildSparkline(value: number, count = 10): number[] {
+    return Array.from({ length: count }, (_, i) => {
+        const t = (i + 1) / count
+        const noise = Math.sin(t * Math.PI * 2) * value * 0.05
+        return Math.round(value + noise)
+    })
 }
 
 export async function fetchDashboardOverview(): Promise<DashboardOverview> {
@@ -78,6 +76,7 @@ export async function fetchDashboardOverview(): Promise<DashboardOverview> {
                     : "Unknown"
 
     const successRate = computeSuccessRate(embedding, activeMissions, completedMissions)
+    const healthPct = systemHealth === "Excellent" ? 98 : systemHealth === "Warning" ? 75 : 40
 
     return {
         activeAgents:      activeAgentCount,
@@ -88,10 +87,10 @@ export async function fetchDashboardOverview(): Promise<DashboardOverview> {
         missionTrend:      `${runningMissionCount} active`,
         healthTrend:       healthStatus === "healthy" ? "All systems operational" : `Status: ${healthStatus}`,
         rateTrend:         successRate != null ? `${successRate}% success` : "No data",
-        agentsSparkline:   sparkline(activeAgentCount),
-        missionsSparkline: sparkline(runningMissionCount),
-        healthSparkline:   [96, 97, 97, 98, 97, 98, 99, 98, 99, 100],
-        rateSparkline:     successRate != null ? sparkline(successRate) : [95, 96, 95, 97, 96, 97, 98, 97, 98, 98],
+        agentsSparkline:   buildSparkline(activeAgentCount),
+        missionsSparkline: buildSparkline(runningMissionCount),
+        healthSparkline:   buildSparkline(healthPct),
+        rateSparkline:     successRate != null ? buildSparkline(successRate) : buildSparkline(98),
         degraded,
     }
 }

@@ -38,13 +38,12 @@ Configuration (environment variables)
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 import time
 import uuid
 from collections import defaultdict, deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Deque, Dict, Optional, Tuple
 
 log = logging.getLogger(__name__)

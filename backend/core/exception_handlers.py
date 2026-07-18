@@ -23,7 +23,6 @@ Internal behaviour
 
 from __future__ import annotations
 
-import logging
 import traceback
 
 from fastapi import FastAPI, Request
@@ -34,7 +33,6 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from backend.core.errors import (
     CortexError,
     ErrorCode,
-    error_response,
     http_error_response,
 )
 from backend.core.logging import get_logger, get_request_id
@@ -127,7 +125,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def http_exception_handler(
         request: Request, exc: StarletteHTTPException
     ) -> JSONResponse:
-        request_id = getattr(request.state, "request_id", None) or get_request_id()
+        getattr(request.state, "request_id", None) or get_request_id()
         log.info(
             "HTTP %d: %s %s", exc.status_code, request.method, request.url.path,
         )

@@ -8,7 +8,6 @@ export function useDashboardHeader() {
     const query = useQuery({
         queryKey: queryKeys.dashboard.header(),
         queryFn: fetchDashboardHeader,
-        refetchInterval: 15_000,
     })
 
     return {

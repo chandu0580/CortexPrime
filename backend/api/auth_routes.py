@@ -28,6 +28,7 @@ from backend.auth.jwt_handler import (
     get_token_expiry,
     verify_credentials,
 )
+from backend.auth.rbac import require_permission
 from backend.auth.token_blacklist import token_blacklist
 
 log    = logging.getLogger(__name__)
@@ -361,18 +362,13 @@ async def revoke_all_self(current_user: dict = Depends(get_current_user)):
 @router.post("/admin/revoke-user/{target_user_id}")
 async def admin_revoke_user(
     target_user_id: str,
-    current_user:   dict = Depends(get_current_user),
+    _: dict = Depends(require_permission("admin", "users")),
 ):
     """
     Admin action: revoke ALL tokens for any user.
-    Requires role=admin.
+    Requires admin permission on users resource.
     """
-    if current_user.get("role") not in ("admin", "ADMIN"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin role required",
-        )
-    actor   = current_user.get("sub", "system")
+    actor = _.get("sub", "system")
     epoch   = await token_blacklist.revoke_all_user_tokens(target_user_id)
     _audit_auth(
         "admin_user_revoked", actor, "ok",
@@ -387,6 +383,95 @@ async def admin_revoke_user(
         "message":         f"All tokens revoked for user {target_user_id!r}",
         "revoked_at_epoch": epoch,
     }
+
+
+# ---------------------------------------------------------------------------
+# OAuth 2.0 / SSO Endpoints
+# ---------------------------------------------------------------------------
+
+@router.get("/oauth/providers")
+async def list_oauth_providers():
+    """Return the list of configured OAuth/SSO providers."""
+    from backend.identity.providers.registry import get_provider_registry
+    registry = get_provider_registry()
+    return {
+        "providers": registry.list(),
+    }
+
+
+@router.get("/oauth/{provider}")
+async def oauth_login(provider: str, redirect_uri: str):
+    """Initiate OAuth login by redirecting to the provider's auth page."""
+    from backend.identity.providers.registry import get_provider_registry
+    registry = get_provider_registry()
+    oauth = registry.get(provider)
+    if oauth is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"OAuth provider '{provider}' is not configured",
+        )
+    import secrets
+    state = secrets.token_urlsafe(32)
+    auth_url = await oauth.get_auth_url(redirect_uri, state)
+    return {"auth_url": auth_url, "state": state}
+
+
+@router.get("/oauth/{provider}/callback")
+async def oauth_callback(provider: str, code: str, redirect_uri: str):
+    """Handle OAuth callback — exchange code for tokens and create session."""
+    from backend.identity.providers.registry import get_provider_registry
+    registry = get_provider_registry()
+    oauth = registry.get(provider)
+    if oauth is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"OAuth provider '{provider}' is not configured",
+        )
+
+    access_token = await oauth.exchange_code(code, redirect_uri)
+    if not access_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Failed to exchange authorization code",
+        )
+
+    user_info = await oauth.get_user_info(access_token)
+    user_id = user_info.email or user_info.sub
+    role = "operator"
+
+    from backend.auth.jwt_handler import create_access_token, create_refresh_token, decode_access_token
+    jwt_access = create_access_token(user_id=user_id, role=role)
+    jwt_refresh = create_refresh_token(user_id=user_id, role=role)
+
+    from starlette.responses import JSONResponse
+    resp = JSONResponse({
+        "access_token": jwt_access,
+        "token_type": "bearer",
+        "expires_in": _EXPIRE_MIN * 60,
+        "user": {
+            "user_id": user_id,
+            "email": user_info.email,
+            "display_name": user_info.display_name,
+            "provider": provider,
+            "role": role.upper(),
+            "clearance": "LEVEL-5",
+        },
+    })
+    _set_access_cookie(resp, jwt_access)
+    _set_refresh_cookie(resp, jwt_refresh)
+
+    access_payload = decode_access_token(jwt_access)
+    if access_payload:
+        import time
+        await token_blacklist.track_session(
+            jti=access_payload.get("jti", ""),
+            user_id=user_id,
+            expires_at=float(access_payload.get("exp", time.time() + 3600)),
+        )
+
+    _audit_auth(f"oauth_login:{provider}", user_id, "ok")
+    log.info("OAuth login OK: provider=%s user=%s", provider, user_id[:32])
+    return resp
 
 
 @router.get("/health")
@@ -420,7 +505,6 @@ def _audit_auth(
 ) -> None:
     """Fire-and-forget audit log entry for auth events."""
     try:
-        import asyncio
         from backend.safety.audit_logger import audit_logger
         audit_logger.log(
             execution_id = "auth",

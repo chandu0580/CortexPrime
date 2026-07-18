@@ -48,7 +48,13 @@ export const PageManager = {
     return null
   },
 
-  async listPages(): Promise<NotionPage[]> {
+  async listPages(databaseId?: string): Promise<NotionPage[]> {
+    if (databaseId) {
+      const result = await NotionClient.post<Record<string, unknown>>(`/databases/${databaseId}/query`, { page_size: 100 })
+      if (result.success && result.data?.results) return (result.data.results as Record<string, unknown>[]).map(mapApiPage)
+    }
+    const result = await NotionClient.post<Record<string, unknown>>("/search", { filter: { value: "page", property: "object" }, page_size: 100 })
+    if (result.success && result.data?.results) return (result.data.results as Record<string, unknown>[]).map(mapApiPage)
     return []
   },
 }

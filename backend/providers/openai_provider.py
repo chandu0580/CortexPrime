@@ -1,11 +1,9 @@
-import os
 import asyncio
+import os
 from typing import AsyncGenerator
 
-from openai import AsyncAzureOpenAI
-
 from dotenv import load_dotenv
-
+from openai import AsyncAzureOpenAI
 
 # ==========================================
 # LOAD ENV

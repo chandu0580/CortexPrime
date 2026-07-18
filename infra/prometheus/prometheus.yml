@@ -9,11 +9,13 @@ global:
     project: "cortexprime"
     environment: "production"
 
-# Alerting (wire up Alertmanager here when needed)
-# alerting:
-#   alertmanagers:
-#     - static_configs:
-#         - targets: ['alertmanager:9093']
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
+rule_files:
+  - "alert-rules.yml"
 
 scrape_configs:
   # ── CortexPrime Backend ────────────────────────────────────────────────────
@@ -30,6 +32,16 @@ scrape_configs:
   - job_name: "prometheus"
     static_configs:
       - targets: ["localhost:9090"]
+
+  # ── CortexPrime Worker ────────────────────────────────────────────────────
+  - job_name: "cortex-worker"
+    scrape_interval: 15s
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["cortex-worker:9100"]
+        labels:
+          service: "worker"
+          component: "celery"
 
   # ── Redis exporter (optional — add redis_exporter container to enable) ──────
   # - job_name: "cortex-redis"

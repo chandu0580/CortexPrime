@@ -8,12 +8,13 @@ function mapApiMeeting(api: Record<string, unknown>, teamId: string): TeamMeetin
     channelId: String(api.channelId ?? ""),
     organizerId: (() => {
       try {
-        const participants = api.participants as Record<string, unknown> | undefined;
-        const organizer = participants?.organizer as Record<string, unknown> | undefined;
-        const identity = organizer?.identity as Record<string, unknown> | undefined;
-        const user = identity?.user as Record<string, unknown> | undefined;
-        return String(user?.id ?? "");
-      } catch { return ""; }
+        const participants = api.participants as Record<string, unknown>[] | undefined
+        if (!participants) return ""
+        const organizer = participants.find((p) => (p.role as string) === "organizer")
+        const identity = organizer?.identity as Record<string, unknown> | undefined
+        const user = identity?.user as Record<string, unknown> | undefined
+        return String(user?.id ?? organizer?.userId ?? "")
+      } catch { return "" }
     })(),
     subject: String(api.subject ?? ""),
     description: String(api.description ?? ""),

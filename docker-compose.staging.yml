@@ -1,0 +1,341 @@
+# ==============================================================
+# CORTEXPRIME — Docker Compose (Staging)
+# Production-like configuration with relaxed resource limits
+# and staging-specific secrets / domains.
+# ==============================================================
+
+name: cortexprime-staging
+
+networks:
+  cortex-app:
+    name: cortex-staging-app
+    driver: bridge
+  cortex-data:
+    name: cortex-staging-data
+    driver: bridge
+
+volumes:
+  cortex-postgres-data:
+    name: cortex-staging-postgres-data
+  cortex-redis-data:
+    name: cortex-staging-redis-data
+  cortex-rabbitmq-data:
+    name: cortex-staging-rabbitmq-data
+  cortex-neo4j-data:
+    name: cortex-staging-neo4j-data
+  cortex-neo4j-logs:
+    name: cortex-staging-neo4j-logs
+  cortex-chroma-data:
+    name: cortex-staging-chroma-data
+  cortex-prometheus-data:
+    name: cortex-staging-prometheus-data
+  cortex-grafana-data:
+    name: cortex-staging-grafana-data
+  cortex-minio-data:
+    name: cortex-staging-minio-data
+
+services:
+
+  cortex-backend:
+    container_name: cortex-staging-backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: production
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-cortexprime}/cortexprime-backend:staging
+    restart: unless-stopped
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    environment:
+      ENV: staging
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://staging.cortexprime.ai}
+      SENTRY_ENVIRONMENT: staging
+      POSTGRES_HOST: cortex-postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-cortex}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-cortexdb}
+      POSTGRES_URL: postgresql+asyncpg://${POSTGRES_USER:-cortex}:${POSTGRES_PASSWORD}@cortex-postgres:5432/${POSTGRES_DB:-cortexdb}
+      REDIS_HOST: cortex-redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@cortex-redis:6379/0
+      RABBITMQ_HOST: cortex-rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER:-cortex}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-cortex}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-cortex}:${RABBITMQ_PASSWORD}@cortex-rabbitmq:5672/${RABBITMQ_VHOST:-cortex}
+      NEO4J_URI: bolt://cortex-neo4j:7687
+      NEO4J_USER: ${NEO4J_USER:-neo4j}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD}
+      MINIO_ENDPOINT: cortex-minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-cortex}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-60}
+      JWT_REFRESH_EXPIRE_H: ${JWT_REFRESH_EXPIRE_H:-168}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      RATE_LIMIT_ENABLED: "true"
+      WS_AUTH_REQUIRED: "true"
+      AUTH_DISABLED: "false"
+      BLOCK_ON_MIGRATION_FAILURE: "true"
+      STRICT_EMBEDDING_VALIDATION: "true"
+    volumes:
+      - cortex-chroma-data:/data/chroma
+    depends_on:
+      cortex-postgres:
+        condition: service_healthy
+      cortex-redis:
+        condition: service_healthy
+      cortex-rabbitmq:
+        condition: service_healthy
+      cortex-neo4j:
+        condition: service_healthy
+      cortex-minio:
+        condition: service_healthy
+    networks:
+      - cortex-app
+      - cortex-data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  cortex-frontend:
+    container_name: cortex-staging-frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: production
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-cortexprime}/cortexprime-frontend:staging
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://staging.cortexprime.ai/api}
+      NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-wss://staging.cortexprime.ai/ws}
+      NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
+    depends_on:
+      cortex-backend:
+        condition: service_healthy
+    networks:
+      - cortex-app
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000 || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+
+  cortex-worker:
+    container_name: cortex-staging-worker
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+      target: production
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-cortexprime}/cortexprime-worker:staging
+    restart: unless-stopped
+    environment:
+      ENV: staging
+      CELERY_BROKER_URL: amqp://${RABBITMQ_USER:-cortex}:${RABBITMQ_PASSWORD}@cortex-rabbitmq:5672/${RABBITMQ_VHOST:-cortex}
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@cortex-redis:6379/0
+      POSTGRES_URL: postgresql+asyncpg://${POSTGRES_USER:-cortex}:${POSTGRES_PASSWORD}@cortex-postgres:5432/${POSTGRES_DB:-cortexdb}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@cortex-redis:6379/0
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+    depends_on:
+      cortex-rabbitmq:
+        condition: service_healthy
+      cortex-redis:
+        condition: service_healthy
+    networks:
+      - cortex-data
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A worker.tasks status || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  cortex-postgres:
+    container_name: cortex-staging-postgres
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cortex}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-cortexdb}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - cortex-postgres-data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+      - ./infra/postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    command: >
+      postgres -c config_file=/etc/postgresql/postgresql.conf
+    networks:
+      - cortex-data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cortex} -d ${POSTGRES_DB:-cortexdb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  cortex-redis:
+    container_name: cortex-staging-redis
+    image: redis:7.2-alpine
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: >
+      redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes
+    volumes:
+      - cortex-redis-data:/data
+    networks:
+      - cortex-data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  cortex-rabbitmq:
+    container_name: cortex-staging-rabbitmq
+    image: rabbitmq:3.13-management-alpine
+    restart: unless-stopped
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-cortex}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-cortex}
+    volumes:
+      - cortex-rabbitmq-data:/var/lib/rabbitmq
+      - ./infra/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    networks:
+      - cortex-data
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  cortex-neo4j:
+    container_name: cortex-staging-neo4j
+    image: neo4j:5.18-community
+    restart: unless-stopped
+    ports:
+      - "${NEO4J_HTTP_PORT:-7474}:7474"
+      - "${NEO4J_BOLT_PORT:-7687}:7687"
+    environment:
+      NEO4J_AUTH: ${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD}
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_memory_pagecache_size: ${NEO4J_PAGE_CACHE:-512M}
+      NEO4J_dbms_memory_heap_initial__size: ${NEO4J_HEAP_INIT:-512M}
+      NEO4J_dbms_memory_heap_max__size: ${NEO4J_HEAP_MAX:-1024M}
+    volumes:
+      - cortex-neo4j-data:/data
+      - cortex-neo4j-logs:/logs
+    networks:
+      - cortex-data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  cortex-minio:
+    container_name: cortex-staging-minio
+    image: minio/minio:RELEASE.2024-07-16T23-46-41Z
+    restart: unless-stopped
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-cortex}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_REGION: ${MINIO_REGION:-us-east-1}
+      MINIO_SECURE: ${MINIO_SECURE:-true}
+      MINIO_DOMAIN: ${MINIO_DOMAIN:-s3.cortexprime.internal}
+    volumes:
+      - cortex-minio-data:/data
+    command: server /data --console-address ":9001"
+    networks:
+      - cortex-data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  cortex-prometheus:
+    container_name: cortex-staging-prometheus
+    image: prom/prometheus:v2.52.0
+    restart: unless-stopped
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - cortex-prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.enable-lifecycle"
+    networks:
+      - cortex-data
+      - cortex-app
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/-/healthy || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  cortex-grafana:
+    container_name: cortex-staging-grafana
+    image: grafana/grafana:11.1.0
+    restart: unless-stopped
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      # REQUIRED: Set GRAFANA_PASSWORD in environment or CI secrets
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s:%(http_port)s/"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+    volumes:
+      - cortex-grafana-data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      cortex-prometheus:
+        condition: service_healthy
+    networks:
+      - cortex-app
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s

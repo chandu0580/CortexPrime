@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { servicesHealthData, ServiceHealthData } from "./mockData";
+import { servicesHealthData, ServiceHealthData } from "./dashboardData";
 import { variants } from "@/lib/motion-tokens";
 import { Cpu, Clock, Layers, ShieldCheck } from "lucide-react";
 import StatusBadge, { HealthStatusType } from "./StatusBadge";

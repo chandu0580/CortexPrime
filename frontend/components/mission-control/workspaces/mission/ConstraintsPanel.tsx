@@ -1,13 +1,48 @@
-const constraintGroups = [
-  { label: "Business Constraints",   items: 3 },
-  { label: "Technical Constraints",  items: 3 },
-  { label: "Compliance Constraints", items: 3 },
-  { label: "Operational Constraints", items: 3 },
-]
+"use client"
 
+import { useWorkspaceMission } from "@/hooks"
 import { SectionHeader } from "@/components/mission-control/shared/SectionHeader"
 
 export function ConstraintsPanel() {
+  const { data } = useWorkspaceMission()
+  const activeCount = data?.activeMissions.length ?? 0
+  const failedCount = data?.failedCount ?? 0
+
+  const constraintGroups = [
+    {
+      label: "Mission Load",
+      items: [
+        { text: `${activeCount} active missions`, met: activeCount > 0 },
+        { text: `${data?.completedCount ?? 0} completed`, met: (data?.completedCount ?? 0) > 0 },
+        { text: `${failedCount} failed`, met: failedCount > 0 },
+      ],
+    },
+    {
+      label: "System Capacity",
+      items: [
+        { text: "Missions queued", met: activeCount > 0 },
+        { text: "Agents available", met: activeCount > 0 },
+        { text: "Runtime active", met: true },
+      ],
+    },
+    {
+      label: "Completion Criteria",
+      items: [
+        { text: "Objective defined", met: activeCount > 0 },
+        { text: "Execution started", met: activeCount > 0 },
+        { text: "Results recorded", met: (data?.completedCount ?? 0) > 0 },
+      ],
+    },
+    {
+      label: "Operational Constraints",
+      items: [
+        { text: "System online", met: true },
+        { text: "Resources available", met: activeCount < 10 },
+        { text: "Queue depth nominal", met: activeCount < 5 },
+      ],
+    },
+  ]
+
   return (
     <section>
       <SectionHeader title="Constraints" />
@@ -19,10 +54,21 @@ export function ConstraintsPanel() {
               {group.label}
             </p>
             <div className="space-y-2">
-              {Array.from({ length: group.items }).map((_, i) => (
+              {group.items.map((item, i) => (
                 <div key={i} className="flex items-center gap-2">
-                  <div aria-hidden="true" className="h-3 w-3 shrink-0 rounded-[3px] border border-[#D1D9E6]" />
-                  <div aria-hidden="true" className="h-3 w-full rounded bg-[#F0F4F8]" />
+                  <div
+                    className="h-3 w-3 shrink-0 rounded-[3px]"
+                    style={{
+                      backgroundColor: item.met ? "#38B88A" : "#F0F4F8",
+                      border: item.met ? "none" : "1px solid #D1D9E6",
+                    }}
+                  />
+                  <span
+                    className="text-[0.78rem]"
+                    style={{ color: item.met ? "#374151" : "#9CA3AF" }}
+                  >
+                    {item.text}
+                  </span>
                 </div>
               ))}
             </div>

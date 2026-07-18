@@ -1,0 +1,105 @@
+{{- if .Values.worker.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cortexprime.fullname" . }}-worker
+  labels:
+    {{- include "cortexprime.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  replicas: {{ .Values.worker.replicaCount }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      {{- include "cortexprime.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        {{- include "cortexprime.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: worker
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "9100"
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.priorityClass.create }}
+      priorityClassName: {{ include "cortexprime.fullname" . }}-critical
+      {{- end }}
+      serviceAccountName: {{ include "cortexprime.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: 120
+      containers:
+        - name: worker
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}/{{ .Values.worker.image }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.worker.port }}
+              name: http
+              protocol: TCP
+          env:
+            - name: CELERY_BROKER_URL
+              value: amqp://{{ .Values.rabbitmq.auth.username | default "cortex" }}:$(RABBITMQ_PASSWORD)@{{ include "cortexprime.fullname" . }}-rabbitmq:5672/{{ .Values.rabbitmq.auth.vhost | default "cortex" }}
+            - name: CELERY_RESULT_BACKEND
+              value: redis://:$(REDIS_PASSWORD)@{{ include "cortexprime.fullname" . }}-redis-master:6379/0
+            - name: POSTGRES_URL
+              value: postgresql+asyncpg://{{ .Values.postgresql.auth.username }}:$(POSTGRES_PASSWORD)@{{ include "cortexprime.fullname" . }}-postgres:5432/{{ .Values.postgresql.auth.database }}
+            - name: REDIS_URL
+              value: redis://:$(REDIS_PASSWORD)@{{ include "cortexprime.fullname" . }}-redis-master:6379/0
+            - name: ENVIRONMENT
+              value: {{ .Values.worker.env.ENVIRONMENT | default .Values.global.environment }}
+            - name: LOG_LEVEL
+              value: {{ .Values.worker.env.LOG_LEVEL | default "warning" }}
+          envFrom:
+            - secretRef:
+                name: {{ include "cortexprime.fullname" . }}-backend-secrets
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.worker.port }}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.worker.port }}
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 2
+          startupProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.worker.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 12
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

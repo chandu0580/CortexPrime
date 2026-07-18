@@ -1,27 +1,46 @@
 import asyncio
+import logging
+from typing import Any, Callable, Dict, List
 
-from typing import Callable, List
+from backend.events.event_models import CognitionEvent
+from backend.observability.prometheus_metrics import metrics as _prom_metrics
+from backend.runtime.runtime_metrics import runtime_metrics
+from backend.websocket.connection_manager import manager
 
-from backend.events.event_models import (
-    CognitionEvent
-)
+log = logging.getLogger(__name__)
 
-from backend.websocket.connection_manager import (
-    manager
-)
+# ==========================================
+# STANDALONE EVENT PUBLISHER
+# ==========================================
 
-from backend.runtime.runtime_metrics import (
-    runtime_metrics
-)
-
-from backend.observability.prometheus_metrics import (
-    metrics as _prom_metrics
-)
+async def publish_event(
+    agent: str,
+    execution_id: str,
+    event_type: str,
+    status: str,
+    phase: str,
+    message: str,
+    payload: Dict[str, Any] = None,
+) -> None:
+    await event_bus.publish(
+        CognitionEvent(
+            agent=agent,
+            event_type=event_type,
+            status=status,
+            phase=phase,
+            execution_id=execution_id,
+            message=message,
+            payload=payload or {},
+        )
+    )
 
 
 # ==========================================
 # EVENT BUS
 # ==========================================
+
+_MAX_EVENTS = 10000
+
 
 class EventBus:
 
@@ -32,6 +51,7 @@ class EventBus:
         ] = []
 
         self._handlers: List[Callable] = []
+        self._background_tasks: set[asyncio.Task] = set()
 
 
     # ==========================================
@@ -66,9 +86,9 @@ class EventBus:
         # STORE EVENT
         # ==========================================
 
-        self.events.append(
-            event
-        )
+        self.events.append(event)
+        if len(self.events) > _MAX_EVENTS:
+            self.events.pop(0)
 
         # ==========================================
         # MISSION REPLAY STORE  — dual-layer persistence
@@ -76,9 +96,11 @@ class EventBus:
 
         try:
             from backend.services.mission_replay_store import replay_store
-            asyncio.ensure_future(replay_store.record(event))
-        except Exception:
-            pass
+            task = asyncio.ensure_future(replay_store.record(event))
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
+        except Exception as exc:
+            log.warning("Replay store record failed: %s", exc)
 
         # ==========================================
         # METRICS :: EXECUTION START
@@ -97,8 +119,8 @@ class EventBus:
                     agent=event.agent, event_type=event.event_type or "execution"
                 ).inc()
                 _prom_metrics.active_agents.inc()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("Metrics inc failed: %s", exc)
 
         # ==========================================
         # METRICS :: COMPLETED
@@ -116,8 +138,8 @@ class EventBus:
             # Prometheus: agent completion
             try:
                 _prom_metrics.active_agents.dec()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("Metrics dec failed: %s", exc)
 
         # ==========================================
         # METRICS :: FAILED
@@ -133,8 +155,8 @@ class EventBus:
                     agent=event.agent, error_type="execution_failed"
                 ).inc()
                 _prom_metrics.active_agents.dec()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("Metrics failure inc failed: %s", exc)
 
         # ==========================================
         # METRICS :: TOKEN USAGE
@@ -207,9 +229,11 @@ class EventBus:
             try:
                 result = handler(event)
                 if asyncio.iscoroutine(result):
-                    asyncio.ensure_future(result)
-            except Exception:
-                pass
+                    task = asyncio.ensure_future(result)
+                    self._background_tasks.add(task)
+                    task.add_done_callback(self._background_tasks.discard)
+            except Exception as exc:
+                log.warning("Handler %s failed: %s", handler.__name__, exc)
 
         # ==========================================
         # STREAM EVENT — session-aware routing

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { syncActivity, SyncActivityRow } from "./mockData";
+import { syncActivity, SyncActivityRow } from "./dashboardData";
 import { RefreshCw, Play, Pause, AlertTriangle, CheckCircle, Clock } from "lucide-react";
 import StatusBadge, { IntegrationStatusType } from "./StatusBadge";
 

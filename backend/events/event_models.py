@@ -1,12 +1,9 @@
 
-from typing import Dict, Any, Optional
-
-from pydantic import BaseModel
-
 from datetime import datetime
-
+from typing import Any, Dict, Optional
 from uuid import uuid4
 
+from pydantic import BaseModel
 
 # ==========================================
 # BASE EVENT

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import dynamic from "next/dynamic";
-import { costOverview, spendTrend, modelCostBreakdown } from "./mockData";
+import { costOverview, spendTrend, modelCostBreakdown } from "./dashboardData";
 import { DollarSign, Cpu, Layers } from "lucide-react";
 
 // Dynamically import Recharts to avoid SSR hydration mismatches

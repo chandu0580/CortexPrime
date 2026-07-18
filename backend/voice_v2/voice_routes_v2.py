@@ -26,8 +26,8 @@ from pydantic import BaseModel
 
 from backend.auth.dependencies import require_user
 from backend.voice_v2.livekit_manager import (
-    generate_user_token,
     LIVEKIT_URL,
+    generate_user_token,
     is_livekit_configured,
 )
 from backend.voice_v2.voice_session import VoiceSession, voice_session_store

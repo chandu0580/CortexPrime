@@ -1,0 +1,45 @@
+{{- if .Values.backup.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "cortexprime.fullname" . }}-db-backup
+  labels:
+    {{- include "cortexprime.labels" . | nindent 4 }}
+spec:
+  schedule: "{{ .Values.backup.schedule | default "0 3 * * *" }}"
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 3
+  successfulJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: {{ include "cortexprime.serviceAccountName" . }}
+          restartPolicy: OnFailure
+          containers:
+            - name: backup
+              image: pgvector/pgvector:pg16
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  PGPASSWORD=$POSTGRES_PASSWORD pg_dump \
+                    -h {{ include "cortexprime.fullname" . }}-postgres \
+                    -U {{ .Values.postgresql.auth.username }} \
+                    -d {{ .Values.postgresql.auth.database }} \
+                    -F c \
+                    -f /backup/cortexprime_$(date +%Y%m%d_%H%M%S).dump
+              env:
+                - name: POSTGRES_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "cortexprime.fullname" . }}-backend-secrets
+                      key: POSTGRES_PASSWORD
+              volumeMounts:
+                - name: backup-storage
+                  mountPath: /backup
+          volumes:
+            - name: backup-storage
+              persistentVolumeClaim:
+                claimName: {{ include "cortexprime.fullname" . }}-backup-pvc
+{{- end }}

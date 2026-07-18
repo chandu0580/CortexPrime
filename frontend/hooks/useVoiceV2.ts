@@ -58,13 +58,24 @@ export function useVoiceV2() {
         workspaceId: string | null
     } | null>(null)
 
-    const {
-        status, v2Session,
-        roomConnected, agentConnected, isMuted, transcripts, errorMessage,
-        setStatus, setV2Session, setRoomConnected, setAgentConnected,
-        setMuted, setError, addTranscript, resetV2,
-        recordDisconnect, recordReconnect, recordFailedAttempt,
-    } = useVoiceStore()
+    const status = useVoiceStore((s) => s.status)
+    const v2Session = useVoiceStore((s) => s.v2Session)
+    const roomConnected = useVoiceStore((s) => s.roomConnected)
+    const agentConnected = useVoiceStore((s) => s.agentConnected)
+    const isMuted = useVoiceStore((s) => s.isMuted)
+    const transcripts = useVoiceStore((s) => s.transcripts)
+    const errorMessage = useVoiceStore((s) => s.errorMessage)
+    const setStatus = useVoiceStore((s) => s.setStatus)
+    const setV2Session = useVoiceStore((s) => s.setV2Session)
+    const setRoomConnected = useVoiceStore((s) => s.setRoomConnected)
+    const setAgentConnected = useVoiceStore((s) => s.setAgentConnected)
+    const setMuted = useVoiceStore((s) => s.setMuted)
+    const setError = useVoiceStore((s) => s.setError)
+    const addTranscript = useVoiceStore((s) => s.addTranscript)
+    const resetV2 = useVoiceStore((s) => s.resetV2)
+    const recordDisconnect = useVoiceStore((s) => s.recordDisconnect)
+    const recordReconnect = useVoiceStore((s) => s.recordReconnect)
+    const recordFailedAttempt = useVoiceStore((s) => s.recordFailedAttempt)
 
     // ── Helper: authenticated fetch ──────────────────────────────────────────
     const apiFetch = useCallback(async (path: string, opts?: RequestInit) => {

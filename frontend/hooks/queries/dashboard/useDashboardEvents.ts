@@ -8,7 +8,6 @@ export function useDashboardEvents() {
     const query = useQuery({
         queryKey: queryKeys.dashboard.events(),
         queryFn: fetchDashboardEvents,
-        refetchInterval: 15_000,
     })
 
     return {

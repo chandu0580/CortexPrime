@@ -1,52 +1,55 @@
+import logging
 from typing import Dict
+
+log = logging.getLogger(__name__)
 
 try:
     from backend.agents.orchestrator_agent.orchestrator_agent import OrchestratorAgent
     _OrchestratorAgent = OrchestratorAgent
 except Exception as _e:
-    print(f"⚠️  OrchestratorAgent unavailable: {_e}")
+    log.warning("OrchestratorAgent unavailable: %s", _e)
     _OrchestratorAgent = None
 
 try:
     from backend.agents.research_agent.research_agent import ResearchAgent
     _ResearchAgent = ResearchAgent
 except Exception as _e:
-    print(f"⚠️  ResearchAgent unavailable: {_e}")
+    log.warning("ResearchAgent unavailable: %s", _e)
     _ResearchAgent = None
 
 try:
     from backend.agents.planner_agent.planner_agent import PlannerAgent
     _PlannerAgent = PlannerAgent
 except Exception as _e:
-    print(f"⚠️  PlannerAgent unavailable: {_e}")
+    log.warning("PlannerAgent unavailable: %s", _e)
     _PlannerAgent = None
 
 try:
     from backend.agents.critic_agent.critic_agent import CriticAgent
     _CriticAgent = CriticAgent
 except Exception as _e:
-    print(f"⚠️  CriticAgent unavailable: {_e}")
+    log.warning("CriticAgent unavailable: %s", _e)
     _CriticAgent = None
 
 try:
     from backend.agents.optimizer_agent.optimizer_agent import OptimizerAgent
     _OptimizerAgent = OptimizerAgent
 except Exception as _e:
-    print(f"⚠️  OptimizerAgent unavailable: {_e}")
+    log.warning("OptimizerAgent unavailable: %s", _e)
     _OptimizerAgent = None
 
 try:
     from backend.agents.memory_agent.memory_agent import MemoryAgent
     _MemoryAgent = MemoryAgent
 except Exception as _e:
-    print(f"⚠️  MemoryAgent unavailable: {_e}")
+    log.warning("MemoryAgent unavailable: %s", _e)
     _MemoryAgent = None
 
 try:
     from backend.agents.reflection_agent.reflection_agent import ReflectionAgent
     _ReflectionAgent = ReflectionAgent
 except Exception as _e:
-    print(f"⚠️  ReflectionAgent unavailable: {_e}")
+    log.warning("ReflectionAgent unavailable: %s", _e)
     _ReflectionAgent = None
 
 
@@ -84,7 +87,7 @@ class AgentRegistry:
             try:
                 self.register_agent(name, AgentClass())
             except Exception as _e:
-                print(f"⚠️  Failed to register agent '{name}': {_e}")
+                log.warning("Failed to register agent '%s': %s", name, _e)
 
     # ==========================================
     # REGISTER AGENT
@@ -100,16 +103,8 @@ class AgentRegistry:
 
     ):
 
-        self.agents[
-            agent_name
-        ] = agent_instance
-
-        print(
-
-            f"✅ Registered agent: "
-
-            f"{agent_name}"
-        )
+        self.agents[agent_name] = agent_instance
+        log.info("Registered agent: %s", agent_name)
 
     # ==========================================
     # GET AGENT

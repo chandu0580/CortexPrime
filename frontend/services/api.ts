@@ -15,6 +15,17 @@ export class ApiError extends Error {
 export interface RequestOptions {
   signal?: AbortSignal
   headers?: Record<string, string>
+  params?: Record<string, unknown>
+}
+
+function buildUrl(endpoint: string, params?: Record<string, unknown>): string {
+  if (!params) return endpoint;
+  const usp = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null) usp.set(k, String(v));
+  }
+  const qs = usp.toString();
+  return qs ? `${endpoint}?${qs}` : endpoint;
 }
 
 async function request<T = unknown>(
@@ -23,7 +34,8 @@ async function request<T = unknown>(
   body?: unknown,
   options?: RequestOptions,
 ): Promise<T> {
-  const res = await fetch(apiUrl(endpoint), {
+  const url = buildUrl(endpoint, options?.params);
+  const res = await fetch(apiUrl(url), {
     method,
     headers: { "Content-Type": "application/json", ...options?.headers },
     credentials: "include",

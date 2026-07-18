@@ -1,28 +1,12 @@
-from typing import Dict, Any, List
-from uuid import uuid4
-from datetime import datetime
 import asyncio
+from datetime import datetime
+from typing import Any, Dict, List
+from uuid import uuid4
 
-from backend.events.event_bus import (
-    event_bus
-)
-
-from backend.events.event_models import (
-    CognitionEvent
-)
-
-from backend.orchestrator.agent_router import (
-    agent_router
-)
-
-from backend.orchestrator.master_agent_runtime import (
-    master_agent_runtime
-)
-
-from backend.memory.episodic_memory_engine import (
-    episodic_memory_engine
-)
-
+from backend.events.event_bus import event_bus, publish_event
+from backend.events.event_models import CognitionEvent
+from backend.memory.episodic_memory_engine import episodic_memory_engine
+from backend.orchestrator.agent_router import agent_router
 
 # ==========================================
 # MISSION AGENT RUNTIME
@@ -69,35 +53,10 @@ class MissionAgentRuntime:
 
         message: str,
 
-        payload: Dict[str, Any] = {}
+        payload: Dict[str, Any] = None
     ):
 
-        await event_bus.publish(
-
-            CognitionEvent(
-
-                agent=
-                    "mission_agent_runtime",
-
-                event_type=
-                    event_type,
-
-                status=
-                    status,
-
-                phase=
-                    phase,
-
-                execution_id=
-                    execution_id,
-
-                message=
-                    message,
-
-                payload=
-                    payload
-            )
-        )
+        await publish_event("mission_agent_runtime", execution_id, event_type, status, phase, message, payload)
 
 
     # ==========================================

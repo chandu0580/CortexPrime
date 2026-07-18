@@ -6,7 +6,6 @@ Feeds the Mission Replay Engine's timeline, graph, and playback API.
 """
 from __future__ import annotations
 
-import uuid
 from typing import Any, Dict, Optional
 
 from sqlalchemy import Float, Index, Integer, String, Text
@@ -14,7 +13,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.database.base import Base
-from backend.database.models.mixins import UUIDPrimaryKeyMixin, TimestampMixin
+from backend.database.models.mixins import TimestampMixin, UUIDPrimaryKeyMixin
 
 
 class MissionReplayEvent(UUIDPrimaryKeyMixin, TimestampMixin, Base):

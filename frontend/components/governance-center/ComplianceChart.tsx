@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import dynamic from "next/dynamic";
-import { monthlyComplianceTrend, riskDistribution, violationCategories } from "./mockData";
+import { monthlyComplianceTrend, riskDistribution, violationCategories } from "./dashboardData";
 import { TrendingUp, ShieldAlert, AlertTriangle } from "lucide-react";
 
 // Dynamically import Recharts to avoid SSR hydration mismatches

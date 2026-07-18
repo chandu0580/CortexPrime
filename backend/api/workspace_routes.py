@@ -19,14 +19,14 @@ POST   /api/workspace/{ws_id}/chat              RAG chat
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from backend.auth.dependencies import require_user
-from backend.workspace.workspace_service import workspace_service
 from backend.workspace.models import WorkspaceChatRequest
+from backend.workspace.workspace_service import workspace_service
 
 logger = logging.getLogger(__name__)
 

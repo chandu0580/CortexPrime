@@ -43,9 +43,9 @@ class GraphTraversal(BaseRepository):
         relationship type.  Returns ordered list of node identifiers.
         """
         return await self._run(
-            f"""
+            """
             MATCH path = shortestPath(
-                (a:Agent {{name: $from_agent}})-[*1..$max_depth]-(b:Agent {{name: $to_agent}})
+                (a:Agent {name: $from_agent})-[*1..$max_depth]-(b:Agent {name: $to_agent})
             )
             RETURN [n IN nodes(path) | coalesce(n.name, n.execution_id, n.memory_id, n.event_id)] AS path_nodes,
                    [r IN relationships(path) | type(r)] AS path_rels,

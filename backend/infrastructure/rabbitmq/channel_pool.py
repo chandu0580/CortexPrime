@@ -19,12 +19,12 @@ import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
-from typing import AsyncIterator, List, Optional
+from typing import AsyncIterator
 
 log = logging.getLogger(__name__)
 
 try:
-    import aio_pika
+    import aio_pika  # noqa: F401
     _AIO_PIKA_AVAILABLE = True
 except ImportError:
     _AIO_PIKA_AVAILABLE = False

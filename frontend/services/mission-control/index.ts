@@ -1,7 +1,8 @@
-export { getMission, getMissions } from "./missions"
-export { planMission } from "./planner"
-export { executeMission, pauseMission, cancelMission } from "./execution"
+export { getMission, getMissions, getMissionReplay, getMissionReplayTimeline } from "./missions"
+export type { MissionSummaryItem, MissionTimelineEvent, MissionsFilter } from "./missions"
 
-export type { MissionsFilter } from "./missions"
-export type { PlanInput } from "./planner"
+export { planMission, getPlan } from "./planner"
+export type { PlanInput, PlanResult, ExecutionPlan } from "./planner"
+
+export { executeMission, getActiveMissions, getEvents, getRuntimeTelemetry } from "./execution"
 export type { ExecutionResult } from "./execution"

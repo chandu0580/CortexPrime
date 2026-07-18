@@ -152,8 +152,8 @@ class DocumentProcessor:
 
     def _image(self, data: bytes) -> List[PageContent]:
         try:
-            from PIL import Image
             import pytesseract
+            from PIL import Image
             img  = Image.open(io.BytesIO(data))
             text = pytesseract.image_to_string(img)
             return [PageContent(1, text.strip() or "[No text detected in image]")]

@@ -1,18 +1,45 @@
-"""
-database.repositories — public re-exports.
-"""
-from backend.database.repositories.base                   import BaseRepository              # noqa: F401
-from backend.database.repositories.episodic_repository    import EpisodicRepository          # noqa: F401
-from backend.database.repositories.semantic_repository    import SemanticRepository          # noqa: F401
-from backend.database.repositories.reflection_repository  import ReflectionRepository        # noqa: F401
-from backend.database.repositories.analytics_repository   import AnalyticsRepository         # noqa: F401
-from backend.database.repositories.embedding_cache_repository import EmbeddingCacheRepository  # noqa: F401
+from backend.database.repositories.agents import (
+    AgentConfigRepository,
+    AgentStateRepository,
+)
+from backend.database.repositories.base import BaseRepository
+from backend.database.repositories.billing import InvoiceRepository, UsageRecordRepository
+from backend.database.repositories.connectors import (
+    ConnectorActivityRepository,
+    ConnectorConfigRepository,
+)
+from backend.database.repositories.digital_twin import (
+    InfrastructureMetricRepository,
+    InfrastructureModelRepository,
+    InfrastructureRelationshipRepository,
+)
+from backend.database.repositories.executions import ExecutionEventRepository, ExecutionRepository
+from backend.database.repositories.governance import (
+    ApprovalRequestRepository,
+    ComplianceRuleRepository,
+    PolicyRepository,
+)
+from backend.database.repositories.iam import ApiKeyRepository, RoleRepository, UserRepository
+from backend.database.repositories.knowledge import (
+    KnowledgeEntryRepository,
+    KnowledgeRelationshipRepository,
+)
+from backend.database.repositories.learning import LearningPatternRepository, LearningSessionRepository
+from backend.database.repositories.missions import MissionRepository, MissionStepRepository
+from backend.database.repositories.platform import FeatureFlagRepository, PlatformSettingRepository
 
 __all__ = [
     "BaseRepository",
-    "EpisodicRepository",
-    "SemanticRepository",
-    "ReflectionRepository",
-    "AnalyticsRepository",
-    "EmbeddingCacheRepository",
+    "UserRepository", "RoleRepository", "ApiKeyRepository",
+    "MissionRepository", "MissionStepRepository",
+    "ExecutionRepository", "ExecutionEventRepository",
+    "KnowledgeEntryRepository", "KnowledgeRelationshipRepository",
+    "LearningSessionRepository", "LearningPatternRepository",
+    "InfrastructureModelRepository", "InfrastructureRelationshipRepository",
+    "InfrastructureMetricRepository",
+    "PolicyRepository", "ComplianceRuleRepository", "ApprovalRequestRepository",
+    "ConnectorConfigRepository", "ConnectorActivityRepository",
+    "AgentConfigRepository", "AgentStateRepository",
+    "FeatureFlagRepository", "PlatformSettingRepository",
+    "UsageRecordRepository", "InvoiceRepository",
 ]

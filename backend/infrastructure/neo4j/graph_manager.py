@@ -9,7 +9,6 @@ log = logging.getLogger(__name__)
 from backend.infrastructure.neo4j.connection import neo4j_connection
 from backend.infrastructure.neo4j.schema import SCHEMA_STATEMENTS
 
-
 # =========================================================
 # NEO4J GRAPH MANAGER
 # =========================================================

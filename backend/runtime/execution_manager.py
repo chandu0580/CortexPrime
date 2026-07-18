@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Execution Manager
 =================
@@ -13,23 +11,23 @@ Also manages:
 - Execution state queries
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-log = logging.getLogger(__name__)
-
+from backend.orchestration.cognition_pipeline import cognition_pipeline
 from backend.orchestration.execution_context import (
     ExecutionContext,
     execution_context_manager,
 )
-from backend.orchestration.cognition_pipeline import cognition_pipeline
 from backend.orchestration.priority_queue import execution_priority_queue
-from backend.orchestration.lifecycle_manager import agent_lifecycle_manager
-from backend.runtime.runtime_state import runtime_state
 from backend.runtime.runtime_state_store import runtime_state_store
+
+log = logging.getLogger(__name__)
 
 
 # =========================================================
@@ -69,10 +67,7 @@ class ExecutionManager:
             session_id=session_id,
         )
 
-        # Track in legacy in-memory runtime state
-        runtime_state.start_execution(ctx.execution_id, objective)
-
-        # Track in Redis-backed canonical store
+        # Register in canonical RuntimeStore (via Redis cache facade)
         await runtime_state_store.start(
             execution_id = ctx.execution_id,
             objective    = objective,
@@ -90,11 +85,7 @@ class ExecutionManager:
             log.error("Execution %s failed: %s", ctx.execution_id, exc)
             await execution_context_manager.save(ctx)
 
-        # Update legacy runtime state
-        if ctx.status == "completed":
-            runtime_state.complete_execution(ctx.execution_id)
-
-        # Update canonical Redis store
+        # Complete in canonical RuntimeStore (via Redis cache facade)
         await runtime_state_store.complete(
             ctx.execution_id,
             status         = ctx.status,
@@ -163,8 +154,6 @@ class ExecutionManager:
     async def _run_in_background(self, ctx: ExecutionContext) -> None:
         try:
             await cognition_pipeline.run(ctx)
-            if ctx.status == "completed":
-                runtime_state.complete_execution(ctx.execution_id)
             await runtime_state_store.complete(
                 ctx.execution_id,
                 status         = ctx.status,

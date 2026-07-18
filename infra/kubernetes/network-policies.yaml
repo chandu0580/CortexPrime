@@ -1,0 +1,354 @@
+---
+# ==============================================================
+# CortexPrime — Kubernetes NetworkPolicies
+# Zero-trust network segmentation for production clusters.
+# ==============================================================
+
+# Default deny-all ingress/egress for the entire namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cortexprime-default-deny
+  namespace: cortexprime
+  labels:
+    app: cortexprime
+    component: security
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# Allow ingress from ingress-nginx to frontend
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cortexprime-allow-ingress-to-frontend
+  namespace: cortexprime
+  labels:
+    app: cortexprime
+    component: frontend
+spec:
+  podSelector:
+    matchLabels:
+      app: cortexprime
+      component: frontend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - port: 3000
+          protocol: TCP
+    - from:
+        - podSelector:
+            matchLabels:
+              app: cortexprime
+              component: backend
+      ports:
+        - port: 3000
+          protocol: TCP
+---
+# Allow ingress from ingress-nginx to backend
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cortexprime-allow-ingress-to-backend
+  namespace: cortexprime
+  labels:
+    app: cortexprime
+    component: backend
+spec:
+  podSelector:
+    matchLabels:
+      app: cortexprime
+      component: backend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - port: 8000
+          protocol: TCP
+---
+# Allow backend egress to databases and infrastructure
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cortexprime-backend-egress
+  namespace: cortexprime
+  labels:
+    app: cortexprime
+    component: backend
+spec:
+  podSelector:
+    matchLabels:
+      app: cortexprime
+      component: backend
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: cortexprime
+              component: postgres
+      ports:
+        - port: 5432
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: cortexprime
+              component: redis
+      ports:
+        - port: 6379
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: cortexprime
+              component: rabbitmq
+      ports:
+        - port: 5672
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: cortexprime
+              component: neo4j
+      ports:
+        - port: 7687
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: cortexprime
+              component: minio
+      ports:
+        - port: 9000
+          protocol: TCP
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - port: 443
+          protocol: TCP
+        - port: 80
+          protocol: TCP
+---
+# Allow worker egress to message broker and cache
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cortexprime-worker-egress
+  namespace: cortexprime
+  labels:
+    app: cortexprime
+    component: worker
+spec:
+  podSelector:
+    matchLabels:
+      app: cortexprime
+      component: worker
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: cortexprime
+              component: rabbitmq
+      ports:
+        - port: 5672
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: cortexprime
+              component: redis
+      ports:
+        - port: 6379
+          protocol: TCP
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - port: 443
+          protocol: TCP
+        - port: 80
+          protocol: TCP
+---
+# Allow database ingress only from backend
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cortexprime-db-ingress
+  namespace: cortexprime
+  labels:
+    app: cortexprime
+    component: security
+spec:
+  podSelector:
+    matchLabels:
+      app: cortexprime
+      component: postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: cortexprime
+              component: backend
+      ports:
+        - port: 5432
+          protocol: TCP
+---
+# Allow Redis ingress only from backend and worker
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cortexprime-redis-ingress
+  namespace: cortexprime
+  labels:
+    app: cortexprime
+    component: security
+spec:
+  podSelector:
+    matchLabels:
+      app: cortexprime
+      component: redis
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: cortexprime
+              component: backend
+        - podSelector:
+            matchLabels:
+              app: cortexprime
+              component: worker
+      ports:
+        - port: 6379
+          protocol: TCP
+---
+# Allow RabbitMQ ingress only from backend and worker
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cortexprime-rabbitmq-ingress
+  namespace: cortexprime
+  labels:
+    app: cortexprime
+    component: security
+spec:
+  podSelector:
+    matchLabels:
+      app: cortexprime
+      component: rabbitmq
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: cortexprime
+              component: backend
+        - podSelector:
+            matchLabels:
+              app: cortexprime
+              component: worker
+      ports:
+        - port: 5672
+          protocol: TCP
+---
+# Allow Neo4j ingress only from backend
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cortexprime-neo4j-ingress
+  namespace: cortexprime
+  labels:
+    app: cortexprime
+    component: security
+spec:
+  podSelector:
+    matchLabels:
+      app: cortexprime
+      component: neo4j
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: cortexprime
+              component: backend
+      ports:
+        - port: 7687
+          protocol: TCP
+        - port: 7474
+          protocol: TCP
+---
+# Allow MinIO ingress only from backend
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cortexprime-minio-ingress
+  namespace: cortexprime
+  labels:
+    app: cortexprime
+    component: security
+spec:
+  podSelector:
+    matchLabels:
+      app: cortexprime
+      component: minio
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: cortexprime
+              component: backend
+      ports:
+        - port: 9000
+          protocol: TCP

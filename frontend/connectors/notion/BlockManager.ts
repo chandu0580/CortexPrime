@@ -23,6 +23,12 @@ export const BlockManager = {
   },
 
   async createBlock(pageId: string, type: BlockType, content: Record<string, unknown>): Promise<NotionBlock | null> {
+    const block = { object: "block", type, [type]: content }
+    const result = await NotionClient.patch<Record<string, unknown>>(`/blocks/${pageId}/children`, { children: [block] })
+    if (result.success && result.data?.results) {
+      const created = (result.data.results as Record<string, unknown>[])[0]
+      if (created) return mapApiBlock(created, pageId)
+    }
     return null
   },
 

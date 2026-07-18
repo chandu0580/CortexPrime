@@ -1,214 +1,169 @@
-# ==============================================================
-# CORTEXPRIME — Production Hardened Stack
-#
-# Single-command deployment:
-#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-#
-# Prerequisites:
-#   1. Copy .env.example → backend/.env and fill ALL values
-#   2. Run scripts/generate-certs.sh (or mount real Let's Encrypt certs)
-#      into ./infra/nginx/certs/{cert.pem,key.pem}
-#
-# Security model:
-#   • Only ports 80 + 443 are exposed to the host (via nginx)
-#   • backend, frontend, postgres, redis, rabbitmq, neo4j are internal only
-#   • cortex-data network carries no container with a host port binding
-#   • cortex-app network is the only path between nginx and app services
-#   • Redis bind address is restricted to the cortex-data interface
-# ==============================================================
-
-name: cortexprime
-
-# ==============================================================
-# VOLUMES  (unchanged from base — declared here so prod override
-#           stands alone if needed)
-# ==============================================================
-
-volumes:
-  cortex-nginx-certs:
-    name: cortex-nginx-certs
-
-# ==============================================================
-# SERVICES
-# ==============================================================
+version: "3.9"
 
 services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - POSTGRES_HOST=postgres
+      - REDIS_HOST=redis
+      - NEO4J_URI=bolt://neo4j:7687
+      - RABBITMQ_HOST=rabbitmq
+      - AUTH_DISABLED=false
+      - WS_AUTH_REQUIRED=true
+      - RATE_LIMIT_ENABLED=true
+      - BLOCK_ON_MIGRATION_FAILURE=true
+    env_file:
+      - backend/.env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
+    networks:
+      - cortex-app
+      - cortex-data
 
-  # ------------------------------------------------------------
-  # NGINX — TLS termination + reverse proxy
-  # The ONLY service with host-exposed ports.
-  # ------------------------------------------------------------
-  cortex-nginx:
-    container_name: cortex-nginx
-    image: nginx:1.27-alpine
-    restart: always
+  frontend:
+    build:
+      context: frontend
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=https://api.cortexprime.example.com
+      - NEXT_PUBLIC_WS_URL=wss://api.cortexprime.example.com/ws
+    restart: unless-stopped
+    depends_on:
+      - backend
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
+    networks:
+      - cortex-app
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backup:/backup
+    environment:
+      - POSTGRES_USER=cortex
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=cortexdb
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cortex -d cortexdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - cortex-data
+
+  redis:
+    image: redis:7.2-alpine
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cortex-data
+
+  neo4j:
+    image: neo4j:5.18-community
+    volumes:
+      - neo4j_data:/data
+    environment:
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    networks:
+      - cortex-data
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    environment:
+      - RABBITMQ_DEFAULT_USER=cortex
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASSWORD}
+      - RABBITMQ_DEFAULT_VHOST=cortex
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - cortex-data
+
+  nginx:
+    image: nginx:alpine
     ports:
       - "80:80"
       - "443:443"
     volumes:
       - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./infra/nginx/conf.d:/etc/nginx/conf.d:ro
-      - ./infra/nginx/certs:/etc/nginx/certs:ro
-      - /var/www/certbot:/var/www/certbot:ro   # ACME challenge dir (certbot webroot)
+      - ./infra/nginx/ssl:/etc/nginx/ssl:ro
     depends_on:
-      cortex-backend:
-        condition: service_healthy
-      cortex-frontend:
-        condition: service_healthy
+      - backend
+      - frontend
+    restart: unless-stopped
     networks:
       - cortex-app
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/health || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 128M
-        reservations:
-          cpus: "0.1"
-          memory: 32M
 
-  # ------------------------------------------------------------
-  # BACKEND — Production: no source mount, multi-worker
-  # REMOVED: direct port 8000 host binding
-  # ------------------------------------------------------------
-  cortex-backend:
-    build:
-      target: production
-    restart: always
-    ports: !reset []   # NOT exposed — nginx proxies internally
+  backup:
+    image: pgvector/pgvector:pg16
+    volumes:
+      - postgres_data:/var/lib/postgresql/data:ro
+      - ./backup:/backup
     environment:
-      ENV: production
-      LOG_LEVEL: warning
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://localhost}
-    # !reset replaces (not merges) the base volumes list, dropping the dev
-    # source bind-mount (.:/workspace:cached) so the production image's own
-    # built-in source code is used instead.
-    volumes: !reset
-      - cortex-chroma-data:/data/chroma
-    command: >
-      uvicorn backend.main:app
-        --host 0.0.0.0
-        --port 8000
-        --workers 4
-        --log-level warning
-    deploy:
-      resources:
-        limits:
-          cpus: "2.0"
-          memory: 2G
-        reservations:
-          cpus: "0.5"
-          memory: 512M
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=cortexdb
+    entrypoint: |
+      sh -c '
+        echo "0 3 * * * pg_dump -h postgres -U cortex -d cortexdb -F c -f /backup/cortexprime_\$$(date +\%Y\%m\%d_\%H\%M\%S).dump" > /etc/crontabs/root
+        crond -f -l 2
+      '
+    restart: unless-stopped
+    networks:
+      - cortex-data
 
-  # ------------------------------------------------------------
-  # FRONTEND — Production: standalone build, no source mount
-  # REMOVED: direct port 3000 host binding
-  # ------------------------------------------------------------
-  cortex-frontend:
-    build:
-      target: production
-    restart: always
-    ports: !reset []   # NOT exposed — nginx proxies internally
-    environment:
-      NODE_ENV: production
-      # Frontend talks to nginx (same-origin) in production
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://localhost}
-      NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-wss://localhost/ws}
-    volumes: !reset []
-    command: node server.js
-    # wget resolves 'localhost' to ::1 (IPv6) first in Alpine; the standalone
-    # Next.js server only binds IPv4 0.0.0.0:3000. Use 127.0.0.1 explicitly.
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000 || exit 1"]
-      interval: 20s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-    deploy:
-      resources:
-        limits:
-          cpus: "1.0"
-          memory: 512M
-        reservations:
-          cpus: "0.25"
-          memory: 128M
+networks:
+  cortex-app:
+    driver: bridge
+  cortex-data:
+    driver: bridge
 
-  # ------------------------------------------------------------
-  # POSTGRES — internal only, no host port
-  # ------------------------------------------------------------
-  cortex-postgres:
-    restart: always
-    ports: !reset []   # NOT exposed to host
-
-    # Override dev default passwords (must be set in .env)
-    environment:
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
-      POSTGRES_USER: ${POSTGRES_USER:-cortex}
-      POSTGRES_DB: ${POSTGRES_DB:-cortexdb}
-    deploy:
-      resources:
-        limits:
-          cpus: "1.0"
-          memory: 1G
-
-  # ------------------------------------------------------------
-  # REDIS — internal only, bind restricted to cortex-data
-  # ------------------------------------------------------------
-  cortex-redis:
-    restart: always
-    ports: !reset []   # NOT exposed to host
-
-    # In production override the bind to the container's own address only.
-    # The Docker network provides isolation; the password provides auth.
-    command: >
-      redis-server /usr/local/etc/redis/redis.conf
-        --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}
-        --bind 0.0.0.0
-        --protected-mode yes
-    environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 512M
-
-  # ------------------------------------------------------------
-  # RABBITMQ — AMQP and management UI both internal only
-  # REMOVED: port 5672 + 15672 host bindings
-  # ------------------------------------------------------------
-  cortex-rabbitmq:
-    restart: always
-    ports: !reset []   # NOT exposed to host — use `docker exec` or SSH tunnel for admin
-
-    environment:
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD must be set in .env}
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-cortex}
-      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-cortex}
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 512M
-
-  # ------------------------------------------------------------
-  # NEO4J — Bolt and HTTP both internal only
-  # REMOVED: port 7474 + 7687 host bindings
-  # ------------------------------------------------------------
-  cortex-neo4j:
-    restart: always
-    ports: !reset []   # NOT exposed to host
-
-    environment:
-      NEO4J_AUTH: ${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:?NEO4J_PASSWORD must be set in .env}
-    deploy:
-      resources:
-        limits:
-          cpus: "1.0"
-          memory: 1G
-
+volumes:
+  postgres_data:
+  redis_data:
+  neo4j_data:
+  rabbitmq_data:

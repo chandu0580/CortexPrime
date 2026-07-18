@@ -1,156 +1,76 @@
 # ==============================================================
-# CORTEXPRIME — Air-Gapped Production Stack
-#
-# Usage:
-#   docker compose -f docker-compose.yml -f docker-compose.airgap.yml up -d
-#
-# Prerequisites:
-#   1. All images pre-loaded (see ADMINISTRATOR_GUIDE.md §3.5)
-#   2. Ollama running locally with llama3.2 model pulled
-#   3. TLS certs in ./infra/nginx/certs/{cert.pem,key.pem}
-#   4. All passwords set in .env
+# CORTEXPRIME — Docker Compose (Air-Gapped)
+# ==============================================================
+# For environments with no internet access.
+# All images must be pre-loaded from an air-gap bundle.
+# Uses local Ollama for LLM inference.
 # ==============================================================
 
-name: cortexprime
-
-# ==============================================================
-# NETWORKS — Isolated service planes
-# ==============================================================
+name: cortexprime-airgap
 
 networks:
   cortex-app:
-    name: cortex-app
+    name: cortex-airgap-app
     driver: bridge
   cortex-data:
-    name: cortex-data
+    name: cortex-airgap-data
     driver: bridge
 
-# ==============================================================
-# VOLUMES
-# ==============================================================
-
 volumes:
-  cortex-nginx-certs:
-    name: cortex-nginx-certs
-  cortex-ollama-data:
-    name: cortex-ollama-data
-
-# ==============================================================
-# SERVICES
-# ==============================================================
+  cortex-postgres-data:
+  cortex-redis-data:
+  cortex-rabbitmq-data:
+  cortex-neo4j-data:
+  cortex-chroma-data:
+  cortex-minio-data:
+  cortex-ollama-models:
 
 services:
 
-  # ------------------------------------------------------------
-  # NGINX — TLS termination + reverse proxy
-  # ------------------------------------------------------------
-  cortex-nginx:
-    container_name: cortex-nginx
-    image: nginx:1.27-alpine
-    restart: always
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./infra/nginx/conf.d:/etc/nginx/conf.d:ro
-      - ./infra/nginx/certs:/etc/nginx/certs:ro
-    depends_on:
-      cortex-backend:
-        condition: service_healthy
-      cortex-frontend:
-        condition: service_healthy
-    networks:
-      - cortex-app
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/health || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 128M
-        reservations:
-          cpus: "0.1"
-          memory: 32M
-
-  # ------------------------------------------------------------
-  # OLLAMA — Local LLM inference (air-gapped)
-  # ------------------------------------------------------------
-  cortex-ollama:
-    container_name: cortex-ollama
-    image: ollama/ollama:latest
-    restart: unless-stopped
-    volumes:
-      - cortex-ollama-data:/root/.ollama
-    ports:
-      - "11434:11434"
-    networks:
-      - cortex-data
-    healthcheck:
-      test: ["CMD-SHELL", "ollama list || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 120s
-    deploy:
-      resources:
-        limits:
-          cpus: "4.0"
-          memory: 8G
-        reservations:
-          cpus: "2.0"
-          memory: 4G
-
-  # ------------------------------------------------------------
-  # BACKEND — Air-gapped config
-  # ------------------------------------------------------------
   cortex-backend:
-    build:
-      target: production
-    restart: always
-    ports: !reset []
+    container_name: cortex-airgap-backend
+    image: cortexprime-backend:airgap
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
     environment:
-      ENVIRONMENT: air-gapped
+      ENV: air-gapped
       LOG_LEVEL: warning
-      CORS_ORIGINS: https://app.cortexprime.internal
-      # Air-gapped LLM — all local via Ollama
+      AUTH_DISABLED: "false"
+      RATE_LIMIT_ENABLED: "true"
+      WS_AUTH_REQUIRED: "true"
+      BLOCK_ON_MIGRATION_FAILURE: "true"
+      STRICT_EMBEDDING_VALIDATION: "true"
       MODEL_ORCHESTRATOR: ollama/llama3.2
       MODEL_PLANNER: ollama/llama3.2
       MODEL_CRITIC: ollama/llama3.2
       MODEL_RUNTIME_FAST: ollama/llama3.2
       EMBEDDING_PROVIDER: local
       VECTOR_DB_PROVIDER: chroma
-      CHROMA_PATH: /data/chroma
-      OLLAMA_BASE_URL: http://cortex-ollama:11434
-      # Disable external services
       ENABLE_LIVE_RESEARCH: "false"
       ENABLE_WEB_SEARCH: "false"
-      TAVILY_API_KEY: ""
-      SENTRY_DSN: ""
-      # Voice — local only
-      ENABLE_TTS: "true"
-      ENABLE_STT: "true"
-      ENABLE_REALTIME_RUNTIME: "false"
-      LIVEKIT_URL: ""
-      # Auth
-      AUTH_DISABLED: "false"
-      RATE_LIMIT_ENABLED: "true"
-      WS_AUTH_REQUIRED: "true"
-      REVOCATION_FAIL_OPEN: "false"
-      STRUCTURED_LOGGING: "true"
-      BLOCK_ON_MIGRATION_FAILURE: "true"
-    volumes: !reset
+      OLLAMA_BASE_URL: http://cortex-ollama:11434
+      POSTGRES_HOST: cortex-postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: cortex
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: cortexdb
+      REDIS_HOST: cortex-redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      RABBITMQ_HOST: cortex-rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: cortex
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      RABBITMQ_VHOST: cortex
+      NEO4J_URI: bolt://cortex-neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      CORS_ORIGINS: https://app.cortexprime.internal
+    volumes:
       - cortex-chroma-data:/data/chroma
-    command: >
-      uvicorn backend.main:app
-        --host 0.0.0.0
-        --port 8000
-        --workers 4
-        --log-level warning
     depends_on:
       cortex-postgres:
         condition: service_healthy
@@ -170,104 +90,173 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
-      start_period: 60s
-    deploy:
-      resources:
-        limits:
-          cpus: "2.0"
-          memory: 2G
-        reservations:
-          cpus: "0.5"
-          memory: 512M
+      start_period: 30s
 
-  # ------------------------------------------------------------
-  # FRONTEND — Production standalone
-  # ------------------------------------------------------------
   cortex-frontend:
-    build:
-      target: production
-    restart: always
-    ports: !reset []
+    container_name: cortex-airgap-frontend
+    image: cortexprime-frontend:airgap
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
     environment:
       NODE_ENV: production
-      NEXT_PUBLIC_API_URL: https://app.cortexprime.internal
+      NEXT_PUBLIC_API_URL: https://app.cortexprime.internal/api
       NEXT_PUBLIC_WS_URL: wss://app.cortexprime.internal/ws
-    volumes: !reset []
-    command: node server.js
+    depends_on:
+      cortex-backend:
+        condition: service_healthy
+    networks:
+      - cortex-app
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000 || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000 || exit 1"]
       interval: 20s
       timeout: 5s
       retries: 5
-      start_period: 30s
+      start_period: 45s
+
+  cortex-worker:
+    container_name: cortex-airgap-worker
+    image: cortexprime-worker:airgap
+    restart: unless-stopped
+    environment:
+      ENV: air-gapped
+      CELERY_BROKER_URL: amqp://cortex:${RABBITMQ_PASSWORD}@cortex-rabbitmq:5672/cortex
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@cortex-redis:6379/0
+      OLLAMA_BASE_URL: http://cortex-ollama:11434
+      LOG_LEVEL: warning
+    depends_on:
+      cortex-rabbitmq:
+        condition: service_healthy
+      cortex-redis:
+        condition: service_healthy
     networks:
-      - cortex-app
-    deploy:
-      resources:
-        limits:
-          cpus: "1.0"
-          memory: 512M
-        reservations:
-          cpus: "0.25"
-          memory: 128M
+      - cortex-data
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A worker.tasks status || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
-  # ------------------------------------------------------------
-  # POSTGRES — Internal only
-  # ------------------------------------------------------------
   cortex-postgres:
-    restart: always
-    ports: !reset []
+    container_name: cortex-airgap-postgres
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
     environment:
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
-    deploy:
-      resources:
-        limits:
-          cpus: "1.0"
-          memory: 1G
+      POSTGRES_USER: cortex
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: cortexdb
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - cortex-postgres-data:/var/lib/postgresql/data
+    networks:
+      - cortex-data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cortex -d cortexdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
 
-  # ------------------------------------------------------------
-  # REDIS — Internal only
-  # ------------------------------------------------------------
   cortex-redis:
-    restart: always
-    ports: !reset []
-    command: >
-      redis-server /usr/local/etc/redis/redis.conf
-        --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}
-        --bind 0.0.0.0
-        --protected-mode yes
-    environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 512M
+    container_name: cortex-airgap-redis
+    image: redis:7.2-alpine
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes
+    volumes:
+      - cortex-redis-data:/data
+    networks:
+      - cortex-data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
-  # ------------------------------------------------------------
-  # RABBITMQ — Internal only
-  # ------------------------------------------------------------
   cortex-rabbitmq:
-    restart: always
-    ports: !reset []
+    container_name: cortex-airgap-rabbitmq
+    image: rabbitmq:3.13-management-alpine
+    restart: unless-stopped
+    ports:
+      - "5672:5672"
+      - "15672:15672"
     environment:
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD must be set in .env}
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 512M
+      RABBITMQ_DEFAULT_USER: cortex
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_DEFAULT_VHOST: cortex
+    volumes:
+      - cortex-rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - cortex-data
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
 
-  # ------------------------------------------------------------
-  # NEO4J — Internal only
-  # ------------------------------------------------------------
   cortex-neo4j:
-    restart: always
-    ports: !reset []
+    container_name: cortex-airgap-neo4j
+    image: neo4j:5.18-community
+    restart: unless-stopped
+    ports:
+      - "7474:7474"
+      - "7687:7687"
     environment:
-      NEO4J_AUTH: ${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:?NEO4J_PASSWORD must be set in .env}
-    deploy:
-      resources:
-        limits:
-          cpus: "1.0"
-          memory: 1G
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD}
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_memory_pagecache_size: 256M
+      NEO4J_dbms_memory_heap_initial__size: 256M
+      NEO4J_dbms_memory_heap_max__size: 512M
+    volumes:
+      - cortex-neo4j-data:/data
+    networks:
+      - cortex-data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  cortex-ollama:
+    container_name: cortex-airgap-ollama
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - cortex-ollama-models:/root/.ollama
+    networks:
+      - cortex-data
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+
+  cortex-minio:
+    container_name: cortex-airgap-minio
+    image: minio/minio:RELEASE.2024-07-16T23-46-41Z
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: cortex
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - cortex-minio-data:/data
+    command: server /data --console-address ":9001"
+    networks:
+      - cortex-data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s

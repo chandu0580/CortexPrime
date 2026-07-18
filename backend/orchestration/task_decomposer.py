@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
-from uuid import uuid4
 
 log = logging.getLogger(__name__)
 
@@ -195,7 +193,8 @@ Respond ONLY with valid JSON array, no markdown."""
             max_tokens=1000,
         )
 
-        import json, re
+        import json
+        import re
 
         raw = response.get("content", "")
         # Extract JSON array from response

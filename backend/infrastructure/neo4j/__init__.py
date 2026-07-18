@@ -20,25 +20,29 @@ Schema constants:
 
 from backend.infrastructure.neo4j.connection import neo4j_connection
 from backend.infrastructure.neo4j.graph_manager import neo4j_graph
-from backend.infrastructure.neo4j.schema import Labels, Rels, Props, SCHEMA_STATEMENTS
-from backend.infrastructure.neo4j.traversal import graph_traversal
 from backend.infrastructure.neo4j.query_service import graph_query_service
-
 from backend.infrastructure.neo4j.repositories.agent_repository import (
-    AgentRepository, agent_repository,
-)
-from backend.infrastructure.neo4j.repositories.execution_repository import (
-    ExecutionRepository, execution_repository,
-)
-from backend.infrastructure.neo4j.repositories.memory_repository import (
-    MemoryRepository, memory_repository,
+    AgentRepository,
+    agent_repository,
 )
 from backend.infrastructure.neo4j.repositories.cognition_repository import (
-    CognitionRepository, cognition_repository,
+    CognitionRepository,
+    cognition_repository,
+)
+from backend.infrastructure.neo4j.repositories.execution_repository import (
+    ExecutionRepository,
+    execution_repository,
+)
+from backend.infrastructure.neo4j.repositories.memory_repository import (
+    MemoryRepository,
+    memory_repository,
 )
 from backend.infrastructure.neo4j.repositories.world_model_repository import (
-    WorldModelRepository, world_model_repository,
+    WorldModelRepository,
+    world_model_repository,
 )
+from backend.infrastructure.neo4j.schema import SCHEMA_STATEMENTS, Labels, Props, Rels
+from backend.infrastructure.neo4j.traversal import graph_traversal
 
 __all__ = [
     # Singletons

@@ -10,7 +10,6 @@ Endpoints:
 """
 from __future__ import annotations
 
-import os
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -71,12 +70,13 @@ async def live_search(req: ResearchRequest) -> Dict[str, Any]:
 @router.post("/news")
 async def live_news_search(req: NewsRequest) -> Dict[str, Any]:
     """News-focused search with recency bias."""
-    from backend.research.tavily_client          import tavily_client
-    from backend.research.source_ranker          import source_ranker
-    from backend.research.citation_engine        import citation_engine
-    from backend.research.research_telemetry     import research_telemetry
-    from backend.research.live_research_pipeline import live_research_pipeline
     import time
+
+    from backend.research.citation_engine import citation_engine
+    from backend.research.live_research_pipeline import live_research_pipeline
+    from backend.research.research_telemetry import research_telemetry
+    from backend.research.source_ranker import source_ranker
+    from backend.research.tavily_client import tavily_client
 
     t0 = time.perf_counter()
     try:
@@ -112,12 +112,13 @@ async def live_news_search(req: NewsRequest) -> Dict[str, Any]:
 @router.post("/domain")
 async def domain_search(req: DomainRequest) -> Dict[str, Any]:
     """Domain-restricted search — e.g. arxiv.org, github.com."""
-    from backend.research.tavily_client          import tavily_client
-    from backend.research.source_ranker          import source_ranker
-    from backend.research.citation_engine        import citation_engine
-    from backend.research.research_telemetry     import research_telemetry
-    from backend.research.live_research_pipeline import live_research_pipeline
     import time
+
+    from backend.research.citation_engine import citation_engine
+    from backend.research.live_research_pipeline import live_research_pipeline
+    from backend.research.research_telemetry import research_telemetry
+    from backend.research.source_ranker import source_ranker
+    from backend.research.tavily_client import tavily_client
 
     t0 = time.perf_counter()
     try:

@@ -1,16 +1,10 @@
-from typing import Dict, Any, Callable, List
-from datetime import datetime
-from uuid import uuid4
 import asyncio
+from datetime import datetime
+from typing import Any, Callable, Dict, List
+from uuid import uuid4
 
-from backend.events.event_bus import (
-    event_bus
-)
-
-from backend.events.event_models import (
-    CognitionEvent
-)
-
+from backend.events.event_bus import event_bus
+from backend.events.event_models import CognitionEvent
 
 # ==========================================
 # TOOL REGISTRY

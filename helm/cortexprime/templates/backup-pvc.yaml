@@ -1,0 +1,15 @@
+{{- if .Values.backup.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "cortexprime.fullname" . }}-backup-pvc
+  labels:
+    {{- include "cortexprime.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.backup.storageSize | default "50Gi" }}
+  storageClassName: {{ .Values.global.storageClass | default "" }}
+{{- end }}

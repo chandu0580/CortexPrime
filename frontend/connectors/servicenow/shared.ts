@@ -1,3 +1,1 @@
-export function generateId(prefix: string): string {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
-}
+export { generateId } from '../../lib/utils/id';

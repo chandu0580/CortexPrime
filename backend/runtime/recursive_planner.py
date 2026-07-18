@@ -1,15 +1,9 @@
 
-from typing import Dict, Any, List
+from typing import Any, Dict, List
 from uuid import uuid4
 
-from backend.events.event_bus import (
-    event_bus
-)
-
-from backend.events.event_models import (
-    CognitionEvent
-)
-
+from backend.events.event_bus import event_bus
+from backend.events.event_models import CognitionEvent
 
 # ==========================================
 # RECURSIVE PLANNER

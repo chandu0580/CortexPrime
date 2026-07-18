@@ -15,7 +15,6 @@ Migration note
 """
 from __future__ import annotations
 
-import uuid
 from typing import Any, Dict, Optional
 
 from sqlalchemy import Index, String, Text
@@ -23,7 +22,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.database.base import Base
-from backend.database.models.mixins import UUIDPrimaryKeyMixin, TimestampMixin
+from backend.database.models.mixins import TimestampMixin, UUIDPrimaryKeyMixin
 
 
 class AuditLog(UUIDPrimaryKeyMixin, TimestampMixin, Base):

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import dynamic from "next/dynamic";
-import { performanceOverview } from "./mockData";
+import { performanceOverview } from "./dashboardData";
 import { Activity, Clock, Award, Users } from "lucide-react";
 
 // Dynamically import Recharts to avoid SSR hydration mismatches

@@ -1,25 +1,14 @@
-from typing import Dict, Any, List
-from uuid import uuid4
+import os
 from datetime import datetime
+from typing import Any, Dict, List
+from uuid import uuid4
 
 from tavily import TavilyClient
 
-from backend.events.event_bus import (
-    event_bus
-)
-
-from backend.events.event_models import (
-    CognitionEvent
-)
-
-from backend.memory.vector_memory import (
-    vector_memory
-)
-
-from backend.research.evidence_engine import (
-    evidence_engine
-)
-
+from backend.events.event_bus import event_bus
+from backend.events.event_models import CognitionEvent
+from backend.memory.vector_memory import vector_memory
+from backend.research.evidence_engine import evidence_engine
 
 # ==========================================
 # DEEP RESEARCH ENGINE
@@ -28,15 +17,13 @@ from backend.research.evidence_engine import (
 class DeepResearchEngine:
 
     def __init__(self):
-
-        # ==========================================
-        # TAVILY CLIENT
-        # ==========================================
-
-        self.tavily = TavilyClient(
-
-            api_key="YOUR_TAVILY_API_KEY"
-        )
+        api_key = os.environ.get("TAVILY_API_KEY")
+        if not api_key:
+            raise RuntimeError(
+                "TAVILY_API_KEY is required for DeepResearchEngine. "
+                "Set it in your environment or .env file."
+            )
+        self.tavily = TavilyClient(api_key=api_key)
 
         # ==========================================
         # MAX SOURCES

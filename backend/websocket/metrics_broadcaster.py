@@ -98,10 +98,10 @@ class MetricsBroadcaster:
                 log.warning("MetricsBroadcaster._metrics_loop error: %s", exc)
 
     async def _broadcast_metrics(self) -> None:
-        from backend.websocket.stream_router import stream_router
-        from backend.websocket.message_protocol import build_runtime_metrics
-        from backend.infrastructure.redis.pub_sub import pub_sub
         from backend.infrastructure.redis.keys import RedisKeys
+        from backend.infrastructure.redis.pub_sub import pub_sub
+        from backend.websocket.message_protocol import build_runtime_metrics
+        from backend.websocket.stream_router import stream_router
 
         metrics = await self._collect_metrics()
         payload = build_runtime_metrics(metrics)

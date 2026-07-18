@@ -107,9 +107,9 @@ async def _browser_governance_check(
     Submits an approval request for high-risk browser actions.
     """
     try:
-        from backend.safety.safety_guard   import safety_guard
-        from backend.safety.audit_logger   import audit_logger
+        from backend.safety.audit_logger import audit_logger
         from backend.safety.emergency_stop import emergency_stop
+        from backend.safety.safety_guard import safety_guard
 
         if emergency_stop.is_stopped(execution_id):
             return False
@@ -270,17 +270,8 @@ class BrowserAgent:
         payload:      Dict[str, Any] | None = None,
     ) -> None:
         try:
-            from backend.events.event_bus    import event_bus
-            from backend.events.event_models import CognitionEvent
-            await event_bus.publish(CognitionEvent(
-                agent        = "browser_agent",
-                event_type   = event_type,
-                status       = status,
-                phase        = phase,
-                execution_id = execution_id,
-                message      = message,
-                payload      = payload or {},
-            ))
+            from backend.events.event_bus import publish_event
+            await publish_event("browser_agent", execution_id, event_type, status, phase, message, payload)
         except Exception:
             pass
 

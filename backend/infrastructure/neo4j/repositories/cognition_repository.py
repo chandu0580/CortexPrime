@@ -258,8 +258,8 @@ class CognitionRepository(BaseRepository):
     ) -> List[Dict[str, Any]]:
         """Return recent cognition events for *agent_name*."""
         return await self._run(
-            f"""
-            MATCH (ce:CognitionEvent {{agent: $agent_name}})
+            """
+            MATCH (ce:CognitionEvent {agent: $agent_name})
             RETURN ce.event_id        AS event_id,
                    ce.event_type      AS event_type,
                    ce.execution_id    AS execution_id,

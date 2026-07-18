@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { govSummary } from "./mockData";
+import { govSummary } from "./dashboardData";
 import { variants } from "@/lib/motion-tokens";
 import { ShieldCheck, TrendingUp, Award, Activity, Heart } from "lucide-react";
 

@@ -49,6 +49,8 @@ export const ConfluenceAttachmentManager = {
   },
 
   async archiveAttachment(id: string): Promise<ConfluenceAttachment | null> {
+    const result = await ConfluenceClient.put<Record<string, unknown>>(`/attachments/${id}`, { status: "archived" })
+    if (result.success && result.data) return mapApiAttachment(result.data, String((result.data as Record<string, unknown>).pageId ?? ""))
     return null
   },
 }

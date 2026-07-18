@@ -8,6 +8,5 @@ export function useDashboardResources() {
     return useQuery({
         queryKey: queryKeys.dashboard.resources(),
         queryFn:  fetchDashboardResources,
-        refetchInterval: 15_000,
     })
 }

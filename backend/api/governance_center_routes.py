@@ -14,7 +14,6 @@ GET /governance-center/replay/{exec_id}    – Mission governance replay timelin
 from __future__ import annotations
 
 import logging
-import math
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -190,26 +189,15 @@ def _build_pipeline(
     ]
 
     # Map audit outcomes → status colour
-    outcome_status: Dict[str, str] = {
-        "approved":  "approved",
-        "allowed":   "approved",
-        "completed": "approved",
-        "started":   "active",
-        "blocked":   "blocked",
-        "rejected":  "blocked",
-        "timed_out": "warned",
-        "failed":    "blocked",
-    }
 
     # Bucket audit entries by rough category
     by_cat: Dict[str, List[Dict]] = defaultdict(list)
     for e in audit_entries:
         action = (e.get("action") or "").lower()
-        outcome = (e.get("outcome") or "").lower()
+        (e.get("outcome") or "").lower()
         ts_str = e.get("timestamp", "")
-        ts = 0.0
         try:
-            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00")).timestamp()
+            datetime.fromisoformat(ts_str.replace("Z", "+00:00")).timestamp()
         except Exception:
             pass
 
@@ -245,7 +233,7 @@ def _build_pipeline(
             last_at = _iso(datetime.fromtimestamp(last_viol[0]["timestamp"], tz=timezone.utc)) if last_viol else None
         else:
             count  = len(entries)
-            recent = [e for e in entries if abs(now - _ts(e.get("timestamp"))) < hour]
+            [e for e in entries if abs(now - _ts(e.get("timestamp"))) < hour]
             outcomes = [e.get("outcome", "").lower() for e in entries]
             if "blocked" in outcomes or "rejected" in outcomes:
                 status = "blocked"
@@ -426,9 +414,12 @@ async def get_risk(
     week_entries   = _filter(cutoff_7d)
     month_entries  = _filter(cutoff_30d)
 
-    today_bkt  = _bucket(today_entries);  today_bkt.label  = "Today"
-    week_bkt   = _bucket(week_entries);   week_bkt.label   = "7 Days"
-    month_bkt  = _bucket(month_entries);  month_bkt.label  = "30 Days"
+    today_bkt  = _bucket(today_entries)
+    today_bkt.label  = "Today"
+    week_bkt   = _bucket(week_entries)
+    week_bkt.label   = "7 Days"
+    month_bkt  = _bucket(month_entries)
+    month_bkt.label  = "30 Days"
 
     # 30-day series for Recharts
     series: List[Dict[str, Any]] = []

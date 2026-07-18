@@ -4,14 +4,13 @@ AnalyticsRepository — async CRUD + aggregation for runtime_analytics.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database.models.runtime_analytics import RuntimeAnalyticsRecord
-from backend.database.repositories.base        import BaseRepository
+from backend.database.repositories.base import BaseRepository
 
 
 class AnalyticsRepository(BaseRepository[RuntimeAnalyticsRecord]):
@@ -71,7 +70,7 @@ class AnalyticsRepository(BaseRepository[RuntimeAnalyticsRecord]):
             select(
                 func.count().label("total_calls"),
                 func.sum(
-                    func.cast(RuntimeAnalyticsRecord.success, Integer := __import__("sqlalchemy", fromlist=["Integer"]).Integer)
+                    func.cast(RuntimeAnalyticsRecord.success, _Integer := __import__("sqlalchemy", fromlist=["Integer"]).Integer)
                 ).label("successful_calls"),
                 func.avg(RuntimeAnalyticsRecord.latency_ms).label("avg_latency_ms"),
                 func.sum(RuntimeAnalyticsRecord.prompt_tokens).label("total_prompt_tokens"),

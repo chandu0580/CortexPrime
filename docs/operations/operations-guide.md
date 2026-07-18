@@ -81,7 +81,7 @@ secrets:
 EOF
 
 # 2. Install
-helm upgrade --install cortexprime infra/helm/cortexprime \
+helm upgrade --install cortexprime helm/cortexprime \
   --namespace cortexprime --create-namespace \
   -f configs/environments/production.yaml \
   -f secrets.yaml

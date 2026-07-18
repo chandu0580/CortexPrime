@@ -1,15 +1,54 @@
-const signalDomains = [
-  { label: "Operational",  icon: "⚙" },
-  { label: "Financial",    icon: "$" },
-  { label: "Compliance",   icon: "⚖" },
-  { label: "Security",     icon: "🔒" },
-  { label: "Customer",     icon: "☆" },
-  { label: "AI",           icon: "◆" },
-]
+"use client"
 
+import { useWorkspaceExecutive } from "@/hooks"
 import { SectionHeader } from "@/components/mission-control/shared/SectionHeader"
 
 export function EnterpriseSignals() {
+  const { data } = useWorkspaceExecutive()
+
+  const healthMap = Object.fromEntries(
+    (data?.healthMatrix ?? []).map((h) => [h.label.toLowerCase(), h]),
+  )
+
+  const signalDomains = [
+    {
+      label: "Operational",
+      icon: "⚙",
+      status: healthMap["database"]?.status === "healthy" ? "Active" : healthMap["database"]?.status ?? "No signal",
+      active: healthMap["database"]?.status === "healthy",
+    },
+    {
+      label: "AI",
+      icon: "◆",
+      status: data?.activeMissions != null && data.activeMissions > 0 ? `${data.activeMissions} active` : "Idle",
+      active: (data?.activeMissions ?? 0) > 0,
+    },
+    {
+      label: "Agents",
+      icon: "◈",
+      status: data?.activeAgents != null && data.activeAgents > 0 ? `${data.activeAgents} active` : "Idle",
+      active: (data?.activeAgents ?? 0) > 0,
+    },
+    {
+      label: "System",
+      icon: "♢",
+      status: data?.systemStatus === "online" ? "Online" : data?.systemStatus ?? "No signal",
+      active: data?.systemStatus === "online",
+    },
+    {
+      label: "Safety",
+      icon: "⚖",
+      status: data?.safetyScore != null ? `${data.safetyScore}%` : "No signal",
+      active: (data?.safetyScore ?? 0) >= 80,
+    },
+    {
+      label: "Missions",
+      icon: "☆",
+      status: data?.totalMissions != null ? `${data.totalMissions} total` : "No signal",
+      active: (data?.totalMissions ?? 0) > 0,
+    },
+  ]
+
   return (
     <section>
       <SectionHeader title="Enterprise Signals" />
@@ -25,8 +64,13 @@ export function EnterpriseSignals() {
             </div>
             <p className="text-[0.78rem] font-medium text-[#111827]">{domain.label}</p>
             <div className="mx-auto mt-2 flex items-center gap-1">
-              <div aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-[#D1D5DB]" />
-              <span className="text-[0.65rem] text-[#B0B7C3]">No signal</span>
+              <div
+                className="h-1.5 w-1.5 rounded-full"
+                style={{ backgroundColor: domain.active ? "#38B88A" : "#D1D5DB" }}
+              />
+              <span className="text-[0.65rem]" style={{ color: domain.active ? "#38B88A" : "#B0B7C3" }}>
+                {domain.status}
+              </span>
             </div>
           </div>
         ))}

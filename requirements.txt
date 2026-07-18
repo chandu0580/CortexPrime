@@ -80,6 +80,12 @@ starlette==1.0.1
 # INFRASTRUCTURE CLIENTS
 # ======================================
 
+# Kubernetes — official Python client
+kubernetes>=32.0.0
+
+# Docker — official Python SDK
+docker>=7.2.0
+
 # PostgreSQL — async SQLAlchemy + pgvector
 asyncpg==0.31.0
 psycopg2-binary==2.9.12
@@ -114,3 +120,35 @@ httpx==0.28.1
 
 # Sentry — error tracking + performance monitoring
 sentry-sdk[fastapi]==2.62.0
+
+# OpenTelemetry — distributed tracing
+opentelemetry-api>=1.31.0
+opentelemetry-sdk>=1.31.0
+opentelemetry-exporter-otlp-proto-http>=1.31.0
+
+
+# ======================================
+# ENCRYPTION (Fernet symmetric encryption)
+# ======================================
+
+cryptography==45.0.0
+
+
+# ======================================
+# PRODUCTION AUDIT - MISSING DEPENDENCIES
+# ======================================
+
+pydantic>=2.11.0
+psutil>=7.0.0
+pygetwindow>=0.1.0
+tavily-python>=0.5.0
+bcrypt>=4.3.0
+sentence-transformers>=4.1.0
+python-docx>=1.1.2
+python-pptx>=1.0.2
+hvac>=2.4.0
+boto3>=1.37.0
+botocore>=1.37.0
+azure-keyvault-secrets>=4.10.0
+s3fs>=2024.12.0
+opensearch-py>=2.9.0

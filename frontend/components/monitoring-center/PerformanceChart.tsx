@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import dynamic from "next/dynamic";
-import { performanceTrendsData } from "./mockData";
+import { performanceTrendsData } from "./dashboardData";
 import { Cpu, HardDrive, Layers, Clock, ChevronDown } from "lucide-react";
 
 // Dynamically import Recharts to avoid SSR hydration mismatches
