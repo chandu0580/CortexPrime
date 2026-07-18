@@ -1,6 +1,9 @@
+import logging
 import subprocess
 import tempfile
 import os
+
+log = logging.getLogger(__name__)
 
 
 # ==========================================
@@ -72,9 +75,9 @@ class SandboxExecutionEngine:
         code: str
     ):
 
-        print(
-            "\n🛡️ Sandbox Execution "
-            "Engine Activated...\n"
+        log.info(
+            "Sandbox Execution "
+            "Engine Activated..."
         )
 
         # ==========================================

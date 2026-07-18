@@ -36,7 +36,6 @@ class GovernancePlanner:
         learning_insight: LearningInsight,
         context: Optional[Dict[str, Any]] = None,
     ) -> GovernancePlan:
-        ctx = context or {}
         governance_level = _RISK_GOVERNANCE_MAP.get(analysis.risk, "none")
         required_approvals = _REQUIRED_APPROVALS.get(governance_level, 0)
 

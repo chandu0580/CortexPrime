@@ -6,7 +6,8 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 try:
-    from backend.database.repositories.factory import repo_factory as _repo_factory, RepositoryFactory
+    from backend.database.repositories.factory import RepositoryFactory
+    from backend.database.repositories.factory import repo_factory as _repo_factory
 except ImportError:
     _repo_factory = None
 from backend.governance.events import GovernanceEvent, GovernanceEventPublisher, governance_event_publisher

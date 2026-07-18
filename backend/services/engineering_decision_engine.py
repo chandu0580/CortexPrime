@@ -563,7 +563,7 @@ class EngineeringDecisionEngine:
 
         # Brain-aware enrichment: match changed files against known services
         if repository_brain and isinstance(repository_brain, dict):
-            arch = repository_brain.get("architecture", {})
+            repository_brain.get("architecture", {})
             brain_services = [s.get("name", "") for s in (
                 repository_brain.get("identity", {}).get("services", [])
             )] if isinstance(repository_brain.get("identity"), dict) else []

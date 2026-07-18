@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from backend.cognitive_memory.service import CognitiveMemoryService, cognitive_memory_service
+from backend.cognitive_memory.service import cognitive_memory_service
 
 log = logging.getLogger(__name__)
 

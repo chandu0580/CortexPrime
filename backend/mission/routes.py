@@ -6,7 +6,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from backend.mission.models import MissionPriority, MissionStatus, MissionType
+from backend.mission.models import MissionPriority, MissionType
 from backend.mission.service import MissionService
 
 router = APIRouter(prefix="/api/missions", tags=["Missions"])

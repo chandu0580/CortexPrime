@@ -26,8 +26,9 @@ class ReleaseAgent(BaseAgent):
 
         if gov_svc:
             try:
-                from backend.governance.models import DecisionRequest
                 from datetime import datetime, timezone
+
+                from backend.governance.models import DecisionRequest
                 request = DecisionRequest(
                     request_id=f"rel_{task.task_id}",
                     requester=ctx.agent_id,

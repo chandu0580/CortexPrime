@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import uuid
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 from backend.connector.models import Capability
-
 
 CAPABILITY_DESCRIPTIONS: dict[Capability, str] = {
     Capability.DEPLOY: "Deploy application or service to target environment",

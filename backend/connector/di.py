@@ -4,7 +4,6 @@ import logging
 
 from backend.connector.adapters import ADAPTER_CLASSES
 from backend.connector.capabilities import capability_catalog
-from backend.connector.events import connector_event_publisher
 from backend.connector.registry import connector_registry
 from backend.connector.service import ConnectorService
 from backend.core.dependency_container import container

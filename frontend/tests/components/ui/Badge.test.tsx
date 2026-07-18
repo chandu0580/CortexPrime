@@ -16,6 +16,7 @@ describe("Badge", () => {
   })
 
   it("renders without crashing with empty children", () => {
+    // @ts-expect-error children is normally required
     const { container } = render(<Badge />)
     expect(container).toBeTruthy()
   })

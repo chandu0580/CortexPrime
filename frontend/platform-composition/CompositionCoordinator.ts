@@ -22,6 +22,7 @@ export const CompositionCoordinator = {
     const loadOrder = await CompositionDependencyResolver.getLoadOrder()
     const modules = await CompositionRegistry.listModules()
     for (const moduleId of loadOrder) {
+      // eslint-disable-next-line @next/next/no-assign-module-variable
       const module = modules.find((m) => m.moduleId === moduleId)
       if (module) {
         await CompositionLifecycle.initialize(state.current)

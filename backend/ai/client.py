@@ -3,13 +3,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 from backend.ai.context import ContextPropagator, RuntimeContext
-from backend.ai.correlation import EventCorrelator, CorrelationEvent, correlation_events
+from backend.ai.correlation import CorrelationEvent, EventCorrelator, correlation_events
 from backend.ai.failure import FailureHandler
-from backend.ai.integration import RuntimeIntegrationFactory, RuntimeHandler
-from backend.ai.models import PlanStep, PlanStepStatus, RuntimeTarget
+from backend.ai.integration import RuntimeIntegrationFactory
+from backend.ai.models import PlanStep, PlanStepStatus
 from backend.ai.result import RuntimeResult
 
 log = logging.getLogger(__name__)

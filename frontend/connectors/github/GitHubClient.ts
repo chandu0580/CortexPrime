@@ -27,7 +27,7 @@ export const GitHubClient = {
     const headers = await GitHubAuth.getAuthHeaders()
     let lastError: string | null = null
     let lastStatus = 0
-    let lastHeaders: Record<string, string> = {}
+    const lastHeaders: Record<string, string> = {}
 
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {

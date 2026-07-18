@@ -1,6 +1,11 @@
 from backend.execution.sandbox.interfaces import (
-    ExecutionSandbox, ShellSandbox, HTTPSandbox, ScriptSandbox,
-    SandboxResult, SandboxRegistry, sandbox_registry,
+    ExecutionSandbox,
+    HTTPSandbox,
+    SandboxRegistry,
+    SandboxResult,
+    ScriptSandbox,
+    ShellSandbox,
+    sandbox_registry,
 )
 
 __all__ = [

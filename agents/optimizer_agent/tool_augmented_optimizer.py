@@ -1,22 +1,12 @@
-from tooling.tool_executor import (
-    ToolExecutor
-)
+import logging
 
-from tooling.execution_analyzer import (
-    ExecutionAnalyzer
-)
+from agents.optimizer_agent.optimizer import OptimizerAgent
+from governance.human_approval_manager import HumanApprovalManager
+from tooling.autonomous_repair_engine import AutonomousRepairEngine
+from tooling.execution_analyzer import ExecutionAnalyzer
+from tooling.tool_executor import ToolExecutor
 
-from tooling.autonomous_repair_engine import (
-    AutonomousRepairEngine
-)
-
-from agents.optimizer_agent.optimizer import (
-    OptimizerAgent
-)
-
-from governance.human_approval_manager import (
-    HumanApprovalManager
-)
+log = logging.getLogger(__name__)
 
 
 # ==========================================
@@ -56,9 +46,9 @@ class ToolAugmentedOptimizerAgent:
         cognitive_state
     ):
 
-        print(
-            "\n⚙️ Executing "
-            "Tool-Augmented Optimization...\n"
+        log.info(
+            "Executing "
+            "Tool-Augmented Optimization..."
         )
 
         # ==========================================
@@ -184,9 +174,9 @@ print('''{execution_strategy}''')
             ) == "failed"
         ):
 
-            print(
-                "\n🛠️ Attempting "
-                "Autonomous Repair...\n"
+            log.info(
+                "Attempting "
+                "Autonomous Repair..."
             )
 
             repair_result = (

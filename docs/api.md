@@ -2942,7 +2942,7 @@ Aggregated system health — fans out to all subsystems concurrently.
 ```json
 {
   "status": "healthy",
-  "version": "1.0.0-rc.1",
+  "version": "1.0.0",
   "build_hash": null,
   "uptime_sec": 12345.6,
   "started_at": "2025-01-01T00:00:00",
@@ -3876,7 +3876,7 @@ System info and agent registry listing.
   "registered_agents": ["orchestrator", "planner", "research", "critic", "optimizer", "memory"],
   "realtime_streaming": true,
   "runtime_state": "active",
-  "version": "3.0.0"
+  "version": "1.0.0"
 }
 ```
 

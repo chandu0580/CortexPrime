@@ -1,8 +1,11 @@
+import logging
 import os
 
 from tavily import TavilyClient
 
 from dotenv import load_dotenv
+
+log = logging.getLogger(__name__)
 
 
 # ==========================================
@@ -54,9 +57,9 @@ class WebSearchTool:
                 "Missing search query."
             )
 
-        print(
-            f"\n🌐 Tavily Searching For: "
-            f"{query}\n"
+        log.info(
+            "Tavily Searching For: %s",
+            query
         )
 
         # ==========================================

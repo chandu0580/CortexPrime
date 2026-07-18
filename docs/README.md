@@ -1,6 +1,6 @@
 # CortexPrime Enterprise Documentation
 
-Version 1.0.0-rc.1
+Version 1.0.0
 
 ---
 

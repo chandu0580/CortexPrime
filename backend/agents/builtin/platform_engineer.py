@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from backend.agents.base import AgentCapability, AgentContext, AgentResult, AgentTask, BaseAgent
-from backend.orchestrator.runtime_resolver import (get_execution_service, get_connector_service, get_knowledge_service)
+from backend.orchestrator.runtime_resolver import get_connector_service, get_execution_service
 
 
 class PlatformEngineerAgent(BaseAgent):

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Optional
 
 
-_now = lambda: datetime.now(timezone.utc)
+def _now():
+    return datetime.now(timezone.utc)
 
 
 @dataclass

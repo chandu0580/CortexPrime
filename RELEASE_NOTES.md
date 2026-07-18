@@ -1,8 +1,8 @@
-# CortexPrime v1.0.0-rc.1 — Release Notes
+# CortexPrime v1.0.0 — Release Notes
 
-**Release Date:** July 4, 2026
-**Version:** 1.0.0-rc.1
-**Codename:** CortexPrime Release Candidate
+**Release Date:** July 18, 2026
+**Version:** 1.0.0
+**Codename:** CortexPrime General Availability
 
 ---
 
@@ -108,4 +108,4 @@ See [MIGRATION_GUIDE.md](./MIGRATION_GUIDE.md) for details on migrating from bet
 
 ---
 
-*CortexPrime v1.0.0-rc.1 — Enterprise-Grade Autonomous AI Operations*
+*CortexPrime v1.0.0 — Enterprise-Grade Autonomous AI Operations*

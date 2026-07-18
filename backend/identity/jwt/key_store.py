@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 import os
 import secrets
-import time
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -154,7 +153,7 @@ class InMemoryKeyStore(KeyStore):
         return self._refresh_expire_hours
 
     async def health(self) -> dict:
-        now = datetime.now(timezone.utc)
+        datetime.now(timezone.utc)
         active_keys = sum(1 for k in self._keys.values() if k.is_valid)
         expired_keys = sum(1 for k in self._keys.values() if k.is_expired)
         return {

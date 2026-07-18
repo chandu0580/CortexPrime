@@ -1,10 +1,13 @@
 import asyncio
+import logging
 from datetime import datetime
 from typing import Any, Callable, Dict, List
 from uuid import uuid4
 
 from backend.events.event_bus import event_bus
 from backend.events.event_models import CognitionEvent
+
+log = logging.getLogger(__name__)
 
 # ==========================================
 # TOOL REGISTRY
@@ -61,8 +64,8 @@ class ToolRegistry:
                 .isoformat()
         }
 
-        print(
-            f"🛠️ Registered tool: {name}"
+        log.info(
+            f"Registered tool: {name}"
         )
 
 

@@ -1,5 +1,8 @@
 import json
+import logging
 import re
+
+log = logging.getLogger(__name__)
 
 
 def safe_json_parse(content: str):
@@ -24,6 +27,6 @@ def safe_json_parse(content: str):
 
     except Exception as e:
 
-        print(f"\n❌ JSON Parse Error: {e}\n")
+        log.error(f"JSON Parse Error: {e}")
 
         return None

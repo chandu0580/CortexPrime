@@ -99,7 +99,6 @@ class GitHubAdapter(ConnectorAdapter):
 
     async def execute(self, capability: Capability, inputs: dict[str, Any],
                       timeout_seconds: Optional[int] = None) -> AdapterResult:
-        timeout = timeout_seconds or DEFAULT_TIMEOUT
         start = time.monotonic()
 
         if capability == Capability.SEARCH:

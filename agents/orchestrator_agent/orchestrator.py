@@ -1,41 +1,18 @@
-from datetime import datetime
+import logging
 import time
+from datetime import datetime
 
-from langgraph_system.state_management.cognitive_state import (
-    CognitiveState
-)
+from agents.critic_agent.critic import CriticAgent
+from agents.optimizer_agent.optimizer import OptimizerAgent
+from agents.planner_agent.planner import PlannerAgent
+from agents.research_agent.research import ResearchAgent
+from langgraph_system.state_management.cognitive_state import CognitiveState
+from memory_architecture.short_term_memory.memory_manager import ShortTermMemoryManager
+from memory_architecture.short_term_memory.retriever import MemoryRetriever
+from memory_architecture.vector_memory.semantic_retriever import SemanticRetriever
+from reflection_engine.reflection_manager import ReflectionManager
 
-from memory_architecture.short_term_memory.memory_manager import (
-    ShortTermMemoryManager
-)
-
-from memory_architecture.short_term_memory.retriever import (
-    MemoryRetriever
-)
-
-from memory_architecture.vector_memory.semantic_retriever import (
-    SemanticRetriever
-)
-
-from reflection_engine.reflection_manager import (
-    ReflectionManager
-)
-
-from agents.research_agent.research import (
-    ResearchAgent
-)
-
-from agents.planner_agent.planner import (
-    PlannerAgent
-)
-
-from agents.critic_agent.critic import (
-    CriticAgent
-)
-
-from agents.optimizer_agent.optimizer import (
-    OptimizerAgent
-)
+log = logging.getLogger(__name__)
 
 
 class CortexPrimeOrchestrator:
@@ -112,8 +89,8 @@ class CortexPrimeOrchestrator:
 
         try:
 
-            print(
-                f"\n🚀 Executing {agent_name}...\n"
+            log.info(
+                f"Executing {agent_name}..."
             )
 
             result = agent_function()
@@ -168,8 +145,8 @@ class CortexPrimeOrchestrator:
                 error_message
             )
 
-            print(
-                f"\n❌ {error_message}\n"
+            log.error(
+                f"{error_message}"
             )
 
             return None
@@ -183,8 +160,8 @@ class CortexPrimeOrchestrator:
         state
     ):
 
-        print(
-            "\n🔄 Reflection Loop Triggered...\n"
+        log.info(
+            "Reflection Loop Triggered..."
         )
 
         # ==========================================
@@ -289,8 +266,8 @@ class CortexPrimeOrchestrator:
         user_goal: str
     ):
 
-        print(
-            "\n🧠 CortexPrime Cognitive Orchestration Initiated...\n"
+        log.info(
+            "CortexPrime Cognitive Orchestration Initiated..."
         )
 
         # ==========================================
@@ -525,8 +502,8 @@ class CortexPrimeOrchestrator:
 
         state.active_agent = None
 
-        print(
-            "\n✅ CortexPrime Cognitive Workflow Completed.\n"
+        log.info(
+            "CortexPrime Cognitive Workflow Completed."
         )
 
         # ==========================================

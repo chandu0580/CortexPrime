@@ -7,7 +7,6 @@ from backend.workflow_designer.compiler import WorkflowCompiler
 from backend.workflow_designer.models import (
     Workflow,
     WorkflowNodeType,
-    WorkflowStatus,
 )
 
 log = logging.getLogger(__name__)

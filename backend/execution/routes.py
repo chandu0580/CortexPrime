@@ -80,7 +80,7 @@ def _entity_to_response(entity: Any) -> dict[str, Any]:
 
 @router.post("", response_model=dict[str, Any])
 async def create_execution(req: CreateExecutionRequest):
-    from backend.execution.models import ExecutionType, ExecutionTrigger
+    from backend.execution.models import ExecutionTrigger, ExecutionType
     try:
         exec_type = ExecutionType(req.execution_type)
     except ValueError:
@@ -213,7 +213,7 @@ async def get_in_memory_events(execution_id: str):
 
 @router.post("/run", response_model=dict[str, Any])
 async def run_execution(req: CreateExecutionRequest):
-    from backend.execution.models import ExecutionType, ExecutionTrigger
+    from backend.execution.models import ExecutionTrigger, ExecutionType
     try:
         exec_type = ExecutionType(req.execution_type)
     except ValueError:

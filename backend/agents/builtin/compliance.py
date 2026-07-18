@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from backend.agents.base import AgentCapability, AgentContext, AgentResult, AgentTask, BaseAgent
-from backend.orchestrator.runtime_resolver import get_governance_service, get_knowledge_service
+from backend.orchestrator.runtime_resolver import get_governance_service
 
 
 class ComplianceAgent(BaseAgent):
@@ -20,8 +20,9 @@ class ComplianceAgent(BaseAgent):
 
         if gov_svc:
             try:
-                from backend.governance.models import DecisionRequest
                 from datetime import datetime, timezone
+
+                from backend.governance.models import DecisionRequest
                 request = DecisionRequest(
                     request_id=f"comp_{task.task_id}",
                     requester=ctx.agent_id,
@@ -51,7 +52,7 @@ class ComplianceAgent(BaseAgent):
             except Exception as exc:
                 evaluations.append({"type": "governance", "error": str(exc)})
 
-        all_approved = all(e.get("denied") == False for e in evaluations if "denied" in e)
+        all_approved = all(e.get("denied") is False for e in evaluations if "denied" in e)
 
         return AgentResult(
             task_id=task.task_id, agent_id=self.agent_id,

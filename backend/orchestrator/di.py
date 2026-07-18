@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from backend.orchestrator.service import AutonomousMissionOrchestrator, orchestrator_service
+from backend.orchestrator.service import orchestrator_service
 
 log = logging.getLogger(__name__)
 

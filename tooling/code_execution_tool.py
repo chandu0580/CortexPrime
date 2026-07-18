@@ -1,6 +1,10 @@
+import logging
+
 from tooling.sandbox_execution_engine import (
     SandboxExecutionEngine
 )
+
+log = logging.getLogger(__name__)
 
 
 # ==========================================
@@ -40,9 +44,9 @@ class CodeExecutionTool:
                 "Missing code input."
             )
 
-        print(
-            f"\n⚙️ Executing "
-            f"{language} Code...\n"
+        log.info(
+            "Executing %s Code...",
+            language
         )
 
         # ==========================================

@@ -3,30 +3,30 @@ import { useRuntimeStore } from "@/store/runtimeStore"
 import type { TelemetryPoint, AgentActivityStatus } from "@/store/runtimeStore"
 
 const INITIAL_STATE = {
-  activeAgents: 0,
-  memoryUsage: "—",
-  runtimeStatus: "connecting",
-  websocketConnected: false,
-  totalEvents: 0,
-  latency: "—",
-  telemetry: [],
-  cognitionThroughput: 0,
-  agentActivity: {
-    orchestrator: "idle",
-    planner: "idle",
-    research: "idle",
-    critic: "idle",
-    optimizer: "idle",
-    memory: "idle",
-  },
-  agentLastAction: {},
-  isDemoMode: true,
-}
+    activeAgents: 0,
+    memoryUsage: "—",
+    runtimeStatus: "connecting",
+    websocketConnected: false,
+    totalEvents: 0,
+    latency: "—",
+    telemetry: [],
+    cognitionThroughput: 0,
+    agentActivity: {
+      orchestrator: "idle" as const,
+      planner: "idle" as const,
+      research: "idle" as const,
+      critic: "idle" as const,
+      optimizer: "idle" as const,
+      memory: "idle" as const,
+    },
+    agentLastAction: {},
+    isDemoMode: true,
+  }
 
-describe("useRuntimeStore", () => {
-  beforeEach(() => {
-    useRuntimeStore.setState(INITIAL_STATE)
-  })
+  describe("useRuntimeStore", () => {
+    beforeEach(() => {
+      useRuntimeStore.setState(INITIAL_STATE)
+    })
 
   it("has correct initial state", () => {
     const state = useRuntimeStore.getState()
@@ -64,7 +64,7 @@ describe("useRuntimeStore", () => {
 
   it("incrementEvents increments totalEvents and recalculates activeAgents", () => {
     useRuntimeStore.setState({
-      agentActivity: { ...INITIAL_STATE.agentActivity, planner: "active", research: "processing" },
+      agentActivity: { ...INITIAL_STATE.agentActivity, planner: "active" as const, research: "processing" as const },
     })
 
     useRuntimeStore.getState().incrementEvents()

@@ -1,4 +1,8 @@
+import logging
+
 from fastapi import WebSocket
+
+log = logging.getLogger(__name__)
 
 # ==========================================
 # WEBSOCKET MANAGER
@@ -25,8 +29,8 @@ class WebSocketManager:
             websocket
         )
 
-        print(
-            "\n🔌 WebSocket Client Connected.\n"
+        log.info(
+            "WebSocket Client Connected."
         )
 
     # ==========================================
@@ -46,9 +50,8 @@ class WebSocketManager:
                 websocket
             )
 
-        print(
-            "\n❌ WebSocket Client "
-            "Disconnected.\n"
+        log.info(
+            "WebSocket Client Disconnected."
         )
 
     # ==========================================

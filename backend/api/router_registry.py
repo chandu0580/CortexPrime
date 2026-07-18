@@ -67,13 +67,14 @@ def register_all_routers(app: FastAPI) -> Dict[str, bool]:
         app.include_router(connector_runtime_router)
         availability["connector_runtime"] = True
     except Exception as _cr_err:
+        _cr_detail = str(_cr_err)
         _cr_fallback = APIRouter()
         @_cr_fallback.get("/api/connectors")
         async def connector_runtime_fallback_list():
-            return {"connectors": [], "total": 0, "detail": str(_cr_err)}
+            return {"connectors": [], "total": 0, "detail": _cr_detail}
         app.include_router(_cr_fallback)
         availability["connector_runtime"] = False
-        log.warning(f"Connector Runtime routes unavailable: {_cr_err}")
+        log.warning(f"Connector Runtime routes unavailable: {_cr_detail}")
 
     # Governance Runtime routes (Phase 6A)
     try:
@@ -82,13 +83,14 @@ def register_all_routers(app: FastAPI) -> Dict[str, bool]:
         availability["governance_runtime"] = True
         log.info("Governance Runtime routes registered at /api/governance")
     except Exception as _gov_err:
+        _gov_detail = str(_gov_err)
         _gov_fallback = APIRouter()
         @_gov_fallback.get("/api/governance/health")
         async def governance_health_fallback():
-            return {"status": "unavailable", "detail": str(_gov_err)}
+            return {"status": "unavailable", "detail": _gov_detail}
         app.include_router(_gov_fallback)
         availability["governance_runtime"] = False
-        log.warning(f"Governance Runtime routes unavailable: {_gov_err}")
+        log.warning(f"Governance Runtime routes unavailable: {_gov_detail}")
 
     # Knowledge Runtime routes (Phase 7A)
     try:
@@ -97,15 +99,16 @@ def register_all_routers(app: FastAPI) -> Dict[str, bool]:
         availability["knowledge_runtime"] = True
         log.info("Knowledge Runtime routes registered at /api/knowledge")
     except Exception as _k_err:
+        _k_detail = str(_k_err)
         _k_fallback = APIRouter()
 
         @_k_fallback.get("/api/knowledge/health")
         async def knowledge_health_fallback():
-            return {"status": "unavailable", "detail": str(_k_err)}
+            return {"status": "unavailable", "detail": _k_detail}
 
         app.include_router(_k_fallback)
         availability["knowledge_runtime"] = False
-        log.warning(f"Knowledge Runtime routes unavailable: {_k_err}")
+        log.warning(f"Knowledge Runtime routes unavailable: {_k_detail}")
 
     # Learning Runtime routes (Phase 8A)
     try:
@@ -114,15 +117,16 @@ def register_all_routers(app: FastAPI) -> Dict[str, bool]:
         availability["learning_runtime"] = True
         log.info("Learning Runtime routes registered at /api/learning")
     except Exception as _lrn_err:
+        _lrn_detail = str(_lrn_err)
         _lrn_fallback = APIRouter()
 
         @_lrn_fallback.get("/api/learning/health")
         async def learning_health_fallback():
-            return {"status": "unavailable", "detail": str(_lrn_err)}
+            return {"status": "unavailable", "detail": _lrn_detail}
 
         app.include_router(_lrn_fallback)
         availability["learning_runtime"] = False
-        log.warning(f"Learning Runtime routes unavailable: {_lrn_err}")
+        log.warning(f"Learning Runtime routes unavailable: {_lrn_detail}")
 
     # AI Runtime routes (Phase 9A)
     try:
@@ -131,15 +135,16 @@ def register_all_routers(app: FastAPI) -> Dict[str, bool]:
         availability["ai_runtime"] = True
         log.info("AI Runtime routes registered at /api/ai")
     except Exception as _ai_err:
+        _ai_detail = str(_ai_err)
         _ai_fallback = APIRouter()
 
         @_ai_fallback.get("/api/ai/health")
         async def ai_health_fallback():
-            return {"status": "unavailable", "detail": str(_ai_err)}
+            return {"status": "unavailable", "detail": _ai_detail}
 
         app.include_router(_ai_fallback)
         availability["ai_runtime"] = False
-        log.warning(f"AI Runtime routes unavailable: {_ai_err}")
+        log.warning(f"AI Runtime routes unavailable: {_ai_detail}")
 
     # LLM Provider Runtime routes (Phase 10A)
     try:
@@ -148,15 +153,16 @@ def register_all_routers(app: FastAPI) -> Dict[str, bool]:
         availability["llm_provider"] = True
         log.info("LLM Provider Runtime routes registered at /api/llm")
     except Exception as _llm_err:
+        _llm_detail = str(_llm_err)
         _llm_fallback = APIRouter()
 
         @_llm_fallback.get("/api/llm/providers")
         async def llm_providers_fallback():
-            return {"providers": [], "detail": str(_llm_err)}
+            return {"providers": [], "detail": _llm_detail}
 
         app.include_router(_llm_fallback)
         availability["llm_provider"] = False
-        log.warning(f"LLM Provider Runtime routes unavailable: {_llm_err}")
+        log.warning(f"LLM Provider Runtime routes unavailable: {_llm_detail}")
 
     # Execution Runtime routes (Phase 4)
     try:
@@ -1315,15 +1321,16 @@ def register_all_routers(app: FastAPI) -> Dict[str, bool]:
         log.info("Enterprise Execution Engine routes registered at /api/engineering/execution")
         availability["execution"] = True
     except Exception as _exec_err:
+        _exec_detail = str(_exec_err)
         _exec_fallback = APIRouter()
 
         @_exec_fallback.get("/api/engineering/execution/dashboard")
         async def execution_dashboard_fallback():
-            return {"total_executions": 0, "active_count": 0, "by_status": {}, "recent_executions": [], "status": "unavailable", "detail": str(_exec_err)}
+            return {"total_executions": 0, "active_count": 0, "by_status": {}, "recent_executions": [], "status": "unavailable", "detail": _exec_detail}
 
         app.include_router(_exec_fallback)
         availability["execution"] = False
-        log.warning(f"Enterprise Execution Engine routes unavailable: {_exec_err}")
+        log.warning(f"Enterprise Execution Engine routes unavailable: {_exec_detail}")
 
     # Mission Intelligence Engine routes (Phase 12A)
     try:
@@ -1332,31 +1339,32 @@ def register_all_routers(app: FastAPI) -> Dict[str, bool]:
         availability["mission_intel"] = True
         log.info("Mission Intelligence Engine routes registered at /api/mission-intel")
     except Exception as _mi_err:
+        _mi_detail = str(_mi_err)
         _mi_fallback = APIRouter()
 
         @_mi_fallback.get("/api/mission-intel/health")
         async def mission_intel_health_fallback():
-            return {"status": "unavailable", "detail": str(_mi_err)}
+            return {"status": "unavailable", "detail": _mi_detail}
 
         @_mi_fallback.post("/api/mission-intel/analyze")
         async def mission_intel_analyze_fallback():
-            return {"status": "unavailable", "detail": str(_mi_err)}
+            return {"status": "unavailable", "detail": _mi_detail}
 
         @_mi_fallback.post("/api/mission-intel/decompose")
         async def mission_intel_decompose_fallback():
-            return {"status": "unavailable", "detail": str(_mi_err)}
+            return {"status": "unavailable", "detail": _mi_detail}
 
         @_mi_fallback.post("/api/mission-intel/full-pipeline")
         async def mission_intel_pipeline_fallback():
-            return {"status": "unavailable", "detail": str(_mi_err)}
+            return {"status": "unavailable", "detail": _mi_detail}
 
         @_mi_fallback.post("/api/mission-intel/plan")
         async def mission_intel_plan_fallback():
-            return {"status": "unavailable", "detail": str(_mi_err)}
+            return {"status": "unavailable", "detail": _mi_detail}
 
         app.include_router(_mi_fallback)
         availability["mission_intel"] = False
-        log.warning(f"Mission Intelligence Engine routes unavailable: {_mi_err}")
+        log.warning(f"Mission Intelligence Engine routes unavailable: {_mi_detail}")
 
     # Cognitive Memory Runtime routes (Phase 13A)
     try:
@@ -1365,27 +1373,28 @@ def register_all_routers(app: FastAPI) -> Dict[str, bool]:
         availability["cognitive_memory"] = True
         log.info("Cognitive Memory Runtime routes registered at /api/memory")
     except Exception as _cm_err:
+        _cm_detail = str(_cm_err)
         _cm_fallback = APIRouter()
 
         @_cm_fallback.get("/api/memory/health")
         async def cognitive_memory_health_fallback():
-            return {"status": "unavailable", "detail": str(_cm_err)}
+            return {"status": "unavailable", "detail": _cm_detail}
 
         @_cm_fallback.post("/api/memory/context")
         async def cognitive_memory_context_fallback():
-            return {"status": "unavailable", "detail": str(_cm_err)}
+            return {"status": "unavailable", "detail": _cm_detail}
 
         @_cm_fallback.post("/api/memory/snapshot")
         async def cognitive_memory_snapshot_fallback():
-            return {"status": "unavailable", "detail": str(_cm_err)}
+            return {"status": "unavailable", "detail": _cm_detail}
 
         @_cm_fallback.post("/api/memory/restore")
         async def cognitive_memory_restore_fallback():
-            return {"status": "unavailable", "detail": str(_cm_err)}
+            return {"status": "unavailable", "detail": _cm_detail}
 
         app.include_router(_cm_fallback)
         availability["cognitive_memory"] = False
-        log.warning(f"Cognitive Memory Runtime routes unavailable: {_cm_err}")
+        log.warning(f"Cognitive Memory Runtime routes unavailable: {_cm_detail}")
 
     try:
         from backend.orchestrator.routes import router as orchestrator_router
@@ -1393,23 +1402,24 @@ def register_all_routers(app: FastAPI) -> Dict[str, bool]:
         availability["orchestrator"] = True
         log.info("Autonomous Mission Orchestrator routes registered at /api/orchestrator")
     except Exception as _orch_err:
+        _orch_detail = str(_orch_err)
         _orch_fallback = APIRouter()
 
         @_orch_fallback.get("/api/orchestrator/health")
         async def orchestrator_health_fallback():
-            return {"status": "unavailable", "detail": str(_orch_err)}
+            return {"status": "unavailable", "detail": _orch_detail}
 
         @_orch_fallback.post("/api/orchestrator/start")
         async def orchestrator_start_fallback():
-            return {"status": "unavailable", "detail": str(_orch_err)}
+            return {"status": "unavailable", "detail": _orch_detail}
 
         @_orch_fallback.get("/api/orchestrator/list")
         async def orchestrator_list_fallback():
-            return {"missions": [], "total": 0, "detail": str(_orch_err)}
+            return {"missions": [], "total": 0, "detail": _orch_detail}
 
         app.include_router(_orch_fallback)
         availability["orchestrator"] = False
-        log.warning(f"Autonomous Mission Orchestrator routes unavailable: {_orch_err}")
+        log.warning(f"Autonomous Mission Orchestrator routes unavailable: {_orch_detail}")
 
     try:
         from backend.agents.routes import router as agents_router
@@ -1417,15 +1427,16 @@ def register_all_routers(app: FastAPI) -> Dict[str, bool]:
         availability["agents"] = True
         log.info("Multi-Agent Runtime routes registered at /api/agents")
     except Exception as _agents_err:
+        _agents_detail = str(_agents_err)
         _agents_fallback = APIRouter()
 
         @_agents_fallback.get("/api/agents/health")
         async def agents_health_fallback():
-            return {"status": "unavailable", "detail": str(_agents_err)}
+            return {"status": "unavailable", "detail": _agents_detail}
 
         app.include_router(_agents_fallback)
         availability["agents"] = False
-        log.warning(f"Multi-Agent Runtime routes unavailable: {_agents_err}")
+        log.warning(f"Multi-Agent Runtime routes unavailable: {_agents_detail}")
 
     try:
         from backend.mcp.routes import router as mcp_router
@@ -1433,15 +1444,16 @@ def register_all_routers(app: FastAPI) -> Dict[str, bool]:
         availability["mcp"] = True
         log.info("MCP Gateway routes registered at /api/v2/mcp")
     except Exception as _mcp_err:
+        _mcp_detail = str(_mcp_err)
         _mcp_fallback = APIRouter()
 
         @_mcp_fallback.get("/api/v2/mcp/health")
         async def mcp_health_fallback():
-            return {"status": "unavailable", "detail": str(_mcp_err)}
+            return {"status": "unavailable", "detail": _mcp_detail}
 
         app.include_router(_mcp_fallback)
         availability["mcp"] = False
-        log.warning(f"MCP Gateway routes unavailable: {_mcp_err}")
+        log.warning(f"MCP Gateway routes unavailable: {_mcp_detail}")
 
     try:
         from backend.fleet.routes import router as fleet_router
@@ -1449,15 +1461,16 @@ def register_all_routers(app: FastAPI) -> Dict[str, bool]:
         availability["fleet"] = True
         log.info("Fleet Management routes registered at /api/v2/fleets")
     except Exception as _fleet_err:
+        _fleet_detail = str(_fleet_err)
         _fleet_fallback = APIRouter()
 
         @_fleet_fallback.get("/api/v2/fleets/health")
         async def fleet_health_fallback():
-            return {"status": "unavailable", "detail": str(_fleet_err)}
+            return {"status": "unavailable", "detail": _fleet_detail}
 
         app.include_router(_fleet_fallback)
         availability["fleet"] = False
-        log.warning(f"Fleet Management routes unavailable: {_fleet_err}")
+        log.warning(f"Fleet Management routes unavailable: {_fleet_detail}")
 
     try:
         from backend.workflow_designer.routes import router as wf_router
@@ -1465,14 +1478,15 @@ def register_all_routers(app: FastAPI) -> Dict[str, bool]:
         availability["workflow_designer"] = True
         log.info("Workflow Designer routes registered at /api/v2/workflows")
     except Exception as _wf_err:
+        _wf_detail = str(_wf_err)
         _wf_fallback = APIRouter()
 
         @_wf_fallback.get("/api/v2/workflows/health")
         async def wf_health_fallback():
-            return {"status": "unavailable", "detail": str(_wf_err)}
+            return {"status": "unavailable", "detail": _wf_detail}
 
         app.include_router(_wf_fallback)
         availability["workflow_designer"] = False
-        log.warning(f"Workflow Designer routes unavailable: {_wf_err}")
+        log.warning(f"Workflow Designer routes unavailable: {_wf_detail}")
 
     return availability

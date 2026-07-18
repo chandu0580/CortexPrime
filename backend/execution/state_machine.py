@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from backend.execution.models import ExecutionStatus
 
-
 TRANSITIONS: dict[ExecutionStatus, set[ExecutionStatus]] = {
     ExecutionStatus.CREATED: {ExecutionStatus.QUEUED, ExecutionStatus.CANCELLED},
     ExecutionStatus.QUEUED: {ExecutionStatus.STARTING, ExecutionStatus.CANCELLED},

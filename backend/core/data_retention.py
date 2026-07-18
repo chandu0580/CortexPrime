@@ -9,7 +9,7 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 log = logging.getLogger(__name__)
 
@@ -118,7 +118,6 @@ class DataRetentionPolicy:
 
     def purge_missions(self) -> Dict[str, int]:
         """Run purge across all mission-related filesystem stores."""
-        from backend.mission.state import MissionTimeline
         counts = {}
         counts["episodic"] = self.purge_old_records("episodic_records", "data/episodic")
         counts["events"] = self.purge_old_records("event_history", "data/events")

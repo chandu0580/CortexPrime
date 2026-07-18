@@ -1,4 +1,4 @@
-# Support Matrix — CortexPrime v1.0.0-rc.1
+# Support Matrix — CortexPrime v1.0.0
 
 ## Platform Support
 
@@ -168,8 +168,7 @@
 
 | Version | Release Date | EOL Date |
 |---------|-------------|----------|
-| v1.0.0-rc.1 | July 2026 | January 2027 |
-| v1.0.0 (stable) | TBD | TBD |
+| v1.0.0 (stable) | July 2026 | January 2027 |
 
 ---
 

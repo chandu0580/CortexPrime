@@ -1,4 +1,4 @@
-# Migration Guide — Beta to v1.0.0-rc.1
+# Migration Guide — Beta to v1.0.0
 
 ## Important Notice
 
@@ -13,7 +13,7 @@ If you are running a beta version (pre-1.0.0), follow this guide to migrate your
 | Step | Description | Estimated Time |
 |------|-------------|----------------|
 | 1. Backup | Export all data from beta deployment | 30 min |
-| 2. Install | Deploy fresh v1.0.0-rc.1 instance | 15 min |
+| 2. Install | Deploy fresh v1.0.0 instance | 15 min |
 | 3. Import | Restore mission data, replay events | 30 min |
 | 4. Configure | Set up connectors, workers, secrets | 20 min |
 | 5. Validate | Run certification suite | 10 min |
@@ -46,13 +46,13 @@ cp docker-compose.yml docker-compose_beta_backup.yml
 
 ---
 
-## Step 2: Install v1.0.0-rc.1
+## Step 2: Install v1.0.0
 
 ```bash
 # Clone the release
 git clone https://github.com/cortexprime/cortexprime.git
 cd cortexprime
-git checkout v1.0.0-rc.1
+git checkout v1.0.0
 
 # Configure
 cp .env.example .env

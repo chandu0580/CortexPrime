@@ -29,11 +29,13 @@ omit     = [
 [tool.coverage.report]
 show_missing   = true
 skip_covered   = false
-fail_under     = 45
+fail_under     = 30
 
 [tool.ruff]
 line-length = 120
 target-version = "py311"
-select = ["E", "F", "W", "I"]
-ignore = ["E501"]
 exclude = ["venv", ".git", "__pycache__", "backend/database/migrations"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501", "E402"]

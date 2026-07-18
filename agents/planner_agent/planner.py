@@ -1,23 +1,17 @@
+import logging
+import os
+
 from dotenv import load_dotenv
 from openai import AzureOpenAI
 
 from agents.planner_agent.prompts import (
     PLANNER_AGENT_SYSTEM_PROMPT,
 )
+from agents.planner_agent.schemas import PlanningOutput
+from agents.planner_agent.utils import safe_json_parse
+from langgraph_system.state_management.cognitive_state import CognitiveState
 
-from agents.planner_agent.schemas import (
-    PlanningOutput
-)
-
-from agents.planner_agent.utils import (
-    safe_json_parse
-)
-
-from langgraph_system.state_management.cognitive_state import (
-    CognitiveState
-)
-
-import os
+log = logging.getLogger(__name__)
 
 
 # ==========================================
@@ -52,8 +46,8 @@ class PlannerAgent:
 
     def execute(self, state: CognitiveState):
 
-        print(
-            "🧠 CortexPrime Planner Agent Activated..."
+        log.info(
+            "CortexPrime Planner Agent Activated..."
         )
 
         # ==========================================

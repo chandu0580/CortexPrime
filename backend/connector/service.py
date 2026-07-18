@@ -6,16 +6,17 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 try:
-    from backend.database.repositories.factory import repo_factory as _repo_factory, RepositoryFactory
+    from backend.database.repositories.factory import RepositoryFactory
+    from backend.database.repositories.factory import repo_factory as _repo_factory
 except ImportError:
     _repo_factory = None
-from backend.database.repositories.connectors import ConnectorConfigModel, ConnectorConfigRepository
 from backend.connector.adapter.interfaces import AdapterHealthStatus, ConnectorAdapter
-from backend.connector.capabilities import capability_catalog, Capability, CapabilitySet
+from backend.connector.capabilities import Capability, CapabilitySet, capability_catalog
 from backend.connector.events import ConnectorEvent, ConnectorEventPublisher, connector_event_publisher
 from backend.connector.models import ConnectorConfig, ConnectorEntity, ConnectorMetadata, ConnectorStatus
 from backend.connector.registry import ConnectorRegistry, connector_registry
-from backend.connector.state_machine import is_degraded, is_terminal, is_valid_transition, validate_transition
+from backend.connector.state_machine import is_terminal, is_valid_transition, validate_transition
+from backend.database.repositories.connectors import ConnectorConfigModel
 
 log = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ class ConnectorService:
         actor: Optional[str] = None,
     ) -> ConnectorEntity:
         connector_id = uuid.uuid4()
-        now = datetime.now(timezone.utc)
+        datetime.now(timezone.utc)
 
         cfg = config or ConnectorConfig(connector_type=adapter.connector_type)
 
@@ -305,7 +306,6 @@ class ConnectorService:
     async def _transition(self, entity: ConnectorEntity, target: ConnectorStatus,
                            actor: Optional[str] = None) -> ConnectorEntity:
         validate_transition(entity.status, target)
-        old_status = entity.status
         entity.status = target
         repo = await self._repo_factory.connector_config_repo()
         models = await repo.list_by_type(entity.connector_type)

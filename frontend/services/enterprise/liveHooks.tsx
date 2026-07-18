@@ -31,6 +31,7 @@ export function useLiveData<T>(
       if (id !== fetchRef.current) return
       setIsLoading(false)
     })
+  // eslint-disable-next-line react-hooks/use-memo
   }, deps)
 
   useEffect(() => {

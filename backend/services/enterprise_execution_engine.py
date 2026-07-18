@@ -26,7 +26,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -324,7 +323,7 @@ class EnterpriseExecutionEngine:
                 rec.stages[stage_name] = stage_rec
                 self._persist()
 
-                await self._emit_event(f"execution.stage_started", execution_id, {
+                await self._emit_event("execution.stage_started", execution_id, {
                     "stage": stage_name,
                 })
 
@@ -402,13 +401,13 @@ class EnterpriseExecutionEngine:
     async def _stage_planning(
         self, rec: ExecutionRecord, auto_approve: bool
     ) -> Dict[str, Any]:
-        from backend.services.enterprise_repository_brain import repository_brain
-        from backend.services.enterprise_context_intelligence import (
-            enterprise_context_intelligence,
-        )
         from backend.services.engineering_decision_engine import (
             EngineeringDecisionEngine,
         )
+        from backend.services.enterprise_context_intelligence import (
+            enterprise_context_intelligence,
+        )
+        from backend.services.enterprise_repository_brain import repository_brain
 
         brain = await repository_brain.get_brain_summary(rec.repository)
         context = await enterprise_context_intelligence.build_snapshot(

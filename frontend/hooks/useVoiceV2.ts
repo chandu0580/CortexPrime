@@ -138,6 +138,7 @@ export function useVoiceV2() {
             dynacast:       true,
         })
         roomRef.current = room
+        // eslint-disable-next-line react-hooks/immutability
         _attachRoomEvents(room, sessionId)
 
         await room.connect(livekitUrl, token)
@@ -205,6 +206,7 @@ export function useVoiceV2() {
 
             } catch {
                 // This attempt failed — schedule the next one
+                // eslint-disable-next-line react-hooks/immutability
                 _attemptReconnect()
             }
         }, delay)

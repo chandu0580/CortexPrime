@@ -12,6 +12,7 @@ export const BootstrapRegistry = {
     dependencies: string[] = [],
   ): Promise<BootstrapModule> {
     const id = generateId("bmod")
+    // eslint-disable-next-line @next/next/no-assign-module-variable
     const module: BootstrapModule = {
       id, name, version, stage, dependencies,
       status: BootstrapState.PENDING,
@@ -34,6 +35,7 @@ export const BootstrapRegistry = {
   },
 
   async updateModuleStatus(moduleId: string, status: BootstrapState): Promise<BootstrapModule | null> {
+    // eslint-disable-next-line @next/next/no-assign-module-variable
     const module = modules.get(moduleId)
     if (!module) return null
     const now = new Date().toISOString()

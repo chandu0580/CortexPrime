@@ -17,10 +17,18 @@ Validates every enterprise workflow end-to-end:
 """
 
 import sys
+import os
 import json
 import time
 import traceback
 from datetime import datetime
+
+# Ensure project root is in path for backend imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Set UTF-8 for console output
+import io
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
 PASS = 0
 FAIL = 0
@@ -33,14 +41,14 @@ def check(description: str, result: bool, detail: str = ""):
     if result: PASS += 1
     else: FAIL += 1
     RESULTS.append({"description": description, "status": status, "detail": detail})
-    icon = "✓" if result else "✗"
-    print(f"  [{icon}] {description}" + (f" — {detail}" if detail else ""))
+    icon = "[+]" if result else "[-]"
+    print(f"  {icon} {description}" + (f" -- {detail}" if detail else ""))
 
 def warn(description: str, detail: str = ""):
     global WARN
     WARN += 1
     RESULTS.append({"description": description, "status": "WARN", "detail": detail})
-    print(f"  [!] {description}" + (f" — {detail}" if detail else ""))
+    print(f"  [!] {description}" + (f" -- {detail}" if detail else ""))
 
 def section(title: str):
     print(f"\n{'='*60}")
@@ -81,7 +89,6 @@ required_files = [
     "docker-compose.yml", "docker-compose.prod.yml",
     "PRODUCTION_AUDIT_REPORT.md",
 ]
-import os
 for f in required_files:
     check(f"Release asset: {f}", os.path.exists(f))
 
@@ -400,9 +407,9 @@ for store_file in required_stores:
 section("VALIDATION SUMMARY")
 total = PASS + FAIL + WARN
 print(f"\n  Total Checks: {total}")
-print(f"  ✅ Passed:     {PASS}")
-print(f"  ⚠️  Warnings:   {WARN}")
-print(f"  ❌ Failed:     {FAIL}")
+print(f"  Passed:     {PASS}")
+print(f"  Warnings:   {WARN}")
+print(f"  Failed:     {FAIL}")
 print(f"\n  Pass Rate: {PASS / max(total, 1) * 100:.1f}%\n")
 
 if FAIL > 0:
@@ -412,5 +419,5 @@ if FAIL > 0:
             print(f"    - {r['description']}: {r['detail']}")
     sys.exit(1)
 else:
-    print("  ✅ ALL CHECKS PASSED — CortexPrime v1.0.0 GA is ready for release.\n")
+    print("  ALL CHECKS PASSED - CortexPrime v1.0.0 GA is ready for release.\n")
     sys.exit(0)

@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 from backend.mission.models import MissionStatus
-
 
 TRANSITIONS: dict[MissionStatus, set[MissionStatus]] = {
     MissionStatus.CREATED: {MissionStatus.PLANNING, MissionStatus.CANCELLED},

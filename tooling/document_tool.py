@@ -1,6 +1,10 @@
+import logging
+
 from pathlib import Path
 
 import PyPDF2
+
+log = logging.getLogger(__name__)
 
 
 # ==========================================
@@ -61,9 +65,9 @@ class DocumentTool:
                 f"{extension}"
             )
 
-        print(
-            f"\n📄 Reading Document: "
-            f"{file_path}\n"
+        log.info(
+            "Reading Document: %s",
+            file_path
         )
 
         # ==========================================

@@ -12,8 +12,6 @@ with ``cx:tenant:{tenant_id}:``.  Global keys use the plain ``cx:`` prefix.
 """
 from __future__ import annotations
 
-from typing import Optional
-
 from backend.database.tenancy import get_current_tenant
 
 # ===========================================================================

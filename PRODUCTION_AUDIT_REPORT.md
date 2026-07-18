@@ -1,7 +1,7 @@
 # CortexPrime Production Audit Report
 
 **Audit Date:** July 4, 2026
-**Version:** v1.0.0-rc.1
+**Version:** v1.0.0
 **Audit Scope:** Full platform — frontend, backend, infrastructure, security, performance, accessibility, documentation
 
 ---

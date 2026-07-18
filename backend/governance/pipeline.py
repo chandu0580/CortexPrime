@@ -4,7 +4,8 @@ import logging
 from typing import Any, Optional
 
 try:
-    from backend.database.repositories.factory import repo_factory as _repo_factory, RepositoryFactory
+    from backend.database.repositories.factory import RepositoryFactory
+    from backend.database.repositories.factory import repo_factory as _repo_factory
 except ImportError:
     _repo_factory = None
 from backend.governance.evaluator import PolicyEvaluationEngine

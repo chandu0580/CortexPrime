@@ -6,8 +6,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from backend.cognitive_memory.compression import memory_compressor, MemoryCompressor
-from backend.cognitive_memory.context_store import context_store as _ctx_store, ContextStore
+from backend.cognitive_memory.compression import MemoryCompressor, memory_compressor
+from backend.cognitive_memory.context_store import ContextStore
+from backend.cognitive_memory.context_store import context_store as _ctx_store
 from backend.cognitive_memory.models import (
     ConversationTurn,
     MemoryArtifact,
@@ -16,7 +17,6 @@ from backend.cognitive_memory.models import (
     MemorySnapshot,
     MemoryStatus,
     MissionMemory,
-    ReasoningMemory,
     ReasoningStep,
     WorkingMemory,
 )

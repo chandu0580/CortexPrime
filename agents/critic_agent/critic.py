@@ -1,23 +1,17 @@
+import logging
+import os
+
 from dotenv import load_dotenv
 from openai import AzureOpenAI
 
 from agents.critic_agent.prompts import (
     CRITIC_AGENT_SYSTEM_PROMPT,
 )
+from agents.critic_agent.schemas import CriticOutput
+from agents.critic_agent.utils import safe_json_parse
+from langgraph_system.state_management.cognitive_state import CognitiveState
 
-from agents.critic_agent.schemas import (
-    CriticOutput
-)
-
-from agents.critic_agent.utils import (
-    safe_json_parse
-)
-
-from langgraph_system.state_management.cognitive_state import (
-    CognitiveState
-)
-
-import os
+log = logging.getLogger(__name__)
 
 
 # ==========================================
@@ -52,8 +46,8 @@ class CriticAgent:
 
     def execute(self, state: CognitiveState):
 
-        print(
-            "⚠️ CortexPrime Critic Agent Activated..."
+        log.info(
+            "CortexPrime Critic Agent Activated..."
         )
 
         # ==========================================

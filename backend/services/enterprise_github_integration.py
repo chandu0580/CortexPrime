@@ -946,4 +946,39 @@ class GithubIntegration:
         _save_json(_WEBHOOK_DELIVERIES_FILE, [])
 
 
+class DeploymentStatusIntegration:
+    """Simple deployment status tracker (used by tests)."""
+
+    _deployments: Dict[str, Dict[str, Any]] = {}
+
+    @classmethod
+    async def list_deployments(cls) -> List[Dict[str, Any]]:
+        return list(cls._deployments.values())
+
+    @classmethod
+    async def get_deployment(cls, deployment_id: str) -> Optional[Dict[str, Any]]:
+        return cls._deployments.get(deployment_id)
+
+    @classmethod
+    async def upsert_deployment(cls, data: Dict[str, Any]) -> Dict[str, Any]:
+        dep_id = data.get("id") or data.get("deployment_id", str(uuid.uuid4()))
+        existing = cls._deployments.get(dep_id, {})
+        existing.update(data)
+        existing["id"] = dep_id
+        cls._deployments[dep_id] = existing
+        return existing
+
+    @classmethod
+    async def list_by_environment(cls, environment: str) -> List[Dict[str, Any]]:
+        return [d for d in cls._deployments.values() if d.get("environment") == environment]
+
+    @classmethod
+    async def list_by_state(cls, state: str) -> List[Dict[str, Any]]:
+        return [d for d in cls._deployments.values() if d.get("state") == state]
+
+    @classmethod
+    def clear_state(cls) -> None:
+        cls._deployments.clear()
+
+
 github_integration = GithubIntegration()

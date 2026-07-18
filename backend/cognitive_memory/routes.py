@@ -1,15 +1,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException
 
-from backend.cognitive_memory.models import (
-    MemoryArtifact,
-    MemoryContext,
-    MemorySnapshot,
-)
 from backend.cognitive_memory.service import cognitive_memory_service
 
 log = logging.getLogger(__name__)

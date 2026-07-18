@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+
 from backend.api.telemetry_routes import router as api_router
 
 router = APIRouter()

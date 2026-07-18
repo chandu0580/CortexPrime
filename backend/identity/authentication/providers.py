@@ -6,10 +6,8 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from backend.database.engine import AsyncSessionLocal
-from backend.database.repositories.iam import UserRepository, UserModel
+from backend.database.repositories.iam import UserRepository
+from backend.identity.authentication.password_verifier import PasswordVerifier
 from backend.identity.interfaces.authentication import (
     AuthenticationProvider,
     Identity,
@@ -19,10 +17,9 @@ from backend.identity.interfaces.authentication import (
     TokenResult,
 )
 from backend.identity.jwt.access_token import AccessTokenProvider
-from backend.identity.jwt.refresh_token import RefreshTokenProvider
 from backend.identity.jwt.key_store import KeyStore
-from backend.identity.authentication.password_verifier import PasswordVerifier
 from backend.identity.jwt.keys import IdentityRedisKeys
+from backend.identity.jwt.refresh_token import RefreshTokenProvider
 
 log = logging.getLogger(__name__)
 

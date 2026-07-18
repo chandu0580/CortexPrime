@@ -35,7 +35,7 @@ from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set
 
 log = logging.getLogger(__name__)
 
@@ -434,7 +434,7 @@ class EnterpriseRepositoryBrain:
                         for edge in graph.get("edges", []):
                             if edge.get("relation") == "imports":
                                 target = edge.get("target", "")
-                                if target not in [l.get("name") for l in libraries]:
+                                if target not in [lib.get("name") for lib in libraries]:
                                     libraries.append({"name": target, "source": edge.get("source", "")})
 
         except Exception as exc:

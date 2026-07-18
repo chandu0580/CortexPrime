@@ -3,8 +3,7 @@ from datetime import datetime
 from typing import Any, Dict, List
 from uuid import uuid4
 
-from backend.events.event_bus import event_bus, publish_event
-from backend.events.event_models import CognitionEvent
+from backend.events.event_bus import publish_event
 from backend.memory.episodic_memory_engine import episodic_memory_engine
 from backend.orchestrator.agent_router import agent_router
 

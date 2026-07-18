@@ -45,6 +45,7 @@ export const CompositionRegistry = {
   },
 
   async getDependencies(moduleId: string): Promise<ModuleRegistration[]> {
+    // eslint-disable-next-line @next/next/no-assign-module-variable
     const module = registeredModules.get(moduleId)
     if (!module) return []
     return module.dependencies

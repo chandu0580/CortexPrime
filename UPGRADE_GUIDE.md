@@ -1,8 +1,8 @@
-# Upgrade Guide — CortexPrime v1.0.0-rc.1
+# Upgrade Guide — CortexPrime v1.0.0
 
 ## Overview
 
-This guide covers upgrading an existing CortexPrime deployment to v1.0.0-rc.1.
+This guide covers upgrading an existing CortexPrime deployment to v1.0.0.
 
 > **Note**: This is the first Release Candidate. If upgrading from beta, see [MIGRATION_GUIDE.md](./MIGRATION_GUIDE.md) instead.
 
@@ -111,7 +111,7 @@ helm search repo cortexprime --versions
 ### 2. Review Values
 
 ```bash
-helm show values cortexprime/cortexprime --version 1.0.0-rc.1 > new_values.yaml
+helm show values cortexprime/cortexprime --version 1.0.0 > new_values.yaml
 # Compare with your current values.yaml
 ```
 
@@ -119,7 +119,7 @@ helm show values cortexprime/cortexprime --version 1.0.0-rc.1 > new_values.yaml
 
 ```bash
 helm upgrade my-release cortexprime/cortexprime \
-  --version 1.0.0-rc.1 \
+  --version 1.0.0 \
   --values my-values.yaml \
   --atomic \
   --timeout 10m

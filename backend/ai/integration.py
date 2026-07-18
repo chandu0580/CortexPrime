@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from concurrent.futures import Future
 from typing import Any, Callable, Optional
 
 from backend.ai.context import ContextPropagator, RuntimeContext
@@ -12,7 +13,7 @@ from backend.core.dependency_container import container
 
 log = logging.getLogger(__name__)
 
-RuntimeHandler = Callable[[PlanStep, RuntimeContext], "asyncio.Future[RuntimeResult]"]
+RuntimeHandler = Callable[[PlanStep, RuntimeContext], "Future[RuntimeResult]"]
 
 
 class RuntimeIntegrationFactory:
@@ -474,7 +475,6 @@ class RuntimeIntegrationFactory:
                     correlation_id=ctx.correlation_id,
                 )
             elif action in ("invoke_connector", "execute_capability"):
-                from backend.connector.models import Capability
                 connectors = connector_service.list_connectors()
                 connector_results = []
                 for conn in connectors:

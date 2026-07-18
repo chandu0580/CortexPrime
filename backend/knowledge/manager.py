@@ -2,20 +2,18 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
 from typing import Any, Optional
 
 try:
-    from backend.database.repositories.factory import repo_factory as _repo_factory, RepositoryFactory
+    from backend.database.repositories.factory import RepositoryFactory
+    from backend.database.repositories.factory import repo_factory as _repo_factory
 except ImportError:
     _repo_factory = None
-from backend.governance.models import DecisionResponse
 from backend.knowledge.events import KnowledgeEvent, KnowledgeEventPublisher, knowledge_event_publisher
 from backend.knowledge.models import (
     IndexRequest,
     KnowledgeDocument,
     KnowledgeRelationship,
-    RelationshipType,
 )
 
 log = logging.getLogger(__name__)
@@ -106,7 +104,7 @@ class KnowledgeManager:
 
     async def delete_entry(self, entry_id: str) -> bool:
         repo = await self._repo_factory.knowledge_entry_repo()
-        rel_repo = await self._repo_factory.knowledge_rel_repo()
+        await self._repo_factory.knowledge_rel_repo()
         try:
             pk = uuid.UUID(entry_id)
         except ValueError:

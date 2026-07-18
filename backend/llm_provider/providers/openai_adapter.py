@@ -6,7 +6,7 @@ import time
 from typing import Any, AsyncGenerator, Optional
 
 from dotenv import load_dotenv
-from openai import AsyncAzureOpenAI, AsyncOpenAI, APIError
+from openai import AsyncAzureOpenAI, AsyncOpenAI
 
 from backend.llm_provider.interface import LLMProvider
 from backend.llm_provider.models import (

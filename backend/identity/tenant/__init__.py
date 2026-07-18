@@ -1,8 +1,8 @@
 from backend.identity.tenant.tenant_context import (
     TenantContext,
-    set_current_tenant_context,
-    get_current_tenant_context,
     TenantContextMiddleware,
+    get_current_tenant_context,
+    set_current_tenant_context,
 )
 
 __all__ = [

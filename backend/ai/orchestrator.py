@@ -20,7 +20,6 @@ from backend.ai.models import (
     AIResponse,
     ExecutionMode,
     IntentType,
-    PlanStep,
     PlanStepStatus,
 )
 from backend.ai.planner import AIRulePlanner
@@ -126,7 +125,7 @@ class AIOrchestrator:
         ai_request = AIRequest(id=plan.request_id, prompt="", intent=IntentType.CONVERSATION)
         ai_request.intent = IntentType.CONVERSATION
 
-        route_summary = self._router.route_summary(IntentType.CONVERSATION)
+        self._router.route_summary(IntentType.CONVERSATION)
         trace = AIReasoningTrace(request_id=plan.request_id)
         trace.add_step("plan_execution", f"Executing plan {plan.plan_id} with {len(plan.steps)} steps")
 

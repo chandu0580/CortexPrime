@@ -43,6 +43,9 @@ class CircuitBreakerState:
     HALF_OPEN = "half_open"
 
 
+CircuitState = CircuitBreakerState
+
+
 class CircuitBreaker:
     def __init__(
         self,

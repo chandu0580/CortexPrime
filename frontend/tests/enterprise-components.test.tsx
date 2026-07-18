@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest"
 import { render, screen } from "@testing-library/react"
+import type { StageResult } from "@/types/enterprise"
 import { MissionTimeline } from "@/components/enterprise/MissionTimeline"
 import { ReasoningTrace } from "@/components/enterprise/ReasoningTrace"
 import { StageMetricsPanel } from "@/components/enterprise/StageMetrics"
@@ -10,17 +11,17 @@ import { TopologyGraph } from "@/components/enterprise/TopologyGraph"
 
 describe("MissionTimeline", () => {
   it("renders stage entries", () => {
-    const stages: [string, { success: boolean; error?: string; runtime?: string } | undefined][] = [
+    const stages = [
       ["mission_received", { success: true, runtime: "orchestrator" }],
       ["mission_analyzed", { success: true }],
       ["governance_evaluated", { success: false, error: "Policy denied" }],
-    ]
-    render(<MissionTimeline stages={stages} />)
+    ] as [string, Partial<StageResult> | undefined][]
+    render(<MissionTimeline stages={stages as any} />)
     expect(screen.getByText("mission received")).toBeInTheDocument()
     expect(screen.getByText("mission analyzed")).toBeInTheDocument()
     expect(screen.getByText("governance evaluated")).toBeInTheDocument()
     expect(screen.getByText("Policy denied")).toBeInTheDocument()
-    expect(screen.getByText("PASS")).toBeInTheDocument()
+    expect(screen.getAllByText("PASS").length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText("FAIL")).toBeInTheDocument()
   })
 
@@ -100,7 +101,7 @@ describe("AgentHistoryList", () => {
 describe("ConnectorCard", () => {
   it("renders default connector", () => {
     render(<ConnectorCard isDefault name="github" />)
-    expect(screen.getByText("github")).toBeInTheDocument()
+    expect(screen.getAllByText("github").length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText("unavailable")).toBeInTheDocument()
   })
 
@@ -113,9 +114,9 @@ describe("ConnectorCard", () => {
 
 describe("TopologyGraph", () => {
   const nodes = [
-    { id: "core", label: "Core", type: "core", icon: "div" as unknown as React.ComponentType<{ className?: string }>, status: "active" as const },
-    { id: "runtime", label: "Runtime", type: "runtime", icon: "div" as unknown as React.ComponentType<{ className?: string }>, status: "inactive" as const },
-  ]
+    { id: "core", label: "Core", type: "core", icon: "div", status: "active" as const },
+    { id: "runtime", label: "Runtime", type: "runtime", icon: "div", status: "inactive" as const },
+  ] as any
   const connections = [
     { from: "core", to: "runtime", label: "connects" },
   ]

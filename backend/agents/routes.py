@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 from fastapi import APIRouter
 
-from backend.agents.base import AgentContext, AgentStatus, AgentTask, CollaborationMode, TaskPriority
+from backend.agents.base import AgentContext, AgentTask, CollaborationMode, TaskPriority
 from backend.agents.coordinator import coordinator
 from backend.agents.models import DelegateRequest, RunMissionRequest
 from backend.agents.registry import agent_registry

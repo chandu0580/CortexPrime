@@ -90,10 +90,22 @@ spec:
         prometheus.io/port: "8000"
     spec:
       terminationGracePeriodSeconds: 120
+      serviceAccountName: cortexprime-backend
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
       containers:
-        - name: backend
-          image: ghcr.io/cortexprime/cortexprime-backend:latest
-          imagePullPolicy: Always
+          - name: backend
+            image: ghcr.io/cortexprime/cortexprime-backend:1.0.0
+            imagePullPolicy: IfNotPresent
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              runAsNonRoot: true
+              runAsUser: 1001
+              capabilities:
+                drop: ["ALL"]
           ports:
             - containerPort: 8000
               name: http

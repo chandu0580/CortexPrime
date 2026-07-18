@@ -5,7 +5,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-
 MISSION_EVENT_TYPES = {
     "mission.created": "Mission has been created",
     "mission.planned": "Mission plan has been created",

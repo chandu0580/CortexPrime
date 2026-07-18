@@ -16,7 +16,7 @@ replicaCount: 1
 image:
   repository: ghcr.io/cortexprime
   pullPolicy: IfNotPresent
-  tag: latest
+  tag: "1.0.0"
 
 # -- Service account configuration
 serviceAccount:

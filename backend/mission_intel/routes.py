@@ -1,21 +1,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException
 
-from backend.mission_intel.models import (
-    CapabilityPlan,
-    ExecutionPlan,
-    GovernancePlan,
-    KnowledgeInsight,
-    LearningInsight,
-    MissionAnalysis,
-    MissionDecomposition,
-    MissionTimeline,
-    MissionVerification,
-)
 from backend.mission_intel.service import mission_intel_service
 
 log = logging.getLogger(__name__)

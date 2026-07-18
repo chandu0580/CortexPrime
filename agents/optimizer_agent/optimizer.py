@@ -1,23 +1,17 @@
+import logging
+import os
+
 from dotenv import load_dotenv
 from openai import AzureOpenAI
 
 from agents.optimizer_agent.prompts import (
     OPTIMIZER_AGENT_SYSTEM_PROMPT,
 )
+from agents.optimizer_agent.schemas import OptimizerOutput
+from agents.optimizer_agent.utils import safe_json_parse
+from langgraph_system.state_management.cognitive_state import CognitiveState
 
-from agents.optimizer_agent.schemas import (
-    OptimizerOutput
-)
-
-from agents.optimizer_agent.utils import (
-    safe_json_parse
-)
-
-from langgraph_system.state_management.cognitive_state import (
-    CognitiveState
-)
-
-import os
+log = logging.getLogger(__name__)
 
 
 # ==========================================
@@ -52,8 +46,8 @@ class OptimizerAgent:
 
     def execute(self, state: CognitiveState):
 
-        print(
-            "🚀 CortexPrime Optimizer Agent Activated..."
+        log.info(
+            "CortexPrime Optimizer Agent Activated..."
         )
 
         # ==========================================

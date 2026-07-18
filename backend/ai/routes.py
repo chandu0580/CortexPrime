@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/ai", tags=["AI Runtime"])
@@ -80,7 +80,7 @@ async def ai_request(req: AIRequestSchema):
 
 @router.post("/plan", response_model=dict[str, Any])
 async def ai_plan(req: AIRequestSchema):
-    svc = _get_service()
+    _get_service()
     from backend.ai.models import AIContext
     context = AIContext(
         user_id=req.user_id,

@@ -2,16 +2,11 @@ from __future__ import annotations
 
 from backend.core.dependency_container import container
 from backend.database.repositories.factory import repo_factory
+from backend.identity.audit.audit_hooks import IdentityAuditHooks
 from backend.identity.authentication.password_verifier import PasswordVerifier
-from backend.identity.authentication.providers import (
-    DefaultAuthenticationProvider,
-    DefaultIdentityProvider,
-    DefaultTokenProvider,
-)
 from backend.identity.authorization.abac import ABACEvaluator
 from backend.identity.authorization.permission_evaluator import DefaultPermissionEvaluator
 from backend.identity.authorization.rbac import RBACProvider
-from backend.identity.audit.audit_hooks import IdentityAuditHooks
 from backend.identity.health import IdentityHealth
 from backend.identity.jwt.access_token import AccessTokenProvider
 from backend.identity.jwt.key_store import InMemoryKeyStore

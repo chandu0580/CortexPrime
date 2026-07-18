@@ -4,8 +4,7 @@ import asyncio
 import logging
 from collections import defaultdict, deque
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
-from uuid import uuid4
+from typing import Any, Callable, Dict, List, Optional
 
 from backend.agents.base import (
     AgentContext,
@@ -14,7 +13,6 @@ from backend.agents.base import (
     AgentTask,
     BaseAgent,
     CollaborationMode,
-    TaskPriority,
 )
 from backend.agents.registry import AgentRegistry, agent_registry
 from backend.agents.shared_memory import CognitiveMemoryBridge, cognitive_memory_bridge
@@ -84,7 +82,7 @@ class AgentCoordinator:
         self._memory.add_reasoning_step(
             ctx.mission_id, "coordinator",
             f"Mission completed: {sum(1 for r in results if r.success)}/{len(results)} tasks succeeded",
-            decision=f"completed",
+            decision="completed",
             critical=False,
         )
         return results
@@ -114,7 +112,6 @@ class AgentCoordinator:
 
         queue: deque[str] = deque(t for t, d in in_degree.items() if d == 0)
         results: Dict[str, AgentResult] = {}
-        pending: Dict[str, asyncio.Task] = {}
 
         async def run_and_collect(tid: str) -> AgentResult:
             task = task_map[tid]
@@ -244,7 +241,7 @@ class AgentCoordinator:
                 self._memory.add_reasoning_step(
                     ctx.mission_id, agent.agent_type,
                     f"Task completed: {task.description[:80]}",
-                    decision=f"success", confidence=1.0, critical=False,
+                    decision="success", confidence=1.0, critical=False,
                 )
                 if result.output_data:
                     self._memory.add_artifact(
@@ -263,7 +260,7 @@ class AgentCoordinator:
                 self._memory.add_reasoning_step(
                     ctx.mission_id, agent.agent_type,
                     f"Retry {attempt + 1}/{task.max_retries} for {task.description[:60]}",
-                    decision=f"retry", confidence=0.0, critical=True,
+                    decision="retry", confidence=0.0, critical=True,
                 )
 
         task.status = AgentStatus.FAILED

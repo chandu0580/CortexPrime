@@ -12,6 +12,7 @@ export const RuntimeRegistry = {
     dependencies: string[] = [],
   ): Promise<RuntimeModule> {
     const id = generateId("rtmod")
+    // eslint-disable-next-line @next/next/no-assign-module-variable
     const module: RuntimeModule = {
       id, name, version, type, dependencies,
       state: RuntimeCompositionState.PENDING,

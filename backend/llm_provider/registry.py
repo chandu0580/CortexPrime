@@ -5,7 +5,7 @@ import time
 from typing import Any, Optional
 
 from backend.llm_provider.interface import LLMProvider
-from backend.llm_provider.models import LLMProviderInfo, ProviderHealth
+from backend.llm_provider.models import ProviderHealth
 from backend.llm_provider.providers.anthropic_adapter import AnthropicAdapter
 from backend.llm_provider.providers.deepseek_provider import DeepSeekAdapter
 from backend.llm_provider.providers.gemini_adapter import GeminiAdapter

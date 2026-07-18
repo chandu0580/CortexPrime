@@ -55,6 +55,7 @@ export const CompositionGraph = {
 
   async findDependencyPath(moduleId: string): Promise<string[]> {
     const modules = await CompositionRegistry.listModules()
+    // eslint-disable-next-line @next/next/no-assign-module-variable
     const module = modules.find((m) => m.moduleId === moduleId)
     if (!module) return []
     const path: string[] = []

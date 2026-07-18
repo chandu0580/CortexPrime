@@ -24,11 +24,12 @@ def register_llm_provider_services() -> None:
         container.register("llm_service", service, startup_priority=22)
         log.info("LLM Provider Runtime services registered")
     except Exception as exc:
+        _exc_str = str(exc)
         log.warning("LLMService creation failed: %s", exc)
         if service is None:
             service = type("Placeholder", (), {
                 "initialize": lambda: True,
-                "generate": lambda **kw: type("R", (), {"content": "", "error": str(exc)})(),
+                "generate": lambda **kw: type("R", (), {"content": "", "error": _exc_str})(),
                 "stream": lambda **kw: iter([]),
                 "health": lambda: [],
                 "list_providers": lambda: [],

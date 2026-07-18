@@ -65,8 +65,8 @@ class ExecuteCapabilityRequest(BaseModel):
 
 @router.post("/register", response_model=dict[str, Any])
 async def register_connector(req: RegisterConnectorRequest):
-    from backend.connector.models import ConnectorConfig
     from backend.connector.adapter.interfaces import ConnectorAdapter
+    from backend.connector.models import ConnectorConfig
 
     class _InlineAdapter(ConnectorAdapter):
         @property

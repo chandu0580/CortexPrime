@@ -1,10 +1,9 @@
-from tooling.tool_executor import (
-    ToolExecutor
-)
+import logging
 
-from agents.research_agent.research import (
-    ResearchAgent
-)
+from agents.research_agent.research import ResearchAgent
+from tooling.tool_executor import ToolExecutor
+
+log = logging.getLogger(__name__)
 
 
 # ==========================================
@@ -32,9 +31,9 @@ class ToolAugmentedResearchAgent:
         user_goal: str
     ):
 
-        print(
-            "\n🌐 Executing "
-            "Tool-Augmented Research...\n"
+        log.info(
+            "Executing "
+            "Tool-Augmented Research..."
         )
 
         # ==========================================

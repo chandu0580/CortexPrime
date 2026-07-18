@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
@@ -10,12 +9,9 @@ from backend.orchestrator.context import OrchestratorContext
 from backend.orchestrator.engine import OrchestrationEngine, engine
 from backend.orchestrator.event_pipeline import event_pipeline
 from backend.orchestrator.models import (
-    FailureCategory,
-    MissionEvent,
     MissionLifecycleState,
     OrchestratorMission,
     OrchestratorStatus,
-    StageResult,
 )
 from backend.orchestrator.observability import metrics_collector
 from backend.orchestrator.recovery import FailureClassifier, RecoveryManager, recovery_manager

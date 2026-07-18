@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Tuple
 from uuid import uuid4
 
-from backend.orchestrator.context import OrchestratorContext
 from backend.orchestrator.engine import OrchestrationEngine, StageHandler
 from backend.orchestrator.models import MissionLifecycleState, OrchestratorMission
 from backend.orchestrator.observability import metrics_collector

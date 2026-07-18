@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from backend.connector.models import ConnectorStatus
 
-
 TRANSITIONS: dict[ConnectorStatus, set[ConnectorStatus]] = {
     ConnectorStatus.REGISTERED: {ConnectorStatus.INITIALIZING, ConnectorStatus.DISABLED},
     ConnectorStatus.INITIALIZING: {ConnectorStatus.READY, ConnectorStatus.FAILED},

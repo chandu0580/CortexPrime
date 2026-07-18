@@ -47,7 +47,7 @@ if _SENTRY_DSN:
         sentry_sdk.init(
             dsn=_SENTRY_DSN,
             environment=os.getenv("ENV", "development"),
-            release=f"cortexprime@{os.getenv('BUILD_HASH', '1.0.0-rc.1')}",
+            release=f"cortexprime@{os.getenv('BUILD_HASH', '1.0.0')}",
             traces_sample_rate=float(os.getenv("SENTRY_TRACES_RATE", "0.1")),
             profiles_sample_rate=float(os.getenv("SENTRY_PROFILES_RATE", "0.1")),
             integrations=[
@@ -794,8 +794,8 @@ async def lifespan(_app: FastAPI):
 
     # 7a) Bounded Context Repository Layer — ensure new domain tables exist
     try:
-        from backend.database.models import _ensure_bc_models
         from backend.database.engine import init_db as _init_db
+        from backend.database.models import _ensure_bc_models
         _ensure_bc_models()
         await _init_db()
         log.info("Bounded context repository tables verified")
@@ -1147,7 +1147,7 @@ async def lifespan(_app: FastAPI):
 _is_production = os.getenv("ENV", "development").lower() in ("production", "prod")
 app = FastAPI(
     title="CortexPrime Runtime API",
-    version="1.0.0-rc.1",
+    version="1.0.0",
     lifespan=lifespan,
     docs_url=None if _is_production else "/docs",
     redoc_url=None if _is_production else "/redoc",
@@ -1255,6 +1255,7 @@ except Exception as _rl_mw_err:
 
 
 from backend.api.router_registry import register_all_routers
+
 router_availability = register_all_routers(app)
 
 # ==========================================
@@ -1286,7 +1287,7 @@ async def root():
             "active",
 
         "version":
-            os.getenv("APP_VERSION", "1.0.0-rc.1")
+            os.getenv("APP_VERSION", "1.0.0")
     }
 
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from backend.identity.jwt.key_store import KeyStore
 from backend.identity.session.session_runtime import SessionRuntime

@@ -309,7 +309,7 @@ function DelegationGraphView({ edges, agents }: { edges: DelegationEdge[]; agent
                       const target = agents.find((a) => a.id === e.to)
                       return (
                         <div key={e.task} className="flex items-center gap-1.5 text-[0.6rem]" style={{ color: "var(--text-secondary)" }}>
-                          <ArrowRight className="h-3 w-3" style={{ color: "var(--accent)" }} />
+                          <ArrowRight className="h-3 w-3" />
                           <span>{target?.name ?? e.to}</span>
                           <span style={{ color: "var(--text-muted)" }}>({e.task})</span>
                         </div>

@@ -202,7 +202,7 @@ class DockerAdapter(ConnectorAdapter):
             return AdapterResult(success=False, error="Missing 'image'", duration_ms=(time.monotonic() - start) * 1000)
         try:
             client = self._ensure_client()
-            pull_result = await self._api_call(client.images.pull, image)
+            await self._api_call(client.images.pull, image)
             kwargs: dict[str, Any] = {"image": image, "detach": detach}
             if name:
                 kwargs["name"] = name

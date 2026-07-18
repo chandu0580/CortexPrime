@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import uuid
-from abc import ABC, abstractmethod
 from typing import Any, Optional
 
-from sqlalchemy import Boolean, ForeignKey, Index, String, Text, delete, func, or_, select
+from sqlalchemy import Boolean, ForeignKey, Index, String, or_, select
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column

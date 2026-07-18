@@ -78,7 +78,7 @@ Live `GET /health/system` returned a healthy aggregate status on the production 
 ```json
 {
   "status": "healthy",
-  "version": "3.0.0",
+  "version": "1.0.0",
   "environment": "production"
 }
 ```

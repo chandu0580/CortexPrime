@@ -9,7 +9,7 @@ Response shape
 --------------
 {
   "status":      "healthy" | "degraded" | "critical",
-  "version":     "3.0.0",
+  "version":     "1.0.0",
   "build_hash":  str | None,
   "uptime_sec":  float,
   "started_at":  ISO-8601,
@@ -39,7 +39,7 @@ router = APIRouter(tags=["System Health"])
 # ── Process start time (module load = app start) ─────────────────────────────
 _PROCESS_START = time.monotonic()
 _STARTED_AT    = datetime.now(timezone.utc).isoformat()
-_VERSION = "1.0.0-rc.1"
+_VERSION = "1.0.0"
 _BUILD_HASH    = os.getenv("BUILD_HASH") or os.getenv("GIT_SHA", None)
 _ENV           = os.getenv("ENV", "development")
 

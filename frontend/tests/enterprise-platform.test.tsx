@@ -39,11 +39,13 @@ function createWrapper() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
-  return ({ children }: { children: React.ReactNode }) => (
+  const Wrapper = ({ children }: { children: React.ReactNode }) => (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>{children}</ThemeProvider>
     </QueryClientProvider>
   )
+  Wrapper.displayName = "Wrapper"
+  return Wrapper
 }
 
 describe("Enterprise Platform Pages", () => {

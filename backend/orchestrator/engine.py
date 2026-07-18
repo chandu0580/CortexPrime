@@ -4,7 +4,6 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, Tuple
-from uuid import uuid4
 
 from backend.orchestrator.artifact_manager import artifact_manager
 from backend.orchestrator.event_pipeline import event_pipeline
@@ -267,7 +266,7 @@ class OrchestrationEngine:
 
             current_state = MissionLifecycleState(mission.current_state)
 
-            mode = self._stage_mode.get(current_state.value, ExecutionMode.SEQUENTIAL)
+            self._stage_mode.get(current_state.value, ExecutionMode.SEQUENTIAL)
 
             resolved_state = current_state.value
             if current_state.value in self._conditional_branches:

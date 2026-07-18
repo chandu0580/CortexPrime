@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
-from backend.agents.base import AgentCapability, AgentTask, BaseAgent
+from backend.agents.base import AgentTask, BaseAgent
 
 log = logging.getLogger(__name__)
 

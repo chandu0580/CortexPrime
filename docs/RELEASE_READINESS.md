@@ -1,4 +1,4 @@
-# CortexPrime v1.0.0-rc.1 — Release Readiness Assessment
+# CortexPrime v1.0.0 — Release Readiness Assessment
 
 **Date:** July 9, 2026
 
@@ -60,7 +60,7 @@
 
 ## 5. Overall Verdict
 
-**CortexPrime v1.0.0-rc.1 is documentation-complete and ready for pre-release validation.**
+**CortexPrime v1.0.0 is documentation-complete and ready for production deployment.**
 
 The codebase is healthy — all services build, all tests exist, all infrastructure configs validate. The 3 documentation gaps identified at the start of the sprint have been closed:
 

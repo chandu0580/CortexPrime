@@ -6,28 +6,28 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 try:
-    from backend.database.repositories.factory import repo_factory as _repo_factory, RepositoryFactory
+    from backend.database.repositories.factory import RepositoryFactory
+    from backend.database.repositories.factory import repo_factory as _repo_factory
 except ImportError:
     _repo_factory = None
-from backend.database.repositories.missions import MissionModel, MissionRepository, MissionStepModel, MissionStepRepository
-from backend.mission.approval import ApprovalState, AutoApprovalRule, MissionApprovalService
+from backend.database.repositories.missions import MissionModel
+from backend.governance.models import DecisionRequest
+from backend.mission.approval import ApprovalState, MissionApprovalService
 from backend.mission.dispatcher.dispatcher import MissionDispatcherImpl
-from backend.governance.models import DecisionRequest, GovernanceDecision
-from backend.mission.dispatcher.interfaces import ProgressReport, StepStatus
+from backend.mission.dispatcher.interfaces import ProgressReport
 from backend.mission.events import MissionEvent, MissionEventPublisher, mission_event_publisher
 from backend.mission.models import (
     MissionContext,
     MissionEntity,
-    MissionMetadata,
     MissionOwnership,
     MissionPriority,
     MissionStatus,
     MissionTimeline,
     MissionType,
 )
-from backend.mission.planner.interfaces import MissionPlan, MissionStep
+from backend.mission.planner.interfaces import MissionPlan
 from backend.mission.planner.planner import StructuredMissionPlanner
-from backend.mission.state_machine import is_terminal, is_transient, is_valid_transition
+from backend.mission.state_machine import is_terminal, is_valid_transition
 from backend.mission.timeline import MissionTimelineService, mission_timeline
 
 log = logging.getLogger(__name__)
@@ -74,7 +74,7 @@ class MissionService:
         tags: Optional[list[str]] = None,
     ) -> MissionEntity:
         mission_id = uuid.uuid4()
-        now = datetime.now(timezone.utc)
+        datetime.now(timezone.utc)
         correlation_id = str(uuid.uuid4())
 
         model = MissionModel(

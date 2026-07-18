@@ -5,9 +5,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from backend.connector.models import ConnectorStatus
-
-
 CONNECTOR_EVENT_TYPES: dict[str, str] = {
     "connector.registered": "Connector has been registered",
     "connector.ready": "Connector is ready",

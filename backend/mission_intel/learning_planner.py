@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
-from backend.learning.models import Pattern, Recommendation
+from backend.learning.models import Pattern
 from backend.learning.service import LearningService
 from backend.mission_intel.models import (
     KnowledgeInsight,

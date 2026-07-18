@@ -87,6 +87,7 @@ export function EnterpriseDataProvider({ children, refreshIntervalMs = 15000 }: 
   }, [])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     refreshAll()
     const interval = setInterval(refreshAll, refreshIntervalMs)
     return () => clearInterval(interval)

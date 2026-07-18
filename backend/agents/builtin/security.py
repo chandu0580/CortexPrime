@@ -16,14 +16,15 @@ class SecurityAgent(BaseAgent):
 
     async def _execute_impl(self, task: AgentTask, ctx: AgentContext) -> AgentResult:
         gov_svc = get_governance_service()
-        knowledge_svc = get_knowledge_service()
+        get_knowledge_service()
 
         checks = []
 
         if gov_svc:
             try:
-                from backend.governance.models import DecisionRequest
                 from datetime import datetime, timezone
+
+                from backend.governance.models import DecisionRequest
                 request = DecisionRequest(
                     request_id=f"sec_{task.task_id}",
                     requester=ctx.agent_id,

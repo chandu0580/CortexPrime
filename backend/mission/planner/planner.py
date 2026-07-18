@@ -4,9 +4,6 @@ import uuid
 from typing import Any, Optional
 
 from backend.mission.planner.interfaces import (
-    MissionArtifact,
-    MissionConstraint,
-    MissionDependency,
     MissionPlan,
     MissionPlanner,
     MissionStep,

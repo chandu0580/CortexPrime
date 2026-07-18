@@ -26,7 +26,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -275,7 +274,6 @@ class EnterpriseContinuousCognitionRuntime:
 
     async def _cognition_cycle(self) -> None:
         """Execute one full cognition cycle (Phases 2-8)."""
-        from backend.services.enterprise_repository_brain import repository_brain
 
         # Phase 2 — Repository Monitoring (periodic)
         now = _now()

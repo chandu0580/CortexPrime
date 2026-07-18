@@ -21,7 +21,7 @@ def register_ai_services() -> None:
         log.warning("ContextPropagator creation failed: %s", exc)
 
     try:
-        from backend.ai.failure import FailureHandler, RetryPolicy
+        from backend.ai.failure import FailureHandler
         failure_handler = FailureHandler()
         container.register("ai_failure_handler", failure_handler, startup_priority=24)
     except Exception as exc:

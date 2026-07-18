@@ -4,11 +4,9 @@ import json
 import logging
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
-
-from backend.llm_provider.models import FinishReason
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/llm", tags=["LLM Provider Runtime"])
 

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -13,7 +12,7 @@ from backend.mission.dispatcher.interfaces import (
     ProgressReport,
     StepStatus,
 )
-from backend.mission.planner.interfaces import MissionPlan, MissionStep
+from backend.mission.planner.interfaces import MissionStep
 
 log = logging.getLogger(__name__)
 

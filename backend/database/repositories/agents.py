@@ -63,7 +63,7 @@ class AgentConfigRepository(BaseRepository[AgentConfigModel]):
         return list(result.scalars().all())
 
     async def list_active(self) -> list[AgentConfigModel]:
-        stmt = select(AgentConfigModel).where(AgentConfigModel.is_active == True).order_by(AgentConfigModel.name)
+        stmt = select(AgentConfigModel).where(AgentConfigModel.is_active is True).order_by(AgentConfigModel.name)
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
 

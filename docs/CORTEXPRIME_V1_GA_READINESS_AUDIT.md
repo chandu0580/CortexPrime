@@ -2,7 +2,7 @@
 
 **Audit Date:** 2026-07-18  
 **Last Remediation Update:** 2026-07-18  
-**Version Assessed:** 1.0.0-rc.1  
+**Version Assessed:** 1.0.0  
 **Original Classification:** **Release Candidate**  
 **Original Readiness Score: 56/100**  
 
@@ -456,7 +456,7 @@ These are tracked for the backlog but do not block GA:
 
 ### Final GA Recommendation
 
-**CortexPrime v1.0.0-rc.1 is GA-ready (score: 95/100).**
+**CortexPrime v1.0.0 is GA-ready (score: 95/100).**
 
 All critical and high-severity findings across all 8 dimensions have been remediated. The platform now has:
 - **Hardened security**: Sandbox escapes eliminated, CSP headers, Redis TLS, WAL archiving, network policies, PriorityClass, shell injection fixed
@@ -511,7 +511,7 @@ All critical and high-severity findings across all 8 dimensions have been remedi
 
 ### Release Decision
 
-**CortexPrime v1.0.0-rc.1 is approved for General Availability.**
+**CortexPrime v1.0.0 is approved for General Availability.**
 
 The platform has been independently audited across 20 dimensions, scoring 95/100 overall. All 10 critical blockers and 25 remediation items from the original audit are resolved. The remaining risks are cosmetic or nice-to-have and do not impact production safety, security, or reliability.
 

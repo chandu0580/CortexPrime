@@ -42,8 +42,8 @@ def register_default_providers() -> None:
 
     from backend.identity.providers.azure_ad import AzureADProvider
     from backend.identity.providers.google import GoogleProvider
-    from backend.identity.providers.okta import OktaProvider
     from backend.identity.providers.keycloak import KeycloakProvider
+    from backend.identity.providers.okta import OktaProvider
 
     azure_client_id = os.getenv("AZURE_CLIENT_ID", "")
     if azure_client_id:

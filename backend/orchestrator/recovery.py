@@ -8,7 +8,6 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from backend.orchestrator.models import (
     FailureCategory,
     MissionLifecycleState,
-    OrchestratorStatus,
     StageResult,
 )
 

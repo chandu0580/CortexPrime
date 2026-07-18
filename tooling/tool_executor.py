@@ -1,8 +1,12 @@
+import logging
+
 from tooling.tool_registry import (
     ToolRegistry
 )
 
 from datetime import datetime
+
+log = logging.getLogger(__name__)
 
 
 # ==========================================
@@ -31,9 +35,9 @@ class ToolExecutor:
             datetime.utcnow()
         )
 
-        print(
-            f"\n🛠️ Executing Tool: "
-            f"{tool_name}\n"
+        log.info(
+            "Executing Tool: %s",
+            tool_name
         )
 
         try:

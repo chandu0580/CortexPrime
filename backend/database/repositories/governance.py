@@ -81,7 +81,7 @@ class PolicyRepository(BaseRepository[PolicyModel]):
         return list(result.scalars().all())
 
     async def list_enabled(self) -> list[PolicyModel]:
-        stmt = select(PolicyModel).where(PolicyModel.enabled == True).order_by(PolicyModel.category, PolicyModel.name)
+        stmt = select(PolicyModel).where(PolicyModel.enabled is True).order_by(PolicyModel.category, PolicyModel.name)
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
 

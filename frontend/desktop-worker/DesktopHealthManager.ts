@@ -2,7 +2,7 @@ import { DesktopSessionManager } from "./DesktopSessionManager"
 import { DesktopTelemetry } from "./DesktopTelemetry"
 import type { DesktopHealthStatus, DesktopHealthStatusResult } from "./types"
 
-let startedAt = Date.now()
+const startedAt = Date.now()
 let consecutiveErrors = 0
 
 export const DesktopHealthManager = {

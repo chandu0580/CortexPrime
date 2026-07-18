@@ -6,12 +6,13 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 try:
-    from backend.database.repositories.factory import repo_factory as _repo_factory, RepositoryFactory
+    from backend.database.repositories.factory import RepositoryFactory
+    from backend.database.repositories.factory import repo_factory as _repo_factory
 except ImportError:
     _repo_factory = None
-from backend.database.repositories.executions import ExecutionModel, ExecutionEventModel, ExecutionRepository, ExecutionEventRepository
+from backend.database.repositories.executions import ExecutionEventModel, ExecutionModel
 from backend.execution.dispatcher.dispatcher import ExecutionDispatcherImpl
-from backend.execution.dispatcher.interfaces import ExecutionDispatchResult, ExecutionDispatcher
+from backend.execution.dispatcher.interfaces import ExecutionDispatcher
 from backend.execution.events import ExecutionEvent, ExecutionEventPublisher, execution_event_publisher
 from backend.execution.models import (
     ExecutionContext,
@@ -22,7 +23,7 @@ from backend.execution.models import (
     ExecutionType,
 )
 from backend.execution.state_machine import is_terminal, is_valid_transition, validate_transition
-from backend.governance.models import DecisionRequest, GovernanceDecision
+from backend.governance.models import DecisionRequest
 
 log = logging.getLogger(__name__)
 
@@ -64,7 +65,7 @@ class ExecutionService:
         source: str = "api",
     ) -> ExecutionEntity:
         execution_id = str(uuid.uuid4())
-        now = datetime.now(timezone.utc)
+        datetime.now(timezone.utc)
         correlation_id = str(uuid.uuid4())
 
         model = ExecutionModel(
@@ -355,7 +356,6 @@ class ExecutionService:
     async def _transition(self, entity: ExecutionEntity, target: ExecutionStatus,
                            actor: Optional[str] = None) -> ExecutionEntity:
         validate_transition(entity.status, target)
-        old_status = entity.status
         entity.status = target
         repo = await self._repo_factory.execution_repo()
         model = await repo.get_by_execution_id(entity.execution_id)

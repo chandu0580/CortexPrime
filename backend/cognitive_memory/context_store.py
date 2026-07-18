@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 from backend.cognitive_memory.models import MemoryArtifact, MemoryContext, MemorySnapshot
 

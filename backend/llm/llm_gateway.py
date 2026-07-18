@@ -5,8 +5,7 @@ from uuid import uuid4
 
 from dotenv import load_dotenv
 
-from backend.events.event_bus import event_bus, publish_event
-from backend.events.event_models import CognitionEvent
+from backend.events.event_bus import publish_event
 
 # =========================================================
 # LOAD ENVIRONMENT VARIABLES
@@ -159,7 +158,7 @@ class LLMGateway:
         )
     ) -> Dict[str, Any]:
 
-        execution_id = str(uuid4())
+        str(uuid4())
         model = self.get_model_for_agent(agent_type)
 
         svc = await self._ensure_llm_service()
@@ -365,8 +364,8 @@ class LLMGateway:
                 "success"
             ):
 
-                print(
-                    "\n⚠️ FALLING BACK TO OPENAI"
+                log.warning(
+                    "FALLING BACK TO OPENAI"
                 )
 
                 return await self.generate_openai(

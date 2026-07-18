@@ -53,13 +53,27 @@ def _require_secret(env_var: str, fallback_var: str = "") -> str:
     return secret
 
 
-_SECRET:         str = _require_secret("JWT_SECRET_KEY")
-_REFRESH_SECRET: str = _require_secret("JWT_REFRESH_SECRET", "JWT_SECRET_KEY")
-_ALGORITHM:      str = os.getenv("JWT_ALGORITHM", "HS256")
-_EXPIRE_MIN:     int = int(os.getenv("JWT_EXPIRE_MINUTES", str(
+_SECRET: Optional[str] = None
+_REFRESH_SECRET: Optional[str] = None
+_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
+_EXPIRE_MIN: int = int(os.getenv("JWT_EXPIRE_MINUTES", str(
                               int(os.getenv("JWT_EXPIRE_HOURS", "1")) * 60
                           )))
-_REFRESH_EXPIRE_H: int = int(os.getenv("JWT_REFRESH_EXPIRE_H", "168"))  # 7 days
+_REFRESH_EXPIRE_H: int = int(os.getenv("JWT_REFRESH_EXPIRE_H", "168"))
+
+
+def _get_secret() -> str:
+    global _SECRET
+    if _SECRET is None:
+        _SECRET = _require_secret("JWT_SECRET_KEY")
+    return _SECRET
+
+
+def _get_refresh_secret() -> str:
+    global _REFRESH_SECRET
+    if _REFRESH_SECRET is None:
+        _REFRESH_SECRET = _require_secret("JWT_REFRESH_SECRET", "JWT_SECRET_KEY")
+    return _REFRESH_SECRET
 
 
 # ---------------------------------------------------------------------------
@@ -88,7 +102,7 @@ def create_access_token(
         payload["tenant_slug"] = tenant_slug
     if user_role:
         payload["user_role"] = user_role
-    return jwt.encode(payload, _SECRET, algorithm=_ALGORITHM)
+    return jwt.encode(payload, _get_secret(), algorithm=_ALGORITHM)
 
 
 def create_refresh_token(
@@ -113,7 +127,7 @@ def create_refresh_token(
         payload["tenant_slug"] = tenant_slug
     if user_role:
         payload["user_role"] = user_role
-    return jwt.encode(payload, _REFRESH_SECRET, algorithm=_ALGORITHM)
+    return jwt.encode(payload, _get_refresh_secret(), algorithm=_ALGORITHM)
 
 
 def create_tenant_token(
@@ -134,7 +148,7 @@ def create_tenant_token(
 def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
     """Decode and validate an access JWT. Returns payload or None."""
     try:
-        payload = jwt.decode(token, _SECRET, algorithms=[_ALGORITHM])
+        payload = jwt.decode(token, _get_secret(), algorithms=[_ALGORITHM])
         if payload.get("type") != "access":
             return None
         return payload
@@ -146,7 +160,7 @@ def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
 def decode_refresh_token(token: str) -> Optional[Dict[str, Any]]:
     """Decode and validate a refresh JWT. Returns payload or None."""
     try:
-        payload = jwt.decode(token, _REFRESH_SECRET, algorithms=[_ALGORITHM])
+        payload = jwt.decode(token, _get_refresh_secret(), algorithms=[_ALGORITHM])
         if payload.get("type") != "refresh":
             return None
         return payload

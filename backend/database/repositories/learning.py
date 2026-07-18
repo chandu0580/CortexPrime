@@ -83,7 +83,7 @@ class LearningPatternRepository(BaseRepository[LearningPatternModel]):
     async def list_high_confidence(self, min_confidence: float = 0.7, limit: int = 50) -> list[LearningPatternModel]:
         stmt = (
             select(LearningPatternModel)
-            .where(LearningPatternModel.confidence >= min_confidence, LearningPatternModel.is_active == True)
+            .where(LearningPatternModel.confidence >= min_confidence, LearningPatternModel.is_active is True)
             .order_by(LearningPatternModel.confidence.desc())
             .limit(limit)
         )

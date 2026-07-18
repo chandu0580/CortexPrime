@@ -1,4 +1,8 @@
+import logging
+
 import requests
+
+log = logging.getLogger(__name__)
 
 
 # ==========================================
@@ -50,9 +54,10 @@ class APITool:
                 "Missing API URL."
             )
 
-        print(
-            f"\n🌐 Executing API Call: "
-            f"{method} {url}\n"
+        log.info(
+            "Executing API Call: %s %s",
+            method,
+            url
         )
 
         # ==========================================

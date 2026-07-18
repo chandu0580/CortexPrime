@@ -4,8 +4,7 @@ from uuid import uuid4
 
 import pygetwindow as gw
 
-from backend.events.event_bus import event_bus, publish_event
-from backend.events.event_models import CognitionEvent
+from backend.events.event_bus import publish_event
 from backend.tools.tool_registry import tool_registry
 
 # ==========================================

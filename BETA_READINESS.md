@@ -1,5 +1,5 @@
 # CortexPrime — Beta Readiness Assessment
-**Version:** 1.0.0-rc.1  
+**Version:** 1.0.0  
 **Assessment Date:** 2026-06-07  
 **Target Score:** 95 / 100
 

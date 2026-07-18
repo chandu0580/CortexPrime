@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
-from backend.cognitive_memory.manager import memory_manager, MemoryManager
+from backend.cognitive_memory.manager import MemoryManager, memory_manager
 from backend.cognitive_memory.models import (
     MemoryArtifact,
     MemoryContext,

@@ -1,24 +1,17 @@
-from dotenv import load_dotenv
+import logging
+import os
 
+from dotenv import load_dotenv
 from openai import AzureOpenAI
 
 from agents.research_agent.prompts import (
     RESEARCH_AGENT_SYSTEM_PROMPT,
 )
+from agents.research_agent.schemas import ResearchOutput
+from agents.research_agent.utils import safe_json_parse
+from memory_system.semantic_memory_engine import SemanticMemoryEngine
 
-from agents.research_agent.schemas import (
-    ResearchOutput
-)
-
-from agents.research_agent.utils import (
-    safe_json_parse
-)
-
-from memory_system.semantic_memory_engine import (
-    SemanticMemoryEngine
-)
-
-import os
+log = logging.getLogger(__name__)
 
 
 # ==========================================
@@ -155,8 +148,8 @@ class ResearchAgent:
         user_goal: str
     ):
 
-        print(
-            "🔍 CortexPrime Research Agent Activated..."
+        log.info(
+            "CortexPrime Research Agent Activated..."
         )
 
         # ==========================================

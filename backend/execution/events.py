@@ -5,9 +5,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from backend.execution.models import ExecutionStatus
-
-
 EXECUTION_EVENT_TYPES: dict[str, str] = {
     "execution.created": "Execution has been created",
     "execution.queued": "Execution has been queued",

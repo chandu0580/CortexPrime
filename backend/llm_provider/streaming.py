@@ -5,7 +5,7 @@ import logging
 import time
 from typing import Any, AsyncGenerator, Callable, Optional
 
-from backend.llm_provider.models import FinishReason, LLMResponse, StreamChunk
+from backend.llm_provider.models import FinishReason, StreamChunk
 
 log = logging.getLogger(__name__)
 

@@ -7,9 +7,9 @@ from typing import Any, Optional
 
 from backend.execution.dispatcher.interfaces import (
     DispatchStepStatus,
+    ExecutionDispatcher,
     ExecutionDispatchResult,
     ExecutionDispatchStepResult,
-    ExecutionDispatcher,
     ExecutionProgressReport,
 )
 
@@ -110,7 +110,6 @@ class ExecutionDispatcherImpl(ExecutionDispatcher):
         return result
 
     async def _run_sandbox(self, sandbox, command, inputs, environment, timeout, step_result):
-        from backend.execution.sandbox.interfaces import SandboxResult
         return await sandbox.execute(
             command=command,
             inputs=inputs,

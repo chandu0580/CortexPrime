@@ -17,7 +17,6 @@ Capabilities:
 """
 from __future__ import annotations
 
-import json
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -1494,7 +1493,7 @@ class EnterpriseDeliveryOrchestrator:
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         pipeline_id = f"pipe-{uuid.uuid4().hex[:12]}"
-        now = now()
+        now()
         pipeline: Dict[str, Any] = {
             "pipeline_id": pipeline_id,
             "name": name or f"Pipeline {pipeline_id}",

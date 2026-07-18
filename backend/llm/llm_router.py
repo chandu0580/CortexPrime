@@ -234,7 +234,6 @@ async def _llm_service_generate(prompt: str, system: str, provider: str, model: 
     except Exception as exc:
         log.warning("LLM Provider Runtime %s fallback: %s", provider, exc)
 
-    from backend.llm.llm_gateway import llm_gateway
     raise RuntimeError(f"LLM Provider Runtime and gateway both failed for {provider}")
 
 

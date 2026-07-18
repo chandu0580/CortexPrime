@@ -10,7 +10,6 @@ from backend.ai.models import (
     ExecutionMode,
     IntentType,
     PlanStep,
-    PlanStepStatus,
     RuntimeTarget,
 )
 from backend.ai.router import RuntimeRouter

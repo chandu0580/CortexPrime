@@ -1,8 +1,11 @@
+import logging
 import os
 
 from dotenv import load_dotenv
 
 from openai import AzureOpenAI
+
+log = logging.getLogger(__name__)
 
 
 # ==========================================
@@ -59,9 +62,9 @@ class AutonomousRepairEngine:
         execution_error: str
     ):
 
-        print(
-            "\n🛠️ Autonomous Repair "
-            "Engine Activated...\n"
+        log.info(
+            "Autonomous Repair "
+            "Engine Activated..."
         )
 
         repair_prompt = f"""
@@ -121,8 +124,8 @@ Return ONLY valid repaired Python code.
             .strip()
         )
 
-        print(
-            "\n✅ Code Repair Generated.\n"
+        log.info(
+            "Code Repair Generated."
         )
 
         return {

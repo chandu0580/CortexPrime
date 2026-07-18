@@ -864,8 +864,8 @@ class EnterpriseEngineeringExecutiveRuntime:
     async def _record_to_replay_store(self, timeline_entry: TimelineEntry) -> None:
         """Record timeline event to ReplayStore."""
         try:
-            from backend.services.mission_replay_store import replay_store
             from backend.events.event_models import CognitionEvent
+            from backend.services.mission_replay_store import replay_store
             event = CognitionEvent(
                 event_type=timeline_entry.event_type,
                 agent=timeline_entry.agent,

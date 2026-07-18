@@ -46,7 +46,7 @@ class FeatureFlagRepository(BaseRepository[FeatureFlagModel]):
         return result.scalar_one_or_none()
 
     async def list_enabled(self) -> list[FeatureFlagModel]:
-        stmt = select(FeatureFlagModel).where(FeatureFlagModel.enabled == True)
+        stmt = select(FeatureFlagModel).where(FeatureFlagModel.enabled is True)
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
 

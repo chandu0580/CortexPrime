@@ -13,6 +13,7 @@ export function useRealtime() {
     const connected = useRef(false)
 
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setStatus("connecting")
         wsService.connect(WS_URL)
 

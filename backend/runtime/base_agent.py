@@ -1,7 +1,10 @@
+import logging
 import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Any, Dict
+
+log = logging.getLogger(__name__)
 
 # ==========================================
 # BASE AGENT
@@ -102,11 +105,9 @@ class BaseAgent(ABC):
             .isoformat()
         )
 
-        print(
-
-            f"[{timestamp}] "
-
-            f"[{self.agent_name}] "
-
-            f"{event}"
+        log.info(
+            "[%s] [%s] %s",
+            timestamp,
+            self.agent_name,
+            event
         )

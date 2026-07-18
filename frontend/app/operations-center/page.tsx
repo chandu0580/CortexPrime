@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { motion } from "framer-motion"
-import { LayoutDashboard, Github, GitBranch, MessageSquare, Docker, Server, Activity, BarChart3, Settings, Cpu, Shield, Users, Puzzle, Bot, KeyRound, PlayCircle, FileKey, RefreshCw, Database, ScrollText, Building2 } from "lucide-react"
+import { LayoutDashboard, Code2, GitBranch, MessageSquare, Container, Server, Activity, BarChart3, Settings, Cpu, Shield, Users, Puzzle, Bot, KeyRound, PlayCircle, FileKey, RefreshCw, Database, ScrollText, Building2 } from "lucide-react"
 import { cn } from "@/utils/cn"
 import { stagger, variants } from "@/lib/motion-tokens"
 import CortexShell from "@/components/layout/CortexShell"
@@ -10,10 +10,10 @@ import { IntegrationStatusCards, GitHubPanel, JiraPanel, SlackPanel, DockerPanel
 
 const navItems = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { id: "github", label: "GitHub", icon: Github },
+  { id: "github", label: "GitHub", icon: Code2 },
   { id: "jira", label: "Jira", icon: GitBranch },
   { id: "slack", label: "Slack", icon: MessageSquare },
-  { id: "docker", label: "Docker", icon: Docker },
+  { id: "docker", label: "Docker", icon: Container },
   { id: "kubernetes", label: "Kubernetes", icon: Server },
   { id: "prometheus", label: "Prometheus", icon: Activity },
   { id: "grafana", label: "Grafana", icon: BarChart3 },

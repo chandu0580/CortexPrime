@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from typing import Any, Callable, Optional
 
 from backend.ai.client import RuntimeInvocationClient
@@ -11,7 +10,6 @@ from backend.ai.correlation import correlation_events
 from backend.ai.failure import FailureHandler
 from backend.ai.integration import RuntimeIntegrationFactory
 from backend.ai.models import PlanStep, PlanStepStatus, RuntimeTarget
-from backend.ai.result import RuntimeResult
 
 log = logging.getLogger(__name__)
 

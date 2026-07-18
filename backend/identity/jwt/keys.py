@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from backend.infrastructure.redis.keys import RedisKeys
-
 
 class IdentityRedisKeys:
     ACCESS_BLACKLIST = "cx:identity:bl:access"

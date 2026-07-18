@@ -5,7 +5,7 @@ import os
 import time
 from typing import Any, AsyncGenerator, Optional
 
-from openai import AsyncOpenAI, APIError
+from openai import AsyncOpenAI
 
 from backend.llm_provider.interface import LLMProvider
 from backend.llm_provider.models import (

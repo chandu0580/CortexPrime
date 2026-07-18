@@ -7,8 +7,7 @@ from uuid import uuid4
 
 from backend.computer.desktop_controller import desktop_controller
 from backend.computer.screen_intelligence import screen_intelligence
-from backend.events.event_bus import event_bus, publish_event
-from backend.events.event_models import CognitionEvent
+from backend.events.event_bus import publish_event
 from backend.tools.tool_registry import tool_registry
 
 # ==========================================

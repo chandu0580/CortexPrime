@@ -141,7 +141,6 @@ async def cognition_health() -> Dict[str, Any]:
         pass
 
     try:
-        from backend.services.engineering_decision_engine import EngineeringDecisionEngine
         sources["EngineeringDecisionEngine"] = True
     except Exception:
         pass
@@ -225,7 +224,6 @@ async def cognition_health() -> Dict[str, Any]:
         pass
 
     try:
-        from backend.services.enterprise_executive_runtime import EnterpriseEngineeringExecutiveRuntime
         sources["ExecutiveRuntime"] = True
     except Exception:
         pass

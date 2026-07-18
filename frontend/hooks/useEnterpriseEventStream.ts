@@ -509,6 +509,7 @@ export function useEnterpriseEventStream(enabled = true, callbacks?: EnterpriseE
   const queryClient = useQueryClient()
   const subscribed = useRef(false)
   const callbacksRef = useRef(callbacks)
+  // eslint-disable-next-line react-hooks/refs
   callbacksRef.current = callbacks
 
   const handleMessage = useCallback((msg: WSMessage) => {

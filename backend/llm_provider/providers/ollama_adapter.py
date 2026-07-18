@@ -4,7 +4,7 @@ import json
 import logging
 import os
 import time
-from typing import Any, AsyncGenerator, Optional
+from typing import AsyncGenerator, Optional
 
 import httpx
 

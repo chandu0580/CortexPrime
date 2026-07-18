@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
-import sys
 from string import Template
-
 
 _AGENT_TEMPLATE = Template('''from __future__ import annotations
 
@@ -85,9 +83,9 @@ def scaffold(args: argparse.Namespace):
         ))
 
     print(f"Scaffolded agent '{agent_name}' at {pkg_dir}")
-    print(f"  agent.py  - Agent implementation")
-    print(f"  __init__.py - Package exports")
-    print(f"  setup.py  - Installable package")
+    print("  agent.py  - Agent implementation")
+    print("  __init__.py - Package exports")
+    print("  setup.py  - Installable package")
     print(f"\nTo install: pip install -e {args.output}")
 
 

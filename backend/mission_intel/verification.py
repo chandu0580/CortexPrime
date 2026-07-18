@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
-from backend.connector.models import Capability
 from backend.mission_intel.models import (
     ExecutionPlan,
     MissionDecomposition,

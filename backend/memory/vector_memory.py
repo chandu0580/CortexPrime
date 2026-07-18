@@ -1,9 +1,12 @@
 
+import logging
 import uuid
 from datetime import datetime
 from typing import Any, Dict, List
 
 import chromadb
+
+log = logging.getLogger(__name__)
 
 try:
     from sentence_transformers import SentenceTransformer
@@ -48,8 +51,8 @@ class VectorMemory:
             )
 
         except BaseException as _chroma_err:
-            print(
-                f"⚠️  ChromaDB unavailable — vector memory disabled: {_chroma_err}"
+            log.warning(
+                "ChromaDB unavailable — vector memory disabled: %s", _chroma_err
             )
 
         # ==========================================
@@ -62,17 +65,17 @@ class VectorMemory:
                     "all-MiniLM-L6-v2"
                 )
             except Exception as _st_err:
-                print(
-                    f"⚠️  SentenceTransformer load failed: {_st_err}"
+                log.warning(
+                    "SentenceTransformer load failed: %s", _st_err
                 )
         else:
-            print(
-                "⚠️  SentenceTransformer unavailable — vector memory embeddings disabled"
+            log.warning(
+                "SentenceTransformer unavailable — vector memory embeddings disabled"
             )
 
         if self.client and self.embedding_model:
-            print(
-                "🧠 Vector memory initialized"
+            log.info(
+                "Vector memory initialized"
             )
 
 
@@ -193,8 +196,8 @@ class VectorMemory:
             ]
         )
 
-        print(
-            f"🧠 Memory stored: {memory_id}"
+        log.info(
+            "Memory stored: %s", memory_id
         )
 
         return memory_id
@@ -275,8 +278,8 @@ class VectorMemory:
             ids=[memory_id]
         )
 
-        print(
-            f"🗑 Deleted memory: {memory_id}"
+        log.info(
+            "Deleted memory: %s", memory_id
         )
 
 
@@ -301,8 +304,8 @@ class VectorMemory:
             )
         )
 
-        print(
-            "♻ Vector memory reset"
+        log.info(
+            "Vector memory reset"
         )
 
 

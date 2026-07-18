@@ -5,7 +5,8 @@ import { ConnectorGrid } from "@/components/enterprise"
 
 export default function OperationsCenter() {
   const { data } = useConnectors()
-  const connectors = data?.connectors ?? ([] as Record<string, unknown>[])
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const connectors = (data?.connectors ?? []) as any
 
   return (
     <div className="space-y-6 max-w-7xl">

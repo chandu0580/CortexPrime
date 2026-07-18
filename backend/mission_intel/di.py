@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from backend.mission_intel.service import MissionIntelligenceService, mission_intel_service
+from backend.mission_intel.service import mission_intel_service
 
 log = logging.getLogger(__name__)
 

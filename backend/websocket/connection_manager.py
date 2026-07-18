@@ -1,6 +1,9 @@
+import logging
 from typing import List
 
 from fastapi import WebSocket
+
+log = logging.getLogger(__name__)
 
 # ==========================================
 # CONNECTION MANAGER
@@ -33,8 +36,8 @@ class ConnectionManager:
             websocket
         )
 
-        print(
-            "🟢 WebSocket connected"
+        log.info(
+            "WebSocket connected"
         )
 
 
@@ -61,8 +64,8 @@ class ConnectionManager:
                 websocket
             )
 
-        print(
-            "🔴 WebSocket disconnected"
+        log.info(
+            "WebSocket disconnected"
         )
 
 

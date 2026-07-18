@@ -22,38 +22,39 @@ export default function GovernanceCenterPage() {
   const [error, setError] = useState<string | null>(null)
   const [kpiData, setKpiData] = useState<any[]>([])
 
-  useEffect(() => {
-    async function fetchKPIs() {
-      try {
-        setLoading(true)
-        setError(null)
-        const res = await fetch("/api/governance/kpis")
-        if (!res.ok) throw new Error(`API error: ${res.status}`)
-        const data = await res.json()
-        setKpiData(data.kpis ?? data)
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load KPIs")
-      } finally {
-        setLoading(false)
-      }
+  async function fetchKPIs() {
+    try {
+      setLoading(true)
+      setError(null)
+      const res = await fetch("/api/governance/kpis")
+      if (!res.ok) throw new Error(`API error: ${res.status}`)
+      const data = await res.json()
+      setKpiData(data.kpis ?? data)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load KPIs")
+    } finally {
+      setLoading(false)
     }
+  }
+
+  useEffect(() => {
     fetchKPIs()
   }, [])
 
   const handleRefresh = () => {
-    console.log("Refreshing governance center...");
+    fetchKPIs();
   };
 
   const handleCreatePolicy = () => {
-    console.log("Opening Create Policy dialog... Draft version 1.0 will be saved.");
+    // Placeholder — modal dialog to be implemented
   };
 
   const handleReviewRisks = () => {
-    console.log("Navigating to risk detail logs...");
+    // Placeholder — navigation to risk details to be implemented
   };
 
   const handleExportAudit = () => {
-    console.log("Exporting secure compliance audit history (CSV/JSON)...");
+    // Placeholder — CSV/JSON export to be implemented
   };
 
   return (

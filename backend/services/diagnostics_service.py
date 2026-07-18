@@ -38,7 +38,7 @@ class DiagnosticsService:
             "platform": platform.platform(),
             "hostname": platform.node(),
             "env": os.getenv("ENV", "development"),
-            "version": os.getenv("BUILD_HASH", "1.0.0-rc.1"),
+            "version": os.getenv("BUILD_HASH", "1.0.0"),
         }
 
     async def _get_runtime_status(self) -> Dict[str, Any]:

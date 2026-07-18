@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cortexprime-agent-sdk"
+version = "1.0.0"
+description = "CortexPrime Agent SDK — build custom agents for the CortexPrime AI Agent Operating System"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+    { name = "CortexPrime" },
+]
+keywords = ["cortexprime", "agent", "sdk", "ai", "autonomous"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/chandu0580/CortexPrime"
+Documentation = "https://github.com/chandu0580/CortexPrime/docs"
+
+[project.scripts]
+cortexprime-scaffold = "backend.agent_sdk.cli.scaffold:main"
+
+[project.entry-points."cortexprime.agents"]

@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Optional
 
+from backend.identity.authorization.abac import ABACEvaluator
+from backend.identity.authorization.rbac import RBACProvider
 from backend.identity.interfaces.authorization import (
     AuthorizationRequest,
-    AuthorizationResult,
     PermissionEvaluator,
 )
-from backend.identity.authorization.rbac import RBACProvider
-from backend.identity.authorization.abac import ABACEvaluator, AttributeContext
 
 
 class DefaultPermissionEvaluator(PermissionEvaluator):
