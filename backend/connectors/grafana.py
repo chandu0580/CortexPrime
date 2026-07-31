@@ -17,13 +17,15 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+from backend.connectors.base import BaseConnector
+
 log = logging.getLogger(__name__)
 
 _GRAFANA_DEFAULT_URL = "http://localhost:3000"
 _GRAFANA_TIMEOUT = 30.0
 
 
-class GrafanaConnector:
+class GrafanaConnector(BaseConnector):
     """Grafana HTTP API connector — real dashboards from a running Grafana.
 
     Wraps key Grafana HTTP API endpoints:
@@ -40,6 +42,9 @@ class GrafanaConnector:
       GET /api/health                    — health check
       GET /api/frontend/settings          — frontend settings
     """
+
+    connector_name = "Grafana"
+    connector_type = "grafana"
 
     def __init__(
         self,
@@ -98,6 +103,10 @@ class GrafanaConnector:
             await self._client.aclose()
             self._client = None
         self._ready = False
+
+    async def shutdown(self) -> bool:
+        await self.close()
+        return True
 
     async def _get(self, path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         if not self._client:

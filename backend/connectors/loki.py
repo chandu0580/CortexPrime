@@ -17,13 +17,15 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+from backend.connectors.base import BaseConnector
+
 log = logging.getLogger(__name__)
 
 _LOKI_DEFAULT_URL = "http://localhost:3100"
 _LOKI_TIMEOUT = 30.0
 
 
-class LokiConnector:
+class LokiConnector(BaseConnector):
     """Loki HTTP API connector — real logs from a running Loki.
 
     Wraps the standard Loki HTTP API:
@@ -33,6 +35,9 @@ class LokiConnector:
       GET /loki/api/v1/label/<name>/values
       GET /loki/api/v1/series?match[]=<>
     """
+
+    connector_name = "Loki"
+    connector_type = "loki"
 
     def __init__(self, base_url: str = "", timeout: float = _LOKI_TIMEOUT) -> None:
         self._base_url = (base_url or _LOKI_DEFAULT_URL).rstrip("/")
@@ -69,6 +74,14 @@ class LokiConnector:
             await self._client.aclose()
             self._client = None
         self._ready = False
+
+    async def shutdown(self) -> bool:
+        await self.close()
+        return True
+
+    async def health(self) -> Dict[str, Any]:
+        reachable = await self.health_check()
+        return {"connector": self.connector_type, "ready": self.is_ready, "reachable": reachable}
 
     async def _get(self, path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         if not self._client:

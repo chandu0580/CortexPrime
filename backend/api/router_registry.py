@@ -61,21 +61,6 @@ def register_all_routers(app: FastAPI) -> Dict[str, bool]:
         availability["tenant"] = False
         log.warning(f"Tenant routes unavailable: {_tenant_err}")
 
-    # Connector Runtime routes (Phase 5A)
-    try:
-        from backend.connector.routes import router as connector_runtime_router
-        app.include_router(connector_runtime_router)
-        availability["connector_runtime"] = True
-    except Exception as _cr_err:
-        _cr_detail = str(_cr_err)
-        _cr_fallback = APIRouter()
-        @_cr_fallback.get("/api/connectors")
-        async def connector_runtime_fallback_list():
-            return {"connectors": [], "total": 0, "detail": _cr_detail}
-        app.include_router(_cr_fallback)
-        availability["connector_runtime"] = False
-        log.warning(f"Connector Runtime routes unavailable: {_cr_detail}")
-
     # Governance Runtime routes (Phase 6A)
     try:
         from backend.governance.routes import router as governance_router

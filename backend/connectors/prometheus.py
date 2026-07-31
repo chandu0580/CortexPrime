@@ -18,13 +18,15 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+from backend.connectors.base import BaseConnector
+
 log = logging.getLogger(__name__)
 
 _PROM_DEFAULT_URL = "http://localhost:9090"
 _PROM_TIMEOUT = 30.0
 
 
-class PrometheusConnector:
+class PrometheusConnector(BaseConnector):
     """Prometheus HTTP API connector — real metrics from a running Prometheus.
 
     Wraps the standard Prometheus HTTP API:
@@ -37,6 +39,9 @@ class PrometheusConnector:
       GET /api/v1/rules
       GET /api/v1/alerts
     """
+
+    connector_name = "Prometheus"
+    connector_type = "prometheus"
 
     def __init__(self, base_url: str = "", timeout: float = _PROM_TIMEOUT) -> None:
         self._base_url = (base_url or _PROM_DEFAULT_URL).rstrip("/")
@@ -74,6 +79,14 @@ class PrometheusConnector:
             await self._client.aclose()
             self._client = None
         self._ready = False
+
+    async def shutdown(self) -> bool:
+        await self.close()
+        return True
+
+    async def health(self) -> Dict[str, Any]:
+        reachable = await self.health_check()
+        return {"connector": self.connector_type, "ready": self.is_ready, "reachable": reachable}
 
     async def _get(self, path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         if not self._client:

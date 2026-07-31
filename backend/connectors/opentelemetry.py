@@ -17,6 +17,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List
 
+from backend.connectors.base import BaseConnector
+
 log = logging.getLogger(__name__)
 
 OTLP_EVENT_TYPES = {
@@ -35,13 +37,16 @@ _DEPLOYMENT_ENV_ATTR = "deployment.environment"
 _HOST_NAME_ATTR = "host.name"
 
 
-class OpenTelemetryConnector:
+class OpenTelemetryConnector(BaseConnector):
     """OTLP connector — decodes traces from protobuf or JSON payloads.
 
     This is a passive receiver (no outbound HTTP). It parses the standard
     OTLP ExportTraceServiceRequest format and returns structured trace data
     that the Trace Intelligence service can process.
     """
+
+    connector_name = "OpenTelemetry"
+    connector_type = "opentelemetry"
 
     def __init__(self) -> None:
         self._ready = False
@@ -61,6 +66,14 @@ class OpenTelemetryConnector:
     @property
     def is_ready(self) -> bool:
         return self._ready
+
+    async def shutdown(self) -> bool:
+        # Passive receiver — no outbound client/connection to close.
+        self._ready = False
+        return True
+
+    async def health(self) -> Dict[str, Any]:
+        return {"connector": self.connector_type, "ready": self.is_ready}
 
     async def decode_protobuf(self, body: bytes) -> Dict[str, Any]:
         """Decode an OTLP ExportTraceServiceRequest from protobuf binary."""

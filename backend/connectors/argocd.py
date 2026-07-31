@@ -20,13 +20,15 @@ from typing import Any, Dict, Optional
 
 import httpx
 
+from backend.connectors.base import BaseConnector
+
 log = logging.getLogger(__name__)
 
 _ARGOCD_DEFAULT_URL = "http://localhost:8080"
 _ARGOCD_TIMEOUT = 30.0
 
 
-class ArgoCDConnector:
+class ArgoCDConnector(BaseConnector):
     """ArgoCD HTTP API connector — real GitOps from a running ArgoCD.
 
     Wraps the ArgoCD v1 HTTP API:
@@ -42,6 +44,9 @@ class ArgoCDConnector:
       GET    /api/v1/clusters                  — list clusters
       POST   /api/v1/session                   — authenticate
     """
+
+    connector_name = "ArgoCD"
+    connector_type = "argocd"
 
     def __init__(
         self,
@@ -87,6 +92,14 @@ class ArgoCDConnector:
             await self._client.aclose()
             self._client = None
         self._ready = False
+
+    async def shutdown(self) -> bool:
+        await self.close()
+        return True
+
+    async def health(self) -> Dict[str, Any]:
+        reachable = await self.health_check()
+        return {"connector": self.connector_type, "ready": self.is_ready, "reachable": reachable}
 
     async def _get(self, path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         if not self._client:
