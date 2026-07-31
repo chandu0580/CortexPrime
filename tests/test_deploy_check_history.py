@@ -43,6 +43,19 @@ class TestDeployCheckHistoryStore:
         assert recent[0]["reasons"] == ["p95 +30%"]
         assert recent[0]["ticket_key"] == "OPS-1"
         assert "checked_at" in recent[0]
+        assert "history_id" in recent[0]
+
+    def test_history_id_unique_across_repeated_checks_of_same_deployment(self, temp_store):
+        # Same service+deployment can legitimately be checked more than once
+        # (retries, redelivered webhooks) — each recorded outcome must still
+        # be individually addressable (e.g. as a React list key), so identity
+        # can't be the check_id alone.
+        temp_store.record("svc::1", "svc", "1", regressed=False, reasons=[])
+        temp_store.record("svc::1", "svc", "1", regressed=True, reasons=["p95 +30%"], ticket_key="OPS-1")
+        recent = temp_store.list_recent()
+        assert len(recent) == 2
+        assert recent[0]["check_id"] == recent[1]["check_id"] == "svc::1"
+        assert recent[0]["history_id"] != recent[1]["history_id"]
 
     def test_most_recent_first(self, temp_store):
         temp_store.record("svc::1", "svc", "1", regressed=False, reasons=[])

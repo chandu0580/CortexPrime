@@ -56,8 +56,11 @@ export async function fetchDashboardOverview(): Promise<DashboardOverview> {
     const [healthResult, agentsResult, activeMissionsResult, completedMissionsResult, embeddingResult] = results
 
     const health = healthResult.status === "fulfilled" ? healthResult.value : null
-    const agents = agentsResult.status === "fulfilled" ? agentsResult.value.registered_agents : []
-    const activeMissions = activeMissionsResult.status === "fulfilled" ? activeMissionsResult.value.active_missions : []
+    // /agents and /api/missions/active return dict-keyed collections
+    // ({name: {...}}), not arrays — normalize to arrays via Object.values
+    // so downstream .length / array logic works regardless of shape.
+    const agents = agentsResult.status === "fulfilled" ? Object.values(agentsResult.value.registered_agents ?? {}) : []
+    const activeMissions = activeMissionsResult.status === "fulfilled" ? Object.values(activeMissionsResult.value.active_missions ?? {}) : []
     const completedMissions = completedMissionsResult.status === "fulfilled" ? completedMissionsResult.value.completed_missions : []
     const embedding = embeddingResult.status === "fulfilled" ? embeddingResult.value : null
 

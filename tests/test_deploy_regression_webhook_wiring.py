@@ -10,17 +10,37 @@ to this feature (e.g. PRIntelligence.list_prs() call-site/signature drift)
 from __future__ import annotations
 
 import asyncio
+import tempfile
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from backend.services.enterprise_github_integration import (
+    DeployCheckHistoryStore,
+    PendingDeployCheckStore,
     _check_deploy_regression,
     github_integration,
 )
 from backend.services.enterprise_deploy_regression_detector import MetricWindow, RegressionVerdict
 
 pytestmark = pytest.mark.asyncio
+
+
+@pytest.fixture(autouse=True)
+def _isolate_deploy_check_stores():
+    # _check_deploy_regression schedules a background task that writes
+    # through the module-level pending/history store singletons — without
+    # this, every test run here appends real records to the real dev
+    # data files (backend/data/*.json) instead of a throwaway temp store.
+    with tempfile.TemporaryDirectory() as tmpdir:
+        history_path = Path(tmpdir) / "deploy_check_history.json"
+        pending_path = Path(tmpdir) / "pending_deploy_checks.json"
+        with patch("backend.services.enterprise_github_integration._DEPLOY_CHECK_HISTORY_FILE", history_path), \
+             patch("backend.services.enterprise_github_integration._PENDING_DEPLOY_CHECKS_FILE", pending_path), \
+             patch("backend.services.enterprise_github_integration.deploy_check_history_store", DeployCheckHistoryStore()), \
+             patch("backend.services.enterprise_github_integration.pending_deploy_check_store", PendingDeployCheckStore()):
+            yield
 
 
 class TestCheckDeployRegressionGating:

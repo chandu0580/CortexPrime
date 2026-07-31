@@ -7,7 +7,7 @@ import { Bot, ClipboardCheck, Plus, ShieldCheck, Sparkles, Target } from "lucide
 import { cn } from "@/utils/cn";
 import { stagger, variants } from "@/lib/motion-tokens";
 import type { StatusTone } from "@/components/dashboard/data";
-import { useDashboardOverview, useDashboardHealth, useDashboardResources, useDashboardTimeline, useDashboardAgents, useDashboardEvents, useDashboardHeader, useDashboardWebSocket } from "@/hooks";
+import { useDashboardOverview, useDashboardHealth, useDashboardResources, useDashboardTimeline, useDashboardAgents, useDashboardEvents, useDashboardHeader, useDashboardWebSocket, useDashboardDeployChecks } from "@/hooks";
 
 import { Sidebar } from "./Sidebar";
 import { ExecutiveHeader } from "./ExecutiveHeader";
@@ -17,6 +17,7 @@ import { ActiveAgents } from "./ActiveAgents";
 import { SystemHealthPanel } from "./SystemHealthPanel";
 import { EventFeed } from "./EventFeed";
 import { ResourceUsage } from "./ResourceUsage";
+import { DeployRegressionsPanel } from "./DeployRegressionsPanel";
 
 export default function ExecutiveDashboard() {
   const [collapsed, setCollapsed] = useState(false);
@@ -27,6 +28,7 @@ export default function ExecutiveDashboard() {
   const { data: agents, isLoading: isAgentsLoading } = useDashboardAgents();
   const { data: events, isLoading: isEventsLoading } = useDashboardEvents();
   const { data: header } = useDashboardHeader();
+  const { data: deployChecks, isLoading: isDeployChecksLoading } = useDashboardDeployChecks();
 
   useDashboardWebSocket();
 
@@ -125,6 +127,11 @@ export default function ExecutiveDashboard() {
               <SystemHealthPanel overallHealth={health?.overallHealth} services={health?.services} />
               <EventFeed items={events?.items ?? []} isLoading={isEventsLoading} />
               <ResourceUsage items={resources?.resources} />
+            </motion.div>
+
+            {/* Deploy Regressions */}
+            <motion.div variants={stagger(0.05)} className="grid gap-5 lg:grid-cols-1">
+              <DeployRegressionsPanel pending={deployChecks?.pending} recent={deployChecks?.recent} isLoading={isDeployChecksLoading} />
             </motion.div>
 
             {/* Footer */}

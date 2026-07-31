@@ -63,6 +63,7 @@ export const queryKeys = {
         agents:      () => [...queryKeys.dashboard.all, "agents"] as const,
         events:      () => [...queryKeys.dashboard.all, "events"] as const,
         header:      () => [...queryKeys.dashboard.all, "header"] as const,
+        deployChecks: () => [...queryKeys.dashboard.all, "deployChecks"] as const,
     },
     settings: {
         all:         ["settings"] as const,

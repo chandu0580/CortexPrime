@@ -37,6 +37,39 @@ def register_all_routers(app: FastAPI) -> Dict[str, bool]:
     from backend.websocket.websocket_router import router as websocket_router
     app.include_router(websocket_router)
 
+    # NOTE: registered before `backend.mission.routes` below on purpose —
+    # that router defines a catch-all GET /api/missions/{mission_id}, and
+    # FastAPI matches routes in registration order. If the generic route
+    # registers first, requests to the literal /active and /completed
+    # paths here get shadowed and 422 on UUID-parsing "active"/"completed".
+    try:
+        from backend.api.routes.mission_routes import router as advanced_mission_router
+        from backend.api.routes.orchestrator_routes import router as orchestrator_router
+        app.include_router(advanced_mission_router, prefix="/api/missions", tags=["Missions"])
+        app.include_router(orchestrator_router, prefix="/api/orchestrator", tags=["Orchestrator"])
+        availability["advanced_api"] = True
+    except Exception:
+        _advanced_fallback = APIRouter()
+
+        @_advanced_fallback.get("/api/missions/active")
+        async def get_active_missions_fallback():
+            return {"missions": [], "status": "degraded", "detail": "Advanced mission runtime unavailable"}
+
+        @_advanced_fallback.get("/api/missions/completed")
+        async def get_completed_missions_fallback():
+            return {"missions": [], "status": "degraded", "detail": "Advanced mission runtime unavailable"}
+
+        @_advanced_fallback.get("/api/orchestrator/loops/active")
+        async def get_active_loops_fallback():
+            return {"loops": [], "status": "degraded", "detail": "Orchestrator loop runtime unavailable"}
+
+        @_advanced_fallback.post("/api/orchestrator/autonomous")
+        async def autonomous_execution_fallback(payload: Dict[str, Any]):
+            return {"status": "degraded", "accepted": False, "detail": "Autonomous execution unavailable", "payload_received": payload}
+
+        app.include_router(_advanced_fallback)
+        availability["advanced_api"] = False
+
     try:
         from backend.mission.routes import router as mission_router
         app.include_router(mission_router)
@@ -173,34 +206,6 @@ def register_all_routers(app: FastAPI) -> Dict[str, bool]:
     except Exception as _runtime_api_err:
         availability["runtime_api"] = False
         log.warning(f"Runtime API unavailable: {_runtime_api_err}")
-
-    try:
-        from backend.api.routes.mission_routes import router as mission_router
-        from backend.api.routes.orchestrator_routes import router as orchestrator_router
-        app.include_router(mission_router, prefix="/api/missions", tags=["Missions"])
-        app.include_router(orchestrator_router, prefix="/api/orchestrator", tags=["Orchestrator"])
-        availability["advanced_api"] = True
-    except Exception:
-        _advanced_fallback = APIRouter()
-
-        @_advanced_fallback.get("/api/missions/active")
-        async def get_active_missions_fallback():
-            return {"missions": [], "status": "degraded", "detail": "Advanced mission runtime unavailable"}
-
-        @_advanced_fallback.get("/api/missions/completed")
-        async def get_completed_missions_fallback():
-            return {"missions": [], "status": "degraded", "detail": "Advanced mission runtime unavailable"}
-
-        @_advanced_fallback.get("/api/orchestrator/loops/active")
-        async def get_active_loops_fallback():
-            return {"loops": [], "status": "degraded", "detail": "Orchestrator loop runtime unavailable"}
-
-        @_advanced_fallback.post("/api/orchestrator/autonomous")
-        async def autonomous_execution_fallback(payload: Dict[str, Any]):
-            return {"status": "degraded", "accepted": False, "detail": "Autonomous execution unavailable", "payload_received": payload}
-
-        app.include_router(_advanced_fallback)
-        availability["advanced_api"] = False
 
     try:
         from backend.api.memory_routes import router as memory_router

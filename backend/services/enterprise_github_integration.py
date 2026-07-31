@@ -816,6 +816,7 @@ class DeployCheckHistoryStore:
         ticket_key: Optional[str] = None,
     ) -> None:
         self._history.insert(0, {
+            "history_id": str(uuid.uuid4()),
             "check_id": check_id,
             "service": service,
             "deployment_id": deployment_id,
