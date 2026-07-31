@@ -115,11 +115,11 @@ def detect_task_type(prompt: str) -> TaskType:
 # ---------------------------------------------------------------------------
 
 _ROUTING: Dict[TaskType, List[str]] = {
-    TaskType.CODING:    ["azure",  "openai", "claude",  "gemini"],
-    TaskType.REASONING: ["claude", "openai", "azure",   "gemini"],
-    TaskType.RESEARCH:  ["gemini", "claude", "openai",  "azure"],
-    TaskType.OFFLINE:   ["ollama", "azure",  "openai"],
-    TaskType.GENERAL:   ["azure",  "openai", "claude",  "gemini"],
+    TaskType.CODING:    ["azure",  "openai", "claude",  "gemini", "groq"],
+    TaskType.REASONING: ["claude", "openai", "azure",   "gemini", "groq"],
+    TaskType.RESEARCH:  ["gemini", "claude", "openai",  "azure",  "groq"],
+    TaskType.OFFLINE:   ["ollama", "azure",  "openai",  "groq"],
+    TaskType.GENERAL:   ["azure",  "openai", "claude",  "gemini", "groq"],
 }
 
 # ---------------------------------------------------------------------------
@@ -359,6 +359,37 @@ async def _call_ollama(prompt: str, system: str) -> str:
     return output
 
 
+async def _call_groq(prompt: str, system: str) -> str:
+    """Call Groq (OpenAI-compatible API) via LLM Provider Runtime, fallback to direct HTTP."""
+    model = os.getenv("MODEL_GROQ", "llama-3.3-70b-versatile")
+    try:
+        return await _llm_service_generate(prompt, system, "groq", model)
+    except RuntimeError:
+        pass
+    api_key = os.getenv("GROQ_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("GROQ_API_KEY not configured")
+    import httpx
+    async with httpx.AsyncClient(timeout=CALL_TIMEOUT_SECS) as client:
+        response = await client.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}"},
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": prompt},
+                ],
+            },
+        )
+        response.raise_for_status()
+        data = response.json()
+        output = data["choices"][0]["message"]["content"] if data.get("choices") else ""
+    if not output:
+        raise RuntimeError("Groq returned empty output")
+    return output
+
+
 # Map provider name → call function
 _PROVIDER_CALL = {
     "azure":  lambda p, s, a: _call_azure(p, s, a),
@@ -366,6 +397,7 @@ _PROVIDER_CALL = {
     "claude": lambda p, s, _: _call_claude(p, s),
     "gemini": lambda p, s, _: _call_gemini(p, s),
     "ollama": lambda p, s, _: _call_ollama(p, s),
+    "groq":   lambda p, s, _: _call_groq(p, s),
 }
 
 _PROVIDER_DEFAULT_MODELS = {
@@ -374,6 +406,7 @@ _PROVIDER_DEFAULT_MODELS = {
     "claude": os.getenv("MODEL_CLAUDE", "claude-opus-4-5"),
     "gemini": os.getenv("MODEL_GEMINI", "gemini-2.0-flash-exp"),
     "ollama": os.getenv("MODEL_OLLAMA", "llama3.2"),
+    "groq":   os.getenv("MODEL_GROQ", "llama-3.3-70b-versatile"),
 }
 
 
@@ -401,7 +434,7 @@ class LLMRouter:
     def __init__(self) -> None:
         self._stats: Dict[str, ProviderStats] = {
             name: ProviderStats(provider=name)
-            for name in ("azure", "openai", "claude", "gemini", "ollama")
+            for name in ("azure", "openai", "claude", "gemini", "ollama", "groq")
         }
         # rolling log of recent requests for aggregate error_rate
         self._recent: list[Dict[str, Any]] = []   # max 200 entries

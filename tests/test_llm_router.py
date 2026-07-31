@@ -134,6 +134,74 @@ class TestRoutingTable:
         for task_type, chain in _ROUTING.items():
             assert len(chain) >= 2, f"Chain for {task_type} has fewer than 2 providers"
 
+    def test_groq_present_as_fallback_in_every_chain(self):
+        from backend.llm.llm_router import _ROUTING
+        for task_type, chain in _ROUTING.items():
+            assert "groq" in chain, f"Chain for {task_type} is missing groq as a fallback"
+
+
+# ---------------------------------------------------------------------------
+# Unit: _call_groq — direct HTTP fallback path
+# ---------------------------------------------------------------------------
+
+class TestCallGroq:
+    @pytest.mark.asyncio
+    async def test_raises_when_api_key_missing(self, monkeypatch):
+        from backend.llm.llm_router import _call_groq
+        monkeypatch.delenv("GROQ_API_KEY", raising=False)
+        with patch(
+            "backend.llm.llm_router._llm_service_generate",
+            new_callable=AsyncMock, side_effect=RuntimeError("provider runtime unavailable"),
+        ):
+            with pytest.raises(RuntimeError, match="GROQ_API_KEY"):
+                await _call_groq("prompt", "system")
+
+    @pytest.mark.asyncio
+    async def test_direct_http_call_returns_output(self, monkeypatch):
+        from backend.llm.llm_router import _call_groq
+        monkeypatch.setenv("GROQ_API_KEY", "gsk_test_key")
+
+        fake_response = MagicMock()
+        fake_response.json.return_value = {"choices": [{"message": {"content": "hello from groq"}}]}
+        fake_response.raise_for_status = MagicMock()
+
+        fake_client = AsyncMock()
+        fake_client.post = AsyncMock(return_value=fake_response)
+        fake_client.__aenter__ = AsyncMock(return_value=fake_client)
+        fake_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch(
+            "backend.llm.llm_router._llm_service_generate",
+            new_callable=AsyncMock, side_effect=RuntimeError("provider runtime unavailable"),
+        ), patch("httpx.AsyncClient", return_value=fake_client):
+            output = await _call_groq("write a haiku", "be concise")
+
+        assert output == "hello from groq"
+        _, kwargs = fake_client.post.call_args
+        assert kwargs["headers"]["Authorization"] == "Bearer gsk_test_key"
+        assert kwargs["json"]["messages"][1]["content"] == "write a haiku"
+
+    @pytest.mark.asyncio
+    async def test_raises_on_empty_output(self, monkeypatch):
+        from backend.llm.llm_router import _call_groq
+        monkeypatch.setenv("GROQ_API_KEY", "gsk_test_key")
+
+        fake_response = MagicMock()
+        fake_response.json.return_value = {"choices": [{"message": {"content": ""}}]}
+        fake_response.raise_for_status = MagicMock()
+
+        fake_client = AsyncMock()
+        fake_client.post = AsyncMock(return_value=fake_response)
+        fake_client.__aenter__ = AsyncMock(return_value=fake_client)
+        fake_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch(
+            "backend.llm.llm_router._llm_service_generate",
+            new_callable=AsyncMock, side_effect=RuntimeError("provider runtime unavailable"),
+        ), patch("httpx.AsyncClient", return_value=fake_client):
+            with pytest.raises(RuntimeError, match="empty output"):
+                await _call_groq("prompt", "system")
+
 
 # ---------------------------------------------------------------------------
 # Unit: ProviderStats — circuit breaker logic
@@ -252,6 +320,8 @@ class TestLLMRouterFailover:
             patch("backend.llm.llm_router._call_claude",
                   new_callable=AsyncMock, side_effect=RuntimeError("fail")),
             patch("backend.llm.llm_router._call_gemini",
+                  new_callable=AsyncMock, side_effect=RuntimeError("fail")),
+            patch("backend.llm.llm_router._call_groq",
                   new_callable=AsyncMock, side_effect=RuntimeError("fail")),
         ):
             result = await fresh_router.route(
