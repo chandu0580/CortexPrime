@@ -2,10 +2,13 @@
 Enterprise Deploy Incident Reporter
 =====================================
 
-Turns a detected deploy regression into a real Jira ticket with an
-evidence-based description. No LLM call, no speculation — every line in
-the ticket is a fact pulled directly from the RegressionVerdict and the
-GitHub webhook context. It reports a correlation, not a confirmed cause.
+Turns a detected deploy regression into a real Jira ticket. The evidence
+section is always fact-only, pulled directly from the RegressionVerdict
+and the GitHub webhook context — no LLM involved. If an LLM-generated
+root-cause hypothesis is available (see
+enterprise_deploy_root_cause_reasoner.generate_hypothesis), it's included
+as a clearly separate, clearly labeled section — never blended into the
+evidence, never presented as a confirmed cause.
 
 Wired from: backend.services.enterprise_github_integration._check_deploy_regression
 """
@@ -22,8 +25,17 @@ DEFAULT_JIRA_PROJECT_KEY = "OPS"
 DEFAULT_ISSUE_TYPE = "Bug"
 
 
-def build_incident_description(verdict: RegressionVerdict, ctx: Dict[str, Any]) -> str:
-    """Build a ticket description from real measured evidence — no fabricated narrative."""
+def build_incident_description(
+    verdict: RegressionVerdict,
+    ctx: Dict[str, Any],
+    hypothesis: Optional[str] = None,
+) -> str:
+    """Build a ticket description from real measured evidence — no fabricated narrative.
+
+    `hypothesis`, if given, is an LLM-generated root-cause guess grounded in
+    the actual deployed diff — kept in its own clearly-labeled section, never
+    mixed into the fact-only evidence above it.
+    """
     lines = [
         f"Automated regression detection flagged deployment {verdict.deployment_id} to {verdict.service}.",
         "",
@@ -54,6 +66,12 @@ def build_incident_description(verdict: RegressionVerdict, ctx: Dict[str, Any]) 
         "between this deployment and the metric changes above — it is not a "
         "confirmed root cause and should be verified before action is taken."
     )
+
+    if hypothesis:
+        lines.append("")
+        lines.append("AI-generated root-cause hypothesis (unverified — read the diff yourself before acting):")
+        lines.append(hypothesis)
+
     return "\n".join(lines)
 
 
@@ -78,8 +96,12 @@ async def report_incident(verdict: RegressionVerdict, ctx: Dict[str, Any]) -> Op
         log.warning("Jira connector unavailable — cannot file incident ticket for %s", verdict.service)
         return None
 
+    from backend.services.enterprise_deploy_root_cause_reasoner import generate_hypothesis
+
+    hypothesis = await generate_hypothesis(verdict, ctx)
+
     title = f"Deploy regression: {verdict.service} (deployment {verdict.deployment_id})"
-    description = build_incident_description(verdict, ctx)
+    description = build_incident_description(verdict, ctx, hypothesis)
 
     try:
         issue = await jira.create_issue(

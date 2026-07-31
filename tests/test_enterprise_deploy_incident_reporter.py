@@ -50,6 +50,16 @@ class TestBuildIncidentDescription:
         desc = build_incident_description(_verdict(), _ctx())
         assert "not a" in desc and "confirmed root cause" in desc
 
+    def test_omits_hypothesis_section_when_none(self):
+        desc = build_incident_description(_verdict(), _ctx(), hypothesis=None)
+        assert "AI-generated" not in desc
+
+    def test_includes_hypothesis_section_when_given(self):
+        desc = build_incident_description(_verdict(), _ctx(), hypothesis="Looks like the new index was dropped.")
+        assert "AI-generated root-cause hypothesis" in desc
+        assert "unverified" in desc
+        assert "Looks like the new index was dropped." in desc
+
 
 @pytest.mark.asyncio
 class TestReportIncident:
@@ -73,7 +83,8 @@ class TestReportIncident:
         fake_jira = MagicMock()
         fake_jira.health = AsyncMock(return_value={"status": "available"})
         fake_jira.create_issue = AsyncMock(return_value={"key": "OPS-101", "id": "1001"})
-        with patch("backend.connectors.registry.connector_registry.get", return_value=fake_jira):
+        with patch("backend.connectors.registry.connector_registry.get", return_value=fake_jira), \
+             patch("backend.services.enterprise_deploy_root_cause_reasoner.generate_hypothesis", new=AsyncMock(return_value=None)):
             result = await report_incident(_verdict(), _ctx())
 
         assert result == {"key": "OPS-101", "id": "1001"}
@@ -84,10 +95,39 @@ class TestReportIncident:
         assert "checkout-service" in kwargs["title"]
         assert "p95 latency +25.9%" in kwargs["description"]
 
+    async def test_includes_hypothesis_in_ticket_when_available(self):
+        fake_jira = MagicMock()
+        fake_jira.health = AsyncMock(return_value={"status": "available"})
+        fake_jira.create_issue = AsyncMock(return_value={"key": "OPS-102", "id": "1002"})
+        with patch("backend.connectors.registry.connector_registry.get", return_value=fake_jira), \
+             patch(
+                 "backend.services.enterprise_deploy_root_cause_reasoner.generate_hypothesis",
+                 new=AsyncMock(return_value="The new N+1 query in getCartTotals likely explains this."),
+             ) as mock_hyp:
+            result = await report_incident(_verdict(), _ctx())
+
+        assert result == {"key": "OPS-102", "id": "1002"}
+        mock_hyp.assert_awaited_once()
+        _, kwargs = fake_jira.create_issue.call_args
+        assert "The new N+1 query in getCartTotals likely explains this." in kwargs["description"]
+        assert "AI-generated root-cause hypothesis" in kwargs["description"]
+
+    async def test_omits_hypothesis_from_ticket_when_unavailable(self):
+        fake_jira = MagicMock()
+        fake_jira.health = AsyncMock(return_value={"status": "available"})
+        fake_jira.create_issue = AsyncMock(return_value={"key": "OPS-103", "id": "1003"})
+        with patch("backend.connectors.registry.connector_registry.get", return_value=fake_jira), \
+             patch("backend.services.enterprise_deploy_root_cause_reasoner.generate_hypothesis", new=AsyncMock(return_value=None)):
+            await report_incident(_verdict(), _ctx())
+
+        _, kwargs = fake_jira.create_issue.call_args
+        assert "AI-generated" not in kwargs["description"]
+
     async def test_returns_none_when_create_issue_raises(self):
         fake_jira = MagicMock()
         fake_jira.health = AsyncMock(return_value={"status": "available"})
         fake_jira.create_issue = AsyncMock(side_effect=RuntimeError("Jira API: HTTP 500"))
-        with patch("backend.connectors.registry.connector_registry.get", return_value=fake_jira):
+        with patch("backend.connectors.registry.connector_registry.get", return_value=fake_jira), \
+             patch("backend.services.enterprise_deploy_root_cause_reasoner.generate_hypothesis", new=AsyncMock(return_value=None)):
             result = await report_incident(_verdict(), _ctx())
         assert result is None

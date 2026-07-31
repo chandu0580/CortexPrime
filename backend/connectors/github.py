@@ -242,6 +242,14 @@ class GitHubConnector(BaseConnector):
     async def get_deployment(self, owner: str, repo: str, deployment_id: int) -> Dict[str, Any]:
         return await self._execute("get_deployment", "deployments", self._request, "GET", f"/repos/{owner}/{repo}/deployments/{deployment_id}")
 
+    # ------------------------------------------------------------------
+    # Commits API
+    # ------------------------------------------------------------------
+
+    async def get_commit(self, owner: str, repo: str, ref: str) -> Dict[str, Any]:
+        """GET /repos/{owner}/{repo}/commits/{ref} — includes per-file diffs (patch) and commit message."""
+        return await self._execute("get_commit", "commits", self._request, "GET", f"/repos/{owner}/{repo}/commits/{ref}")
+
     async def create_deployment_status(self, owner: str, repo: str, deployment_id: int, state: str, description: str = "", log_url: str = "", environment_url: str = "", **kwargs) -> Dict[str, Any]:
         return await self._execute("create_deployment_status", "deployments", self._request, "POST", f"/repos/{owner}/{repo}/deployments/{deployment_id}/statuses", json={"state": state, "description": description, "log_url": log_url, "environment_url": environment_url, **kwargs})
 
