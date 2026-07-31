@@ -189,14 +189,32 @@ class WebhookReceiver:
         expected = "sha256=" + hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
         return hmac.compare_digest(signature_header, expected)
 
+    @staticmethod
+    def _header(headers: Dict[str, str], name: str) -> str:
+        """Case-insensitive header lookup.
+
+        HTTP header names are case-insensitive by spec, and ASGI/Starlette
+        normalizes them to all-lowercase when a request's headers are
+        converted to a plain dict (dict(request.headers), as the real
+        webhook route does) — so an exact-case lookup like
+        headers.get("X-GitHub-Event") never matches a real incoming
+        request. Every genuine GitHub webhook would silently fall through
+        to defaults (event_type="push", signature="") without this.
+        """
+        target = name.lower()
+        for key, value in headers.items():
+            if key.lower() == target:
+                return value
+        return ""
+
     def extract_delivery_id(self, headers: Dict[str, str]) -> str:
-        return headers.get("X-GitHub-Delivery", _id())
+        return self._header(headers, "X-GitHub-Delivery") or _id()
 
     def extract_event_type(self, headers: Dict[str, str]) -> str:
-        return headers.get("X-GitHub-Event", "push")
+        return self._header(headers, "X-GitHub-Event") or "push"
 
     def extract_signature(self, headers: Dict[str, str]) -> str:
-        return headers.get("X-Hub-Signature-256", "")
+        return self._header(headers, "X-Hub-Signature-256")
 
     def is_replay(self, delivery_id: str) -> bool:
         return self._delivery_store.is_duplicate(delivery_id)

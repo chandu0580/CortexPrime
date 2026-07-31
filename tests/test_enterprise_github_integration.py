@@ -161,6 +161,35 @@ class TestWebhookReceiver:
         assert result["verified"] is False
         assert result["event_type"] == "push"
 
+    async def test_extract_methods_are_case_insensitive(self):
+        # dict(request.headers) — what the real webhook route does — lowercases
+        # every header name (ASGI/Starlette behavior). A real incoming GitHub
+        # webhook never has an exact-case "X-GitHub-Event" key once it reaches
+        # this code; only a lowercase "x-github-event" key does.
+        receiver = WebhookReceiver()
+        headers = {
+            "x-github-event": "deployment_status",
+            "x-github-delivery": "real-delivery-1",
+            "x-hub-signature-256": "sha256=abc",
+        }
+        assert receiver.extract_event_type(headers) == "deployment_status"
+        assert receiver.extract_delivery_id(headers) == "real-delivery-1"
+        assert receiver.extract_signature(headers) == "sha256=abc"
+
+    async def test_receive_verifies_signature_from_lowercase_headers(self):
+        import hashlib
+        import hmac as hmac_module
+
+        receiver = WebhookReceiver()
+        secret = "shhh"
+        body = json.dumps({"repository": {"full_name": "org/repo"}, "sender": {"login": "dev"}}).encode()
+        sig = "sha256=" + hmac_module.new(secret.encode(), body, hashlib.sha256).hexdigest()
+        headers = {"x-github-event": "push", "x-github-delivery": "d-lower-1", "x-hub-signature-256": sig}
+
+        result = await receiver.receive(body, headers, secret=secret)
+        assert result["verified"] is True
+        assert result["event_type"] == "push"
+
     async def test_receive_duplicate_delivery_detected(self):
         receiver = WebhookReceiver()
         body = json.dumps({"repository": {"full_name": "org/repo"}, "sender": {"login": "dev"}}).encode()
