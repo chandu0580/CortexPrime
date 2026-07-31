@@ -401,6 +401,11 @@ class TestKnownConnectorNames:
             assert os.path.exists(path), f"Missing connector file: {path}"
 
     def test_known_connector_type_list(self):
-        from backend.services import mission_runtime as mod
+        # `_KNOWN_CONNECTOR_TYPES` never actually existed in backend.services.mission_runtime
+        # (which has nothing to do with connectors) — this was pointed at the wrong module.
+        # The real known-connector-type roster lives as `connector_type` on each watcher
+        # class in enterprise_watchers.py, which is what this test actually meant to check.
+        from backend.services.enterprise_watchers import _WATCHER_CLASSES
         expected = {"github", "jira", "slack", "teams", "azure_devops", "servicenow", "confluence", "notion"}
-        assert mod._KNOWN_CONNECTOR_TYPES == expected
+        actual = {cls.connector_type for cls in _WATCHER_CLASSES}
+        assert actual == expected
