@@ -167,6 +167,11 @@ class WebhookDeliveryStore:
     def get_delivery_count_since(self, since: str) -> int:
         return sum(1 for d in self._deliveries if d.get("received_at", "") >= since)
 
+    def clear(self) -> None:
+        self._deliveries.clear()
+        self._seen_ids.clear()
+        _save_json(_WEBHOOK_DELIVERIES_FILE, [])
+
     def _prune(self) -> None:
         if len(self._deliveries) > MAX_WEBHOOK_DELIVERIES:
             self._deliveries = self._deliveries[:MAX_WEBHOOK_DELIVERIES]
@@ -721,6 +726,152 @@ async def _record_analytics(metric_name: str, value: Any) -> None:
         log.debug("Analytics recording skipped: %s", exc)
 
 
+_PENDING_DEPLOY_CHECKS_FILE = _DATA_DIR / "pending_deploy_checks.json"
+
+
+class PendingDeployCheckStore:
+    """Durable record of in-flight deploy-regression checks.
+
+    A check is persisted the moment it's scheduled and removed once it
+    completes, so a process restart mid-wait can recover and resume it on
+    the next startup instead of silently losing it — the one gap a plain
+    asyncio.sleep-based delayed task can't cover by itself.
+    """
+
+    def __init__(self) -> None:
+        self._pending: List[Dict[str, Any]] = _load_json(_PENDING_DEPLOY_CHECKS_FILE)
+
+    def add(self, check_id: str, service: str, deployment_id: str, ctx: Dict[str, Any], check_due_at: str) -> None:
+        self._pending = [p for p in self._pending if p.get("check_id") != check_id]
+        self._pending.append({
+            "check_id": check_id,
+            "service": service,
+            "deployment_id": deployment_id,
+            "ctx": ctx,
+            "check_due_at": check_due_at,
+        })
+        _save_json(_PENDING_DEPLOY_CHECKS_FILE, self._pending)
+
+    def remove(self, check_id: str) -> None:
+        self._pending = [p for p in self._pending if p.get("check_id") != check_id]
+        _save_json(_PENDING_DEPLOY_CHECKS_FILE, self._pending)
+
+    def list_pending(self) -> List[Dict[str, Any]]:
+        return list(self._pending)
+
+    def clear(self) -> None:
+        self._pending = []
+        _save_json(_PENDING_DEPLOY_CHECKS_FILE, [])
+
+
+pending_deploy_check_store = PendingDeployCheckStore()
+
+
+async def _run_deploy_regression_check(
+    check_id: str,
+    service: str,
+    deployment_id: str,
+    ctx: Dict[str, Any],
+    delay_seconds: float,
+) -> None:
+    """Wait out the remaining delay, then run the detector and report any regression.
+
+    Always removes the persisted pending-check record on the way out,
+    success or failure, so it's never re-run on a later restart.
+    """
+    import asyncio
+
+    try:
+        from backend.connectors.registry import connector_registry
+        from backend.services.enterprise_deploy_incident_reporter import report_incident
+        from backend.services.enterprise_deploy_regression_detector import DeployRegressionDetector
+
+        if delay_seconds > 0:
+            await asyncio.sleep(delay_seconds)
+
+        detector = DeployRegressionDetector(prometheus=connector_registry.get("prometheus"))
+        verdict = await detector.check(service, deployment_id)
+        if verdict.regressed:
+            log.warning(
+                "Deploy regression detected: %s (deployment %s) — %s",
+                service, deployment_id, "; ".join(verdict.reasons),
+            )
+            issue = await report_incident(verdict, ctx)
+            if issue:
+                log.warning("Filed ticket %s for %s", issue.get("key", issue), service)
+        else:
+            log.info("Deploy clean: %s (deployment %s)", service, deployment_id)
+    except Exception as exc:
+        log.debug("Deploy regression check skipped for %s: %s", service, exc)
+    finally:
+        pending_deploy_check_store.remove(check_id)
+
+
+async def _check_deploy_regression(ctx: Dict[str, Any]) -> Optional["asyncio.Task"]:
+    """Kick off a before/after regression check for a successful deploy.
+
+    Fire-and-forget on an asyncio task with a delay, since the "after"
+    window needs real time to elapse before it has any data to compare.
+    Returns the created task (callers don't need it — production call
+    sites just `await` this function without using the result — but
+    tests can grab it to await completion deterministically).
+
+    The check is persisted to disk before scheduling (see
+    PendingDeployCheckStore) and recovered by recover_pending_deploy_checks()
+    on the next startup if the process restarts mid-wait.
+    """
+    import asyncio
+
+    from backend.services.enterprise_deploy_regression_detector import DeployRegressionDetector
+
+    service = ctx.get("repo_full_name", "")
+    deployment_id = str(ctx.get("deployment_id", ""))
+    if not service or not deployment_id:
+        return None
+
+    check_id = f"{service}::{deployment_id}"
+    window_seconds = DeployRegressionDetector().window_seconds
+    due_at = (datetime.now(timezone.utc).timestamp()) + window_seconds
+    due_at_iso = datetime.fromtimestamp(due_at, tz=timezone.utc).isoformat()
+    pending_deploy_check_store.add(check_id, service, deployment_id, ctx, due_at_iso)
+
+    return asyncio.create_task(
+        _run_deploy_regression_check(check_id, service, deployment_id, ctx, delay_seconds=window_seconds)
+    )
+
+
+async def recover_pending_deploy_checks() -> int:
+    """Resume any deploy-regression checks still in flight when the process
+    last stopped. Call once at application startup.
+    """
+    import asyncio
+
+    recovered = 0
+    for record in pending_deploy_check_store.list_pending():
+        check_id = record.get("check_id", "")
+        service = record.get("service", "")
+        deployment_id = record.get("deployment_id", "")
+        ctx = record.get("ctx", {})
+        if not check_id or not service or not deployment_id:
+            pending_deploy_check_store.remove(check_id)
+            continue
+
+        try:
+            due_at = datetime.fromisoformat(record.get("check_due_at", ""))
+        except Exception:
+            due_at = datetime.now(timezone.utc)
+        remaining = max(0.0, (due_at - datetime.now(timezone.utc)).total_seconds())
+
+        asyncio.create_task(
+            _run_deploy_regression_check(check_id, service, deployment_id, ctx, delay_seconds=remaining)
+        )
+        recovered += 1
+
+    if recovered:
+        log.warning("Recovered %d in-flight deploy-regression check(s) after restart", recovered)
+    return recovered
+
+
 async def _wire_to_engineering_executive(event_type: str, ctx: Dict[str, Any]) -> None:
     try:
         from backend.services.enterprise_engineering_executive import get_engineering_executive
@@ -852,6 +1003,8 @@ class GithubIntegration:
             await _update_knowledge_graph("github_deployment", f"{repo_full}/{dep_id}", ctx)
             await _notify_learning(internal_type, ctx)
             await _record_analytics("github.deployment", 1)
+            if ctx.get("deployment_state") == "success":
+                await _check_deploy_regression(ctx)
 
         elif event_type == "check_suite" and owner and repo_name:
             suite_id = ctx.get("check_suite_id", "")
@@ -943,7 +1096,7 @@ class GithubIntegration:
         return items[:limit]
 
     def clear_state(self) -> None:
-        _save_json(_WEBHOOK_DELIVERIES_FILE, [])
+        self._webhook_receiver._delivery_store.clear()
 
 
 class DeploymentStatusIntegration:

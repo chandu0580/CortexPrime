@@ -108,14 +108,6 @@ async def lifespan(_app: FastAPI):
     from backend.identity.di import register_identity_services
     register_identity_services()
 
-    # Connector Runtime Core (Phase 5A) — registered before Execution Runtime
-    # so adapters can be used by sandbox in future.
-    try:
-        from backend.connector.di import register_connector_services
-        register_connector_services()
-    except Exception as exc:
-        _log.warning("Connector Runtime services registration incomplete: %s", exc)
-
     # Governance Runtime Core (Phase 6A) — registered before Mission + Execution Runtime
     # so both runtimes can consult governance for policy decisions.
     try:
@@ -594,8 +586,11 @@ async def lifespan(_app: FastAPI):
         from backend.services.autonomous_trigger_runtime import autonomous_trigger_runtime
         await autonomous_trigger_runtime.initialize()
         await autonomous_trigger_runtime.seed_default_policies()
-        await autonomous_trigger_runtime.start()
-        log.info("Autonomous Trigger Runtime initialized and started")
+        if os.getenv("AUTONOMOUS_TRIGGERS_ENABLED", "true").lower() != "false":
+            await autonomous_trigger_runtime.start()
+            log.info("Autonomous Trigger Runtime initialized and started")
+        else:
+            log.info("Autonomous Trigger Runtime initialized (scheduler loop disabled via AUTONOMOUS_TRIGGERS_ENABLED=false)")
     except Exception as exc:
         log.warning(f"Autonomous Trigger Runtime startup incomplete: {exc}")
 
@@ -912,6 +907,16 @@ async def lifespan(_app: FastAPI):
     except Exception as exc:
         log.warning(f"Runtime state recovery incomplete: {exc}")
 
+    # 9b) Deploy-regression check recovery — resume any in-flight checks
+    # that were still waiting when the process last stopped.
+    try:
+        from backend.services.enterprise_github_integration import recover_pending_deploy_checks
+        _recovered_checks = await recover_pending_deploy_checks()
+        if _recovered_checks:
+            log.info("Deploy-regression checks recovered: %d in-flight", _recovered_checks)
+    except Exception as exc:
+        log.warning(f"Deploy-regression check recovery incomplete: {exc}")
+
     # 10) Mission Runtime - final readiness
     try:
         log.info("Mission Runtime service ready")
@@ -942,48 +947,43 @@ async def lifespan(_app: FastAPI):
         log.warning("Dependency validation incomplete: %s", exc)
 
     # 12) Enterprise Connectors registration
+    # Each connector is imported + registered independently so one broken
+    # or missing optional dependency (e.g. the `docker` SDK) can't take
+    # down registration for the other, unrelated connectors.
     try:
-        from backend.connectors.argocd import ArgoCDConnector
-        from backend.connectors.azure_devops import AzureDevOpsConnector
-        from backend.connectors.circleci import CircleCIConnector
-        from backend.connectors.confluence import ConfluenceConnector
-        from backend.connectors.docker import DockerConnector
-        from backend.connectors.github import GitHubConnector
-        from backend.connectors.gitlab_ci import GitLabCIConnector
-        from backend.connectors.grafana import GrafanaConnector
-        from backend.connectors.jenkins import JenkinsConnector
-        from backend.connectors.jira import JiraConnector
-        from backend.connectors.kubernetes import KubernetesConnector
-        from backend.connectors.loki import LokiConnector
-        from backend.connectors.notion import NotionConnector
-        from backend.connectors.opentelemetry import OpenTelemetryConnector
-        from backend.connectors.prometheus import PrometheusConnector
         from backend.connectors.registry import connector_registry
-        from backend.connectors.servicenow import ServiceNowConnector
-        from backend.connectors.slack import SlackConnector
-        from backend.connectors.teams import TeamsConnector
-        from backend.connectors.terraform import TerraformConnector
 
-        connector_registry.register(GitHubConnector())
-        connector_registry.register(JiraConnector())
-        connector_registry.register(SlackConnector())
-        connector_registry.register(TeamsConnector())
-        connector_registry.register(AzureDevOpsConnector())
-        connector_registry.register(ConfluenceConnector())
-        connector_registry.register(ServiceNowConnector())
-        connector_registry.register(NotionConnector())
-        connector_registry.register(KubernetesConnector())
-        connector_registry.register(DockerConnector())
-        connector_registry.register(JenkinsConnector())
-        connector_registry.register(GitLabCIConnector())
-        connector_registry.register(CircleCIConnector())
-        connector_registry.register(ArgoCDConnector())
-        connector_registry.register(GrafanaConnector())
-        connector_registry.register(LokiConnector())
-        connector_registry.register(OpenTelemetryConnector())
-        connector_registry.register(PrometheusConnector())
-        connector_registry.register(TerraformConnector())
-        log.info("Registered %d enterprise connectors", connector_registry.count())
+        _connector_specs = [
+            ("backend.connectors.github", "GitHubConnector"),
+            ("backend.connectors.jira", "JiraConnector"),
+            ("backend.connectors.slack", "SlackConnector"),
+            ("backend.connectors.teams", "TeamsConnector"),
+            ("backend.connectors.azure_devops", "AzureDevOpsConnector"),
+            ("backend.connectors.confluence", "ConfluenceConnector"),
+            ("backend.connectors.servicenow", "ServiceNowConnector"),
+            ("backend.connectors.notion", "NotionConnector"),
+            ("backend.connectors.kubernetes", "KubernetesConnector"),
+            ("backend.connectors.docker", "DockerConnector"),
+            ("backend.connectors.jenkins", "JenkinsConnector"),
+            ("backend.connectors.gitlab_ci", "GitLabCIConnector"),
+            ("backend.connectors.circleci", "CircleCIConnector"),
+            ("backend.connectors.argocd", "ArgoCDConnector"),
+            ("backend.connectors.grafana", "GrafanaConnector"),
+            ("backend.connectors.loki", "LokiConnector"),
+            ("backend.connectors.opentelemetry", "OpenTelemetryConnector"),
+            ("backend.connectors.prometheus", "PrometheusConnector"),
+            ("backend.connectors.terraform", "TerraformConnector"),
+        ]
+        _registered = 0
+        for _module_name, _class_name in _connector_specs:
+            try:
+                _module = __import__(_module_name, fromlist=[_class_name])
+                _connector_cls = getattr(_module, _class_name)
+                connector_registry.register(_connector_cls())
+                _registered += 1
+            except Exception as _conn_exc:
+                log.warning("Connector %s unavailable: %s", _class_name, _conn_exc)
+        log.info("Registered %d/%d enterprise connectors", _registered, len(_connector_specs))
     except Exception as exc:
         log.warning("Enterprise connectors registration incomplete: %s", exc)
 
