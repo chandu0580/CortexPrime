@@ -33,12 +33,14 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from backend.services.enterprise_github_integration import (
+    GITHUB_WEBHOOK_SECRET_ENV,
     BranchIntelligence,
     DeploymentIntelligence,
     IssueIntelligence,
@@ -83,7 +85,11 @@ async def receive_webhook(request: Request):
     try:
         body = await request.body()
         headers = dict(request.headers)
-        secret = headers.pop("x-hub-secret", "")
+        # The signing secret is server-side configuration (GitHub proves it
+        # knows the secret via the X-Hub-Signature-256 HMAC — it never sends
+        # the secret itself), so it's read from our own environment, never
+        # from the incoming request.
+        secret = os.getenv(GITHUB_WEBHOOK_SECRET_ENV, "")
         result = await github_integration.receive_webhook(body, headers, secret)
         return result
     except Exception as exc:

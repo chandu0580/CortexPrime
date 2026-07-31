@@ -39,6 +39,11 @@ _WEBHOOK_DELIVERIES_FILE = _DATA_DIR / "github_webhook_deliveries.json"
 MAX_WEBHOOK_DELIVERIES = 1000
 DELIVERY_RETENTION_DAYS = 30
 
+# The webhook signing secret is server-side configuration, never something
+# a caller supplies in the request itself — GitHub proves it knows the
+# secret via the X-Hub-Signature-256 HMAC, it never transmits the secret.
+GITHUB_WEBHOOK_SECRET_ENV = "GITHUB_WEBHOOK_SECRET"
+
 GITHUB_EVENTS: Dict[str, str] = {
     "webhook_received": "github.webhook_received",
     "webhook_verified": "github.webhook_verified",
