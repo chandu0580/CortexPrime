@@ -614,15 +614,41 @@ class DockerConnector(BaseConnector):
     # =========================================================================
 
     async def stream_events(self, since: str = "", filters: Optional[Dict[str, str]] = None) -> AsyncIterator[Dict[str, Any]]:
-        """Yield Docker events as dicts.  Caller must iterate."""
+        """Yield Docker events as dicts.  Caller must iterate.
+
+        docker-py's ``events()`` returns a blocking generator backed by a
+        blocking socket read. A plain ``for event in client.events(...)``
+        inside this async function does NOT make each read non-blocking —
+        it monopolizes the entire event loop for as long as each read
+        takes, starving every other coroutine (including the ASGI server
+        itself) until the next event arrives. Every read is dispatched via
+        asyncio.to_thread instead, matching the pattern already used by
+        every other blocking call in this connector.
+        """
         client = self._ensure_client()
         kwargs: Dict[str, Any] = {"decode": True}
         if since:
             kwargs["since"] = since
         if filters:
             kwargs["filters"] = filters
+
+        _exhausted = object()
+
+        def _open_iterator():
+            return client.events(**kwargs)
+
+        def _next_event(iterator):
+            try:
+                return next(iterator)
+            except StopIteration:
+                return _exhausted
+
         try:
-            for event in client.events(**kwargs):
+            events_iter = await asyncio.to_thread(_open_iterator)
+            while True:
+                event = await asyncio.to_thread(_next_event, events_iter)
+                if event is _exhausted:
+                    break
                 if isinstance(event, dict):
                     yield event
         except Exception as exc:
