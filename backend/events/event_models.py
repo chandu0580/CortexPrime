@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 from uuid import uuid4
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # ==========================================
 # BASE EVENT
@@ -19,8 +19,8 @@ class CognitionEvent(
     # CORE
     # ==========================================
 
-    event_id: str = str(
-        uuid4()
+    event_id: str = Field(
+        default_factory=lambda: str(uuid4())
     )
 
     agent: str
@@ -31,10 +31,8 @@ class CognitionEvent(
 
     message: str
 
-    timestamp: str = (
-
-        datetime.utcnow()
-        .isoformat()
+    timestamp: str = Field(
+        default_factory=lambda: datetime.utcnow().isoformat()
     )
 
     # ==========================================
