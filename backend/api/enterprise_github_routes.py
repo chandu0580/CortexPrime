@@ -28,6 +28,7 @@ Endpoints:
   GET    /api/github/branches/{name}/protection  — Get branch protection
   GET    /api/github/commits/{ref}/status  — Get combined commit status
   POST   /api/github/sync                  — Sync repositories
+  GET    /api/github/deploy-checks         — Recent + in-flight deploy-regression checks
 """
 from __future__ import annotations
 
@@ -371,5 +372,22 @@ async def sync_repositories(body: SyncRequest):
     try:
         result = await github_integration.sync_engine.sync_all(body.owner, body.repos)
         return {"synced": result}
+    except Exception as exc:
+        raise HTTPException(502, str(exc))
+
+
+# ---- Deploy Regression Checks ----
+
+@router.get("/deploy-checks")
+async def list_deploy_checks(limit: int = Query(20, ge=1, le=100)):
+    try:
+        from backend.services.enterprise_github_integration import (
+            deploy_check_history_store,
+            pending_deploy_check_store,
+        )
+        return {
+            "pending": pending_deploy_check_store.list_pending(),
+            "recent": deploy_check_history_store.list_recent(limit),
+        }
     except Exception as exc:
         raise HTTPException(502, str(exc))

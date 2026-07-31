@@ -789,6 +789,54 @@ class PendingDeployCheckStore:
 
 pending_deploy_check_store = PendingDeployCheckStore()
 
+_DEPLOY_CHECK_HISTORY_FILE = _DATA_DIR / "deploy_check_history.json"
+MAX_DEPLOY_CHECK_HISTORY = 200
+
+
+class DeployCheckHistoryStore:
+    """Durable record of completed deploy-regression checks.
+
+    PendingDeployCheckStore only tracks checks still in flight — the
+    moment one finishes, its pending record is gone. This is the other
+    half: a small rolling history of outcomes (regressed or clean, and
+    the ticket filed if any), so something outside the logs — a UI, a
+    dashboard — can show what actually happened.
+    """
+
+    def __init__(self) -> None:
+        self._history: List[Dict[str, Any]] = _load_json(_DEPLOY_CHECK_HISTORY_FILE)
+
+    def record(
+        self,
+        check_id: str,
+        service: str,
+        deployment_id: str,
+        regressed: bool,
+        reasons: List[str],
+        ticket_key: Optional[str] = None,
+    ) -> None:
+        self._history.insert(0, {
+            "check_id": check_id,
+            "service": service,
+            "deployment_id": deployment_id,
+            "regressed": regressed,
+            "reasons": reasons,
+            "ticket_key": ticket_key,
+            "checked_at": _now(),
+        })
+        self._history = self._history[:MAX_DEPLOY_CHECK_HISTORY]
+        _save_json(_DEPLOY_CHECK_HISTORY_FILE, self._history)
+
+    def list_recent(self, limit: int = 20) -> List[Dict[str, Any]]:
+        return self._history[:limit]
+
+    def clear(self) -> None:
+        self._history = []
+        _save_json(_DEPLOY_CHECK_HISTORY_FILE, [])
+
+
+deploy_check_history_store = DeployCheckHistoryStore()
+
 
 async def _run_deploy_regression_check(
     check_id: str,
@@ -814,6 +862,7 @@ async def _run_deploy_regression_check(
 
         detector = DeployRegressionDetector(prometheus=connector_registry.get("prometheus"))
         verdict = await detector.check(service, deployment_id)
+        ticket_key: Optional[str] = None
         if verdict.regressed:
             log.warning(
                 "Deploy regression detected: %s (deployment %s) — %s",
@@ -821,9 +870,11 @@ async def _run_deploy_regression_check(
             )
             issue = await report_incident(verdict, ctx)
             if issue:
-                log.warning("Filed ticket %s for %s", issue.get("key", issue), service)
+                ticket_key = issue.get("key")
+                log.warning("Filed ticket %s for %s", ticket_key or issue, service)
         else:
             log.info("Deploy clean: %s (deployment %s)", service, deployment_id)
+        deploy_check_history_store.record(check_id, service, deployment_id, verdict.regressed, verdict.reasons, ticket_key)
     except Exception as exc:
         log.debug("Deploy regression check skipped for %s: %s", service, exc)
     finally:
