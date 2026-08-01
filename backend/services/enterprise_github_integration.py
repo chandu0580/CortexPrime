@@ -127,10 +127,16 @@ async def _emit(event_type: str, entity_id: str, data: Dict[str, Any]) -> None:
 # =============================================================================
 
 class WebhookDeliveryStore:
-    """Persistent store for webhook delivery history with deduplication."""
+    """Persistent store for webhook delivery history with deduplication.
 
-    def __init__(self) -> None:
-        self._deliveries: List[Dict[str, Any]] = _load_json(_WEBHOOK_DELIVERIES_FILE)
+    Provider-agnostic — file_path defaults to GitHub's own delivery log,
+    but any other webhook source (e.g. GitLab CI) can instantiate its own
+    with a separate backing file.
+    """
+
+    def __init__(self, file_path: Optional[Path] = None) -> None:
+        self._file_path = file_path or _WEBHOOK_DELIVERIES_FILE
+        self._deliveries: List[Dict[str, Any]] = _load_json(self._file_path)
         self._seen_ids: Set[str] = {d.get("delivery_id", "") for d in self._deliveries if d.get("delivery_id")}
 
     def is_duplicate(self, delivery_id: str) -> bool:
@@ -155,7 +161,7 @@ class WebhookDeliveryStore:
         self._deliveries.insert(0, entry)
         self._seen_ids.add(delivery_id)
         self._prune()
-        _save_json(_WEBHOOK_DELIVERIES_FILE, self._deliveries)
+        _save_json(self._file_path, self._deliveries)
         return entry
 
     def update_delivery(self, delivery_id: str, status: str) -> None:
@@ -163,7 +169,7 @@ class WebhookDeliveryStore:
             if d.get("delivery_id") == delivery_id:
                 d["status"] = status
                 d["updated_at"] = _now()
-                _save_json(_WEBHOOK_DELIVERIES_FILE, self._deliveries)
+                _save_json(self._file_path, self._deliveries)
                 return
 
     def get_deliveries(self, limit: int = 50) -> List[Dict[str, Any]]:
@@ -175,7 +181,7 @@ class WebhookDeliveryStore:
     def clear(self) -> None:
         self._deliveries.clear()
         self._seen_ids.clear()
-        _save_json(_WEBHOOK_DELIVERIES_FILE, [])
+        _save_json(self._file_path, [])
 
     def _prune(self) -> None:
         if len(self._deliveries) > MAX_WEBHOOK_DELIVERIES:
@@ -884,6 +890,13 @@ async def _run_deploy_regression_check(
 
 async def _check_deploy_regression(ctx: Dict[str, Any]) -> Optional["asyncio.Task"]:
     """Kick off a before/after regression check for a successful deploy.
+
+    Provider-agnostic — only reads ctx["repo_full_name"] and
+    ctx["deployment_id"], both already-normalized fields. Also imported
+    directly by backend.services.enterprise_gitlab_integration, so any
+    webhook source that can produce a ctx in this shape reuses this same
+    detection/reporting/history path rather than each provider needing
+    its own copy.
 
     Fire-and-forget on an asyncio task with a delay, since the "after"
     window needs real time to elapse before it has any data to compare.

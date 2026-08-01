@@ -859,6 +859,15 @@ def register_all_routers(app: FastAPI) -> Dict[str, bool]:
         log.warning(f"Enterprise GitHub Integration routes unavailable: {_egh_err_detail}")
 
     try:
+        from backend.api.enterprise_gitlab_routes import router as enterprise_gitlab_router
+        app.include_router(enterprise_gitlab_router)
+        log.info("Enterprise GitLab Integration routes registered at /api/gitlab")
+        availability["enterprise_gitlab"] = True
+    except Exception as _egl_err:
+        availability["enterprise_gitlab"] = False
+        log.warning(f"Enterprise GitLab Integration routes unavailable: {_egl_err}")
+
+    try:
         from backend.api.enterprise_cicd_routes import router as enterprise_cicd_router
         app.include_router(enterprise_cicd_router)
         log.info("Enterprise CI/CD Intelligence routes registered at /api/cicd")
