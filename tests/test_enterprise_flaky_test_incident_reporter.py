@@ -77,7 +77,13 @@ class TestReportFlakyIncident:
             result = await report_flaky_incident("org/repo", "CI", "evidence", [], history_store=history_store)
         assert result is None
 
-    async def test_creates_issue_with_correct_fields_when_healthy(self, history_store):
+    async def test_creates_issue_with_correct_fields_when_healthy(self, history_store, monkeypatch):
+        # Real deployments may set FLAKY_JIRA_PROJECT_KEY/FLAKY_JIRA_ISSUE_TYPE
+        # (e.g. backend/.env) — clear them so this test genuinely exercises
+        # the hardcoded defaults regardless of what's in the environment
+        # this suite happens to run in.
+        monkeypatch.delenv("FLAKY_JIRA_PROJECT_KEY", raising=False)
+        monkeypatch.delenv("FLAKY_JIRA_ISSUE_TYPE", raising=False)
         history_store.record("org/repo", "CI", "run:1", "evidence 1")
         fake_jira = MagicMock()
         fake_jira.health = AsyncMock(return_value={"status": "available"})

@@ -498,10 +498,15 @@ class GitHubConnector(BaseConnector):
         result = await self._request(method, path, params=params or {})
         if isinstance(result, list):
             return result
-        if isinstance(result, dict) and "workflow_runs" in result:
-            return result["workflow_runs"]
         if isinstance(result, dict):
-            for key in ("items", "data", "results", "entries"):
+            # GitHub wraps several list endpoints in a named envelope key
+            # instead of returning a bare array — anything missing here
+            # silently falls through to `[result]` below (the whole
+            # envelope dict as a single fake "item"), which is exactly
+            # the shape callers don't expect. Found via list_jobs_for_run
+            # returning [{"total_count": N, "jobs": [...]}] instead of
+            # the jobs themselves.
+            for key in ("items", "data", "results", "entries", "workflow_runs", "jobs"):
                 if key in result and isinstance(result[key], list):
                     return result[key]
             return [result]

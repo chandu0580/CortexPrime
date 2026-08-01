@@ -6,6 +6,11 @@ Verifies GitLab-specific glue: extracting repo/pipeline info from a
 "Pipeline Hook" payload, status normalization ("failed" -> "failure"),
 and the trigger_retry/fetch_evidence callbacks — the actual detection
 logic itself is tested in test_flaky_test_detector.py.
+
+_process_pipeline_event returns an asyncio.Task (not the final result) —
+scheduled as a background task rather than awaited inline, for the same
+reason as GitHub's _check_flaky_test (webhook delivery timeouts). Tests
+that need the final outcome explicitly await the returned task.
 """
 from __future__ import annotations
 
@@ -41,6 +46,15 @@ def _payload(status="failed", **overrides):
     return base
 
 
+async def _run(payload):
+    """Call _process_pipeline_event and, if it scheduled a background
+    task, await it so the test can deterministically check side effects."""
+    task = await _process_pipeline_event(payload)
+    if task is not None:
+        return await task
+    return None
+
+
 class TestProcessPipelineEventGating:
     async def test_returns_none_without_project_path(self):
         payload = _payload()
@@ -64,13 +78,24 @@ class TestProcessPipelineEventGating:
         mock_get.assert_not_called()
 
 
+class TestProcessPipelineEventReturnsBackgroundTask:
+    async def test_returns_a_task_not_the_final_result(self, _isolate_flaky_test_stores):
+        fake_gl = MagicMock()
+        fake_gl.retry_pipeline = AsyncMock(return_value={})
+        with patch("backend.connectors.registry.connector_registry.get", return_value=fake_gl):
+            import asyncio
+            task = await _process_pipeline_event(_payload(status="failed"))
+        assert isinstance(task, asyncio.Task)
+        await task
+
+
 class TestProcessPipelineEventFreshFailure:
     async def test_triggers_retry_pipeline_and_records_pending(self, _isolate_flaky_test_stores):
         pending, _ = _isolate_flaky_test_stores
         fake_gl = MagicMock()
         fake_gl.retry_pipeline = AsyncMock(return_value={})
         with patch("backend.connectors.registry.connector_registry.get", return_value=fake_gl):
-            result = await _process_pipeline_event(_payload(status="failed"))
+            result = await _run(_payload(status="failed"))
 
         assert result is None
         fake_gl.retry_pipeline.assert_awaited_once_with(85021889, 777)
@@ -80,13 +105,13 @@ class TestProcessPipelineEventFreshFailure:
         fake_gl = MagicMock()
         fake_gl.retry_pipeline = AsyncMock()
         with patch("backend.connectors.registry.connector_registry.get", return_value=fake_gl):
-            await _process_pipeline_event(_payload(status="success"))
+            await _run(_payload(status="success"))
         fake_gl.retry_pipeline.assert_not_awaited()
 
     async def test_missing_connector_does_not_record_pending(self, _isolate_flaky_test_stores):
         pending, _ = _isolate_flaky_test_stores
         with patch("backend.connectors.registry.connector_registry.get", return_value=None):
-            await _process_pipeline_event(_payload(status="failed"))
+            await _run(_payload(status="failed"))
         assert pending.get("gl:group/project:777") is None
 
 
@@ -98,7 +123,7 @@ class TestProcessPipelineEventRetryCompletion:
         fake_gl = MagicMock()
         fake_gl.list_jobs = AsyncMock(return_value=[{"name": "test", "status": "success"}])
         with patch("backend.connectors.registry.connector_registry.get", return_value=fake_gl):
-            result = await _process_pipeline_event(_payload(status="success"))
+            result = await _run(_payload(status="success"))
 
         assert result is None  # below ticket threshold
         assert pending.get("gl:group/project:777") is None
@@ -110,7 +135,7 @@ class TestProcessPipelineEventRetryCompletion:
         pending.add("gl:group/project:777", "group/project", "pipeline", {})
 
         with patch("backend.connectors.registry.connector_registry.get", return_value=MagicMock()):
-            result = await _process_pipeline_event(_payload(status="failed"))
+            result = await _run(_payload(status="failed"))
 
         assert result is None
         assert pending.get("gl:group/project:777") is None
@@ -127,7 +152,7 @@ class TestProcessPipelineEventRetryCompletion:
             {"name": "lint", "status": "skipped"},  # should be filtered out
         ])
         with patch("backend.connectors.registry.connector_registry.get", return_value=fake_gl):
-            await _process_pipeline_event(_payload(status="success"))
+            await _run(_payload(status="success"))
 
         evidence = history.list_recent()[0]["evidence"]
         assert "unit-tests" in evidence

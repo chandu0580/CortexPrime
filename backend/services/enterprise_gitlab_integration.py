@@ -161,11 +161,18 @@ async def _process_deployment_event(payload: Dict[str, Any]) -> None:
     await _check_deploy_regression(ctx)
 
 
-async def _process_pipeline_event(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+async def _process_pipeline_event(payload: Dict[str, Any]) -> Optional["asyncio.Task"]:
     """Translate a GitLab "Pipeline Hook" payload and hand it to the
     shared, provider-agnostic flaky-test state machine
     (enterprise_flaky_test_detector.handle_ci_completion).
+
+    Runs as a background task rather than being awaited inline — same
+    reasoning as GitHub's _check_flaky_test: the retry-completion path can
+    involve an LLM call plus a Jira API call, either of which can exceed
+    GitLab's webhook delivery timeout on its own.
     """
+    import asyncio
+
     from backend.services.enterprise_flaky_test_detector import handle_ci_completion
 
     project = payload.get("project", {})
@@ -219,7 +226,9 @@ async def _process_pipeline_event(payload: Dict[str, Any]) -> Optional[Dict[str,
             if job.get("status") in ("success", "failed")
         ]
 
-    return await handle_ci_completion(repo_full_name, workflow_name, run_key, conclusion, ctx, trigger_retry, fetch_evidence)
+    return asyncio.create_task(
+        handle_ci_completion(repo_full_name, workflow_name, run_key, conclusion, ctx, trigger_retry, fetch_evidence)
+    )
 
 
 gitlab_webhook_receiver = GitLabWebhookReceiver()

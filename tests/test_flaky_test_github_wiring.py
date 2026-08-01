@@ -6,6 +6,14 @@ Verifies GitHub-specific glue: extracting service/workflow_name/run_id
 from ctx, building the run_key, and the trigger_retry/fetch_evidence
 callbacks that call the real connector methods — the actual detection
 logic itself is tested in test_flaky_test_detector.py.
+
+_check_flaky_test returns an asyncio.Task (not the final result) — it's
+scheduled as a background task rather than awaited inline, since GitHub's
+webhook delivery times out at 10 seconds and the retry-completion path
+(LLM reasoning + Jira ticket filing) can exceed that on its own. Tests
+that need the final outcome explicitly await the returned task, exactly
+like test_deploy_regression_webhook_wiring.py already does for the same
+reason.
 """
 from __future__ import annotations
 
@@ -43,6 +51,15 @@ def _ctx(status="completed", conclusion="failure", **overrides):
     return base
 
 
+async def _run(ctx):
+    """Call _check_flaky_test and, if it scheduled a background task,
+    await it so the test can deterministically check side effects."""
+    task = await _check_flaky_test(ctx)
+    if task is not None:
+        return await task
+    return None
+
+
 class TestCheckFlakyTestGating:
     async def test_ignores_non_completed_status(self):
         result = await _check_flaky_test(_ctx(status="in_progress"))
@@ -70,7 +87,7 @@ class TestCheckFlakyTestFreshFailure:
         fake_gh = MagicMock()
         fake_gh.rerun_failed_jobs = AsyncMock(return_value=True)
         with patch("backend.services.enterprise_github_integration._get_gh", new=AsyncMock(return_value=fake_gh)):
-            result = await _check_flaky_test(_ctx(conclusion="failure"))
+            result = await _run(_ctx(conclusion="failure"))
 
         assert result is None
         fake_gh.rerun_failed_jobs.assert_awaited_once_with("org", "checkout-service", 555)
@@ -80,8 +97,23 @@ class TestCheckFlakyTestFreshFailure:
         fake_gh = MagicMock()
         fake_gh.rerun_failed_jobs = AsyncMock(return_value=True)
         with patch("backend.services.enterprise_github_integration._get_gh", new=AsyncMock(return_value=fake_gh)):
-            await _check_flaky_test(_ctx(conclusion="success"))
+            await _run(_ctx(conclusion="success"))
         fake_gh.rerun_failed_jobs.assert_not_awaited()
+
+
+class TestCheckFlakyTestReturnsBackgroundTask:
+    """The whole point of the fix: the caller (the webhook route) must
+    never block on the slow retry-completion path."""
+
+    async def test_returns_a_task_not_the_final_result(self, _isolate_flaky_test_stores):
+        pending, _ = _isolate_flaky_test_stores
+        fake_gh = MagicMock()
+        fake_gh.rerun_failed_jobs = AsyncMock(return_value=True)
+        with patch("backend.services.enterprise_github_integration._get_gh", new=AsyncMock(return_value=fake_gh)):
+            import asyncio
+            task = await _check_flaky_test(_ctx(conclusion="failure"))
+        assert isinstance(task, asyncio.Task)
+        await task
 
 
 class TestCheckFlakyTestRetryCompletion:
@@ -94,7 +126,7 @@ class TestCheckFlakyTestRetryCompletion:
             {"name": "backend-tests", "conclusion": "success", "run_attempt": 2, "steps": []},
         ])
         with patch("backend.services.enterprise_github_integration._get_gh", new=AsyncMock(return_value=fake_gh)):
-            result = await _check_flaky_test(_ctx(conclusion="success"))
+            result = await _run(_ctx(conclusion="success"))
 
         assert result is None  # below ticket threshold
         assert pending.get("gh:org/checkout-service:555") is None
@@ -106,7 +138,7 @@ class TestCheckFlakyTestRetryCompletion:
         pending.add("gh:org/checkout-service:555", "org/checkout-service", "CI", _ctx())
 
         with patch("backend.services.enterprise_github_integration._get_gh", new=AsyncMock()):
-            result = await _check_flaky_test(_ctx(conclusion="failure"))
+            result = await _run(_ctx(conclusion="failure"))
 
         assert result is None
         assert pending.get("gh:org/checkout-service:555") is None
@@ -125,7 +157,7 @@ class TestCheckFlakyTestRetryCompletion:
             {"name": "backend-tests", "conclusion": "success", "run_attempt": 2, "steps": []},
         ])
         with patch("backend.services.enterprise_github_integration._get_gh", new=AsyncMock(return_value=fake_gh)):
-            await _check_flaky_test(_ctx(conclusion="success"))
+            await _run(_ctx(conclusion="success"))
 
         evidence = history.list_recent()[0]["evidence"]
         assert "Run pytest" in evidence

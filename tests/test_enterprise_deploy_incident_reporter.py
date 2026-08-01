@@ -79,7 +79,13 @@ class TestReportIncident:
             result = await report_incident(_verdict(), _ctx())
             assert result is None
 
-    async def test_creates_issue_with_correct_fields_when_healthy(self):
+    async def test_creates_issue_with_correct_fields_when_healthy(self, monkeypatch):
+        # Real deployments may set DEPLOY_JIRA_PROJECT_KEY/DEPLOY_JIRA_ISSUE_TYPE
+        # (e.g. backend/.env) — clear them so this test genuinely exercises
+        # the hardcoded defaults regardless of what's in the environment
+        # this suite happens to run in.
+        monkeypatch.delenv("DEPLOY_JIRA_PROJECT_KEY", raising=False)
+        monkeypatch.delenv("DEPLOY_JIRA_ISSUE_TYPE", raising=False)
         fake_jira = MagicMock()
         fake_jira.health = AsyncMock(return_value={"status": "available"})
         fake_jira.create_issue = AsyncMock(return_value={"key": "OPS-101", "id": "1001"})

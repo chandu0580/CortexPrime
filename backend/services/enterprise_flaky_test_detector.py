@@ -143,6 +143,18 @@ class FlakyTestHistoryStore:
     def list_recent(self, limit: int = 20) -> List[Dict[str, Any]]:
         return self._history[:limit]
 
+    def update_ticket_key(self, history_id: str, ticket_key: str) -> None:
+        """Link a filed Jira ticket back to the occurrence that triggered
+        it. record() always runs before the ticket exists (the threshold
+        check needs this occurrence counted first), so the link has to be
+        written back after the fact rather than passed to record() itself.
+        """
+        for h in self._history:
+            if h.get("history_id") == history_id:
+                h["ticket_key"] = ticket_key
+                _save_json(self._file_path, self._history)
+                return
+
     def count_since(self, service: str, workflow_name: str, since: datetime) -> int:
         since_iso = since.isoformat()
         return sum(
@@ -238,12 +250,15 @@ async def handle_ci_completion(
                 log.debug("Flaky-test evidence fetch failed for %s/%s (%s): %s", service, workflow_name, run_key, exc)
                 attempt_jobs = []
             evidence_summary = summarize_evidence(attempt_jobs)
-            hstore.record(service, workflow_name, run_key, evidence_summary)
+            recorded = hstore.record(service, workflow_name, run_key, evidence_summary)
             if crosses_flaky_threshold(service, workflow_name, history_store=hstore):
                 from backend.services.enterprise_flaky_test_incident_reporter import report_flaky_incident
-                return await report_flaky_incident(
+                issue = await report_flaky_incident(
                     service, workflow_name, evidence_summary, attempt_jobs, history_store=hstore,
                 )
+                if issue and issue.get("key"):
+                    hstore.update_ticket_key(recorded["history_id"], issue["key"])
+                return issue
         # conclusion == "failure" again -> real failure, not flaky. Nothing
         # further to do; the existing CI-failure process owns it.
         return None

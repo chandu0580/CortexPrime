@@ -960,14 +960,26 @@ async def recover_pending_deploy_checks() -> int:
     return recovered
 
 
-async def _check_flaky_test(ctx: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+async def _check_flaky_test(ctx: Dict[str, Any]) -> Optional["asyncio.Task"]:
     """Entry point for the flaky-test detector's provider-agnostic state
     machine (backend.services.enterprise_flaky_test_detector) from a
     GitHub "workflow_run" completed webhook.
 
     Only reacts to status == "completed" — the same event fires for
     queued/in_progress too, neither of which has a conclusion yet.
+
+    Runs as a background task, not awaited inline — GitHub's webhook
+    delivery times out at 10 seconds, and the retry-completion path can
+    involve an LLM call (with provider fallback) plus a Jira API call,
+    either of which can comfortably exceed that on its own. Found via a
+    live webhook delivery: GitHub reported a 500 (real timeout) for a
+    completion whose processing was actually still succeeding in the
+    background — the ticket-filing threshold was crossed but the webhook
+    response never got sent in time to reflect it. Same fix already
+    applied to _check_deploy_regression, for the same underlying reason.
     """
+    import asyncio
+
     from backend.services.enterprise_flaky_test_detector import handle_ci_completion
 
     if ctx.get("workflow_status") != "completed":
@@ -1005,7 +1017,9 @@ async def _check_flaky_test(ctx: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             for job in jobs
         ]
 
-    return await handle_ci_completion(service, workflow_name, run_key, conclusion, ctx, trigger_retry, fetch_evidence)
+    return asyncio.create_task(
+        handle_ci_completion(service, workflow_name, run_key, conclusion, ctx, trigger_retry, fetch_evidence)
+    )
 
 
 async def _wire_to_engineering_executive(event_type: str, ctx: Dict[str, Any]) -> None:

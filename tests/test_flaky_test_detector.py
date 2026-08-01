@@ -116,6 +116,26 @@ class TestFlakyTestHistoryStore:
         history_store.clear()
         assert history_store.list_recent() == []
 
+    def test_update_ticket_key_links_ticket_to_the_right_occurrence(self, history_store):
+        first = history_store.record("org/repo", "CI", "run:1", "evidence 1")
+        second = history_store.record("org/repo", "CI", "run:2", "evidence 2")
+        history_store.update_ticket_key(second["history_id"], "OPS-99")
+        recent = history_store.list_recent()
+        by_id = {h["history_id"]: h for h in recent}
+        assert by_id[second["history_id"]]["ticket_key"] == "OPS-99"
+        assert by_id[first["history_id"]]["ticket_key"] is None
+
+    def test_update_ticket_key_persists_across_instances(self, history_store):
+        recorded = history_store.record("org/repo", "CI", "run:1", "evidence")
+        history_store.update_ticket_key(recorded["history_id"], "OPS-100")
+        reloaded = FlakyTestHistoryStore(file_path=history_store._file_path)
+        assert reloaded.list_recent()[0]["ticket_key"] == "OPS-100"
+
+    def test_update_ticket_key_is_a_noop_for_unknown_history_id(self, history_store):
+        history_store.record("org/repo", "CI", "run:1", "evidence")
+        history_store.update_ticket_key("does-not-exist", "OPS-101")
+        assert history_store.list_recent()[0]["ticket_key"] is None
+
 
 class TestCrossesFlakyThreshold:
     def test_false_when_no_occurrences(self, history_store):
@@ -280,6 +300,29 @@ class TestHandleCiCompletion:
 
         assert result == {"key": "OPS-1"}
         mock_report.assert_awaited_once()
+
+        # The occurrence that triggered the ticket must be linked to it,
+        # not just left with ticket_key=None despite a real ticket existing.
+        triggering_occurrence = next(h for h in history_store.list_recent() if h["run_key"] == "run:new")
+        assert triggering_occurrence["ticket_key"] == "OPS-1"
+
+    async def test_retry_completion_crossing_threshold_does_not_link_ticket_when_filing_fails(self, pending_store, history_store):
+        for i in range(DEFAULT_FLAKY_THRESHOLD_COUNT - 1):
+            history_store.record("org/repo", "CI", f"run:{i}", "evidence")
+        pending_store.add("run:new", "org/repo", "CI", {})
+
+        with patch(
+            "backend.services.enterprise_flaky_test_incident_reporter.report_flaky_incident",
+            new=AsyncMock(return_value=None),
+        ):
+            await handle_ci_completion(
+                "org/repo", "CI", "run:new", "success", {},
+                AsyncMock(), AsyncMock(return_value=[]),
+                pending_store=pending_store, history_store=history_store,
+            )
+
+        triggering_occurrence = next(h for h in history_store.list_recent() if h["run_key"] == "run:new")
+        assert triggering_occurrence["ticket_key"] is None
 
     async def test_ignores_unrecognized_conclusion_values(self, pending_store, history_store):
         trigger_retry = AsyncMock()
