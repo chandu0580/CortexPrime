@@ -975,15 +975,25 @@ async def lifespan(_app: FastAPI):
             ("backend.connectors.terraform", "TerraformConnector"),
         ]
         _registered = 0
+        _initialized = 0
         for _module_name, _class_name in _connector_specs:
             try:
                 _module = __import__(_module_name, fromlist=[_class_name])
                 _connector_cls = getattr(_module, _class_name)
-                connector_registry.register(_connector_cls())
+                _instance = _connector_cls()
+                connector_registry.register(_instance)
                 _registered += 1
+                try:
+                    if await _instance.initialize():
+                        _initialized += 1
+                except Exception as _init_exc:
+                    log.debug("Connector %s registered but not ready: %s", _class_name, _init_exc)
             except Exception as _conn_exc:
                 log.warning("Connector %s unavailable: %s", _class_name, _conn_exc)
-        log.info("Registered %d/%d enterprise connectors", _registered, len(_connector_specs))
+        log.info(
+            "Registered %d/%d enterprise connectors (%d initialized/ready)",
+            _registered, len(_connector_specs), _initialized,
+        )
     except Exception as exc:
         log.warning("Enterprise connectors registration incomplete: %s", exc)
 
@@ -1057,6 +1067,18 @@ async def lifespan(_app: FastAPI):
         log.info("Enterprise Infrastructure Intelligence shutdown")
     except Exception as exc:
         log.warning("Infrastructure Intelligence shutdown failed: %s", exc)
+
+    # 6b) Stop connectors registered in the shared connector_registry
+    try:
+        from backend.connectors.registry import connector_registry
+        for _conn in connector_registry.list_all():
+            try:
+                await _conn.shutdown()
+            except Exception as _shutdown_exc:
+                log.debug("Connector %s shutdown failed: %s", _conn.connector_type, _shutdown_exc)
+        log.info("Connector registry shutdown (%d connectors)", len(connector_registry.list_all()))
+    except Exception as exc:
+        log.warning("Connector registry shutdown failed: %s", exc)
 
     # 7) Stop Enterprise Continuous Cognition Runtime
     try:

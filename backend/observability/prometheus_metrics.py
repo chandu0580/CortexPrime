@@ -258,6 +258,24 @@ class _CortexMetrics:
             ["method", "path"],
             buckets=_LATENCY_BUCKETS_MS,
         )
+        # Standard-convention duplicates of the two metrics above (name +
+        # units + label set that enterprise_deploy_regression_detector's
+        # PromQL actually queries: http_requests_total{service,status} and
+        # http_request_duration_seconds_bucket{service}). The cortex_-
+        # prefixed metrics above are CortexPrime's own naming convention;
+        # these exist so CortexPrime's own backend can be monitored by its
+        # own deploy-regression detector, the same way any other properly
+        # RED-instrumented service would be.
+        self.http_requests_standard = _counter(
+            "http_requests_total",
+            "Total HTTP requests handled (RED-method convention)",
+            ["service", "method", "path", "status"],
+        )
+        self.http_request_duration_seconds = _histogram(
+            "http_request_duration_seconds",
+            "HTTP request duration in seconds (RED-method convention)",
+            ["service"],
+        )
         self.rate_limit_hits = _counter(
             "cortex_rate_limit_hits_total",
             "Total requests blocked by rate limiter",

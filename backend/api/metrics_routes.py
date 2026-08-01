@@ -6,6 +6,7 @@ request with cortex_http_requests_total and cortex_http_latency_ms.
 """
 from __future__ import annotations
 
+import os
 import time
 from typing import Callable
 
@@ -16,6 +17,14 @@ from starlette.requests import Request
 from backend.observability.prometheus_metrics import generate_metrics_response, metrics
 
 router = APIRouter(tags=["Observability"])
+
+# Identifies this backend to enterprise_deploy_regression_detector, which
+# queries Prometheus by service=<repo_full_name> (the GitHub webhook's
+# repo identity) — not CortexPrime's own SERVICE_NAME logging convention.
+# Unset by default: only services that want their own deploys tracked by
+# CortexPrime's own detector need to set this, to their GitHub
+# "owner/repo" string.
+_DEPLOY_TRACKED_SERVICE = os.getenv("DEPLOY_TRACKED_SERVICE_NAME", "")
 
 
 @router.get("/metrics", include_in_schema=False)
@@ -56,6 +65,17 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
             method=request.method,
             path=label_path,
         ).observe(latency_ms)
+
+        if _DEPLOY_TRACKED_SERVICE:
+            metrics.http_requests_standard.labels(
+                service=_DEPLOY_TRACKED_SERVICE,
+                method=request.method,
+                path=label_path,
+                status=str(response.status_code),
+            ).inc()
+            metrics.http_request_duration_seconds.labels(
+                service=_DEPLOY_TRACKED_SERVICE,
+            ).observe(latency_ms / 1000.0)
 
         return response
 
