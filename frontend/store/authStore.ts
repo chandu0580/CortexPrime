@@ -44,6 +44,20 @@ function parseJwtExp(token: string): number | null {
     }
 }
 
+// The backend deliberately never reveals *why* auth failed in the response
+// body (see backend/core/exception_handlers.py — every HTTPException is
+// flattened to a generic canned message, by design, to avoid leaking
+// which specific auth failure occurred). So there's no response field to
+// branch on here. `cortex_session_hint` is a non-HttpOnly, non-sensitive
+// cookie the backend sets alongside the real (HttpOnly) refresh cookie —
+// its mere presence is the only signal available for "a session might
+// still be recoverable, worth trying /refresh" vs. "definitely never
+// logged in, don't bother."
+function hasSessionHint(): boolean {
+    if (typeof document === "undefined") return false
+    return document.cookie.split("; ").some((c) => c === "cortex_session_hint=1")
+}
+
 export const useAuthStore = create<AuthState>()((set, get) => ({
     isAuthenticated: false,
     user: null,
@@ -142,6 +156,15 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     clearError: () => set({ loginError: null }),
 
     initFromToken: async () => {
+        if (!hasSessionHint()) {
+            // No evidence a session ever existed on this browser — skip
+            // straight to signed-out instead of firing /me and /refresh
+            // requests that are guaranteed to both 401.
+            clearRefreshTimer()
+            set({ isAuthenticated: false, user: null, tokenExpiresAt: null })
+            return
+        }
+
         try {
             const me = await fetch(apiUrl("/api/auth/me"), {
                 credentials: "include",
@@ -149,10 +172,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
             })
 
             if (!me.ok) {
-                const error = await me.json().catch(() => ({})) as { detail?: string }
-                const shouldTryRefresh = me.status === 401 && error.detail !== "Missing authentication token"
-
-                if (shouldTryRefresh) {
+                if (me.status === 401) {
                     const ok = await get().refresh()
                     if (ok) return
                 }

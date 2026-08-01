@@ -101,6 +101,28 @@ def _clear_access_cookie(response: Response) -> None:
     response.delete_cookie(key="cortex_access", path="/")
 
 
+def _set_session_hint_cookie(response: Response) -> None:
+    """Non-HttpOnly companion cookie carrying no auth material — just a
+    boolean the frontend can read to know a session *might* exist, so it
+    knows whether attempting /api/auth/refresh after a failed /me is worth
+    it. The real cookies stay HttpOnly; this exists so the frontend isn't
+    stuck guessing from response bodies, which deliberately never reveal
+    *why* auth failed (see backend/core/exception_handlers.py)."""
+    response.set_cookie(
+        key="cortex_session_hint",
+        value="1",
+        httponly=False,
+        secure=_SECURE_COOKIE,
+        samesite="lax",
+        max_age=_REFRESH_EXPIRE_H * 3600,
+        path="/",
+    )
+
+
+def _clear_session_hint_cookie(response: Response) -> None:
+    response.delete_cookie(key="cortex_session_hint", path="/")
+
+
 def _token_expiry_epoch(token: str) -> float:
     """Return the expiry epoch of any JWT; falls back to now+1h."""
     exp_dt = get_token_expiry(token)
@@ -172,6 +194,7 @@ async def login(request: LoginRequest, response: Response):
 
     _set_access_cookie(response, access_token)
     _set_refresh_cookie(response, refresh_token)
+    _set_session_hint_cookie(response)
 
     # Track access token session for health reporting
     access_payload = decode_access_token(access_token)
@@ -217,6 +240,7 @@ async def refresh(
     old_payload = decode_refresh_token(cortex_refresh)
     if not old_payload:
         _clear_refresh_cookie(response)
+        _clear_session_hint_cookie(response)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Refresh token invalid or expired — please log in again",
@@ -232,6 +256,7 @@ async def refresh(
     )
     if revoked:
         _clear_refresh_cookie(response)
+        _clear_session_hint_cookie(response)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Refresh token has been revoked — please log in again",
@@ -251,6 +276,7 @@ async def refresh(
 
     _set_access_cookie(response, new_access)
     _set_refresh_cookie(response, new_refresh)
+    _set_session_hint_cookie(response)
 
     # Track new access session
     new_payload = decode_access_token(new_access)
@@ -322,6 +348,7 @@ async def logout(
 
     _clear_refresh_cookie(response)
     _clear_access_cookie(response)
+    _clear_session_hint_cookie(response)
     _audit_auth("logout", user_id, "ok", {"jti": jti[:8] if jti else ""})
     log.info("Logout OK: user=%s jti=%s", user_id[:32], jti[:8] if jti else "none")
 
@@ -459,6 +486,7 @@ async def oauth_callback(provider: str, code: str, redirect_uri: str):
     })
     _set_access_cookie(resp, jwt_access)
     _set_refresh_cookie(resp, jwt_refresh)
+    _set_session_hint_cookie(resp)
 
     access_payload = decode_access_token(jwt_access)
     if access_payload:

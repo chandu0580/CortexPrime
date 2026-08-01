@@ -11,15 +11,32 @@ function resetStore() {
   })
 }
 
+function clearCookies() {
+  for (const c of document.cookie.split("; ")) {
+    const name = c.split("=")[0]
+    if (name) document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`
+  }
+}
+
+// initFromToken() only calls /api/auth/me at all when this non-HttpOnly
+// hint cookie is present — it's the frontend's only signal that a session
+// might exist, since the backend deliberately never reveals *why* a
+// request is unauthenticated (see backend/core/exception_handlers.py).
+function setSessionHint() {
+  document.cookie = "cortex_session_hint=1; path=/"
+}
+
 describe("useAuthStore", () => {
   beforeEach(() => {
     resetStore()
+    clearCookies()
     vi.useFakeTimers()
   })
 
   afterEach(() => {
     vi.useRealTimers()
     vi.unstubAllGlobals()
+    clearCookies()
   })
 
   it("has correct initial state", () => {
@@ -37,6 +54,7 @@ describe("useAuthStore", () => {
   })
 
   it("logout clears auth state and calls clearRefreshTimer", async () => {
+    setSessionHint()
     useAuthStore.setState({
       isAuthenticated: true,
       user: { user_id: "test", role: "admin", clearance: "5" },
@@ -59,23 +77,23 @@ describe("useAuthStore", () => {
     expect(clearTimeoutSpy).toHaveBeenCalled()
   })
 
-  it("initFromToken handles 401 with Missing authentication token correctly", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
-      ok: false,
-      status: 401,
-      json: () => Promise.resolve({ detail: "Missing authentication token" }),
-    }))
-
-    const refreshSpy = vi.spyOn(useAuthStore.getState(), "refresh")
+  it("initFromToken skips /me and /refresh entirely when no session hint cookie is present", async () => {
+    // No backend response can distinguish "never logged in" from other
+    // auth failures (the backend deliberately returns the same generic
+    // 401 body for every case) — the session-hint cookie is the only
+    // signal, and its absence should short-circuit before any fetch.
+    const fetchSpy = vi.fn()
+    vi.stubGlobal("fetch", fetchSpy)
 
     await useAuthStore.getState().initFromToken()
 
-    expect(refreshSpy).not.toHaveBeenCalled()
+    expect(fetchSpy).not.toHaveBeenCalled()
     expect(useAuthStore.getState().isAuthenticated).toBe(false)
     expect(useAuthStore.getState().user).toBeNull()
   })
 
-  it("initFromToken retries refresh on 401 without Missing authentication token", async () => {
+  it("initFromToken retries refresh on any /me 401 when a session hint cookie is present", async () => {
+    setSessionHint()
     let callCount = 0
     vi.stubGlobal("fetch", vi.fn().mockImplementation(() => {
       callCount++
@@ -83,7 +101,7 @@ describe("useAuthStore", () => {
         return Promise.resolve({
           ok: false,
           status: 401,
-          json: () => Promise.resolve({ detail: "Token expired" }),
+          json: () => Promise.resolve({ success: false, error: { code: "UNAUTHORIZED", message: "Authentication is required. Please provide a valid token." } }),
         })
       }
       return Promise.resolve({
