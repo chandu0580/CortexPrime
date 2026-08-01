@@ -895,6 +895,15 @@ def register_all_routers(app: FastAPI) -> Dict[str, bool]:
         log.warning(f"Enterprise Alert Incident Correlation routes unavailable: {_einc_err}")
 
     try:
+        from backend.api.enterprise_credentials_routes import router as enterprise_credentials_router
+        app.include_router(enterprise_credentials_router)
+        log.info("Enterprise Credential Monitoring routes registered at /api/credentials")
+        availability["enterprise_credentials"] = True
+    except Exception as _ecred_err:
+        availability["enterprise_credentials"] = False
+        log.warning(f"Enterprise Credential Monitoring routes unavailable: {_ecred_err}")
+
+    try:
         from backend.api.enterprise_cicd_routes import router as enterprise_cicd_router
         app.include_router(enterprise_cicd_router)
         log.info("Enterprise CI/CD Intelligence routes registered at /api/cicd")

@@ -83,6 +83,22 @@ class GitLabCIConnector(BaseConnector):
             "authenticated": bool(self._token),
         }
 
+    async def check_credential(self) -> Dict[str, Any]:
+        """GET /personal_access_tokens/self — real token introspection,
+        including expires_at (null for non-expiring tokens). This is the
+        one provider of the three with a genuine expiry-lookup endpoint,
+        unlike GitHub (advisory header only) or Jira (no capability)."""
+        try:
+            token_info = await self._execute("check_credential", "tokens", self._request, "GET", "/personal_access_tokens/self")
+            return {
+                "valid": True,
+                "expires_at": token_info.get("expires_at") if isinstance(token_info, dict) else None,
+                "expires_at_source": "api",
+                "error": None,
+            }
+        except PermissionError as exc:
+            return {"valid": False, "expires_at": None, "expires_at_source": None, "error": str(exc)}
+
     async def _request(self, method: str, path: str, **kwargs) -> Any:
         if not self._client:
             raise RuntimeError("GitLab CI connector not initialized")

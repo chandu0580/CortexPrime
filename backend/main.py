@@ -997,6 +997,14 @@ async def lifespan(_app: FastAPI):
     except Exception as exc:
         log.warning("Enterprise connectors registration incomplete: %s", exc)
 
+    # One-shot credential check, not a recurring background loop — see
+    # enterprise_credential_monitor's module docstring for why.
+    try:
+        from backend.services.enterprise_credential_monitor import check_all_credentials
+        await check_all_credentials()
+    except Exception as exc:
+        log.debug("Startup credential check skipped: %s", exc)
+
     _log_registered_routes(_app)
     log.info("CortexPrime runtime startup complete - all subsystems online")
 

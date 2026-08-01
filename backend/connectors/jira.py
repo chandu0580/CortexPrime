@@ -88,6 +88,16 @@ class JiraConnector(BaseConnector):
             "authenticated": bool(self._token),
         }
 
+    async def check_credential(self) -> Dict[str, Any]:
+        """Atlassian API tokens have no introspection endpoint for expiry —
+        this is failure-detection only. A healthy result means "still
+        authenticates right now," not "won't expire soon"."""
+        try:
+            await self._execute("check_credential", "auth", self._request, "GET", "/rest/api/3/myself")
+            return {"valid": True, "expires_at": None, "expires_at_source": None, "error": None}
+        except PermissionError as exc:
+            return {"valid": False, "expires_at": None, "expires_at_source": None, "error": str(exc)}
+
     # ------------------------------------------------------------------
     # Public API — each method delegates to _execute() for auto-recording
     # ------------------------------------------------------------------

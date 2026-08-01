@@ -37,6 +37,7 @@ class GitHubConnector(BaseConnector):
         self._rate_limit_remaining: int = 5000
         self._rate_limit_reset: int = 0
         self._etag_cache: Dict[str, Tuple[str, Any]] = {}
+        self._token_expires_at: Optional[str] = None
 
     def configure(self, credentials: Dict[str, str]) -> None:
         super().configure(credentials)
@@ -97,11 +98,28 @@ class GitHubConnector(BaseConnector):
             "rate_limit_remaining": self._rate_limit_remaining,
         }
 
+    async def check_credential(self) -> Dict[str, Any]:
+        """Real, minimal authenticated call to verify the token still works,
+        for credential-expiry monitoring rather than general connector health.
+        expires_at is advisory only — see _on_response's comment."""
+        try:
+            await self.get_rate_limit()
+            return {"valid": True, "expires_at": self._token_expires_at, "expires_at_source": "advisory_header", "error": None}
+        except PermissionError as exc:
+            return {"valid": False, "expires_at": None, "expires_at_source": None, "error": str(exc)}
+
     async def _on_response(self, response: httpx.Response) -> None:
         if "X-RateLimit-Remaining" in response.headers:
             self._rate_limit_remaining = int(response.headers["X-RateLimit-Remaining"])
         if "X-RateLimit-Reset" in response.headers:
             self._rate_limit_reset = int(response.headers["X-RateLimit-Reset"])
+        # Only present for PATs with an expiration set (classic PATs with
+        # expiration, and all fine-grained PATs). Captured opportunistically
+        # off normal traffic since GitHub has no dedicated introspection
+        # endpoint for it — treat as advisory, not authoritative: GitHub has
+        # documented accuracy issues with this header for fine-grained PATs.
+        if "GitHub-Authentication-Token-Expiration" in response.headers:
+            self._token_expires_at = response.headers["GitHub-Authentication-Token-Expiration"]
         if response.status_code >= 400:
             log.warning("[GitHub] HTTP %d: %s", response.status_code, response.url)
 
