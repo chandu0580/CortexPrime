@@ -868,6 +868,15 @@ def register_all_routers(app: FastAPI) -> Dict[str, bool]:
         log.warning(f"Enterprise GitLab Integration routes unavailable: {_egl_err}")
 
     try:
+        from backend.api.enterprise_flaky_tests_routes import router as enterprise_flaky_tests_router
+        app.include_router(enterprise_flaky_tests_router)
+        log.info("Enterprise Flaky Test Detection routes registered at /api/flaky-tests")
+        availability["enterprise_flaky_tests"] = True
+    except Exception as _eft_err:
+        availability["enterprise_flaky_tests"] = False
+        log.warning(f"Enterprise Flaky Test Detection routes unavailable: {_eft_err}")
+
+    try:
         from backend.api.enterprise_cicd_routes import router as enterprise_cicd_router
         app.include_router(enterprise_cicd_router)
         log.info("Enterprise CI/CD Intelligence routes registered at /api/cicd")

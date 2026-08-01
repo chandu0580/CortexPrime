@@ -1,16 +1,18 @@
 """
-Enterprise GitLab CI Integration — Deploy Regression Wiring.
+Enterprise GitLab CI Integration — Deploy Regression + Flaky Test Wiring.
 
 Deliberately narrow: this is NOT a GitLab equivalent of the full GitHub
-integration (no PR/issue/branch tracking). It exists for one purpose —
-prove the deploy-regression detection pipeline built for GitHub actually
-generalizes to a second CI/CD provider, by reusing the exact same
-detector/reasoner/ticketing/history path
-(backend.services.enterprise_github_integration._check_deploy_regression)
-rather than building a parallel one.
+integration (no PR/issue/branch tracking). It exists to prove the
+deploy-regression and flaky-test detection pipelines built for GitHub
+actually generalize to a second CI/CD provider, by reusing the exact same
+detector/reasoner/ticketing/history paths
+(backend.services.enterprise_github_integration._check_deploy_regression,
+backend.services.enterprise_flaky_test_detector.handle_ci_completion)
+rather than building parallel ones.
 
-Wired from: POST /api/gitlab/webhook, on a "deployment" event whose
-status is "success".
+Wired from: POST /api/gitlab/webhook, on:
+  - a "deployment" event whose status is "success" -> deploy regression
+  - a "pipeline" event (any status change) -> flaky test detection
 
 GitLab's webhook model differs from GitHub's in one way worth noting:
 Signing is a plain shared-secret string sent verbatim in the
@@ -23,6 +25,13 @@ dispatches its diff-fetch by ctx["source"], so a gitlab_webhook-sourced ctx
 fetches via GitLabCIConnector.get_commit_with_diff (backend/connectors/gitlab_ci.py)
 instead of GitHub's connector — full parity with the GitHub path, not a
 degraded fallback.
+
+Flaky-test granularity note: GitLab pipelines don't have a "name" the way
+GitHub Actions workflows do (a pipeline is just "this project's CI run",
+defined by .gitlab-ci.yml) — workflow_name is the fixed string "pipeline"
+for every GitLab-sourced occurrence, unlike GitHub's real per-workflow
+names. GitLab jobs also don't have GitHub's per-step breakdown, so
+evidence is job-level only (no failed_steps).
 """
 from __future__ import annotations
 
@@ -31,7 +40,7 @@ import logging
 import os
 import uuid
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from backend.services.enterprise_github_integration import (
     WebhookDeliveryStore,
@@ -115,6 +124,8 @@ class GitLabWebhookReceiver:
 
         if verified and payload.get("object_kind") == "deployment":
             await _process_deployment_event(payload)
+        elif verified and payload.get("object_kind") == "pipeline":
+            await _process_pipeline_event(payload)
 
         return {"delivery_id": delivery_id, "event_type": event_type, "verified": True, "payload": payload}
 
@@ -148,6 +159,67 @@ async def _process_deployment_event(payload: Dict[str, Any]) -> None:
     }
 
     await _check_deploy_regression(ctx)
+
+
+async def _process_pipeline_event(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Translate a GitLab "Pipeline Hook" payload and hand it to the
+    shared, provider-agnostic flaky-test state machine
+    (enterprise_flaky_test_detector.handle_ci_completion).
+    """
+    from backend.services.enterprise_flaky_test_detector import handle_ci_completion
+
+    project = payload.get("project", {})
+    repo_full_name = project.get("path_with_namespace", "")
+    project_id = project.get("id")
+    attrs = payload.get("object_attributes", {})
+    pipeline_id = attrs.get("id")
+    status = attrs.get("status", "")
+
+    if not repo_full_name or not project_id or not pipeline_id:
+        return None
+
+    conclusion = {"success": "success", "failed": "failure"}.get(status, status)
+    if conclusion not in ("success", "failure"):
+        return None
+
+    workflow_name = "pipeline"  # see module docstring — GitLab pipelines aren't named like GitHub workflows
+    run_key = f"gl:{repo_full_name}:{pipeline_id}"
+    ctx = {
+        "source": "gitlab_webhook",
+        "event_type": "pipeline",
+        "timestamp": _now(),
+        "repo_full_name": repo_full_name,
+        "pipeline_id": pipeline_id,
+    }
+
+    def _gitlab_connector():
+        from backend.connectors.registry import connector_registry
+        return connector_registry.get("gitlab_ci")
+
+    async def trigger_retry() -> bool:
+        gl = _gitlab_connector()
+        if gl is None:
+            return False
+        await gl.retry_pipeline(project_id, pipeline_id)
+        return True
+
+    async def fetch_evidence() -> List[Dict[str, Any]]:
+        gl = _gitlab_connector()
+        if gl is None:
+            return []
+        jobs = await gl.list_jobs(project_id, pipeline_id)
+        return [
+            {
+                "attempt": 1,
+                "job_name": job.get("name", "unknown"),
+                "conclusion": {"success": "success", "failed": "failure"}.get(job.get("status"), job.get("status", "unknown")),
+                "failed_steps": [],  # GitLab jobs have no per-step breakdown, unlike GitHub Actions
+            }
+            for job in jobs
+            if job.get("status") in ("success", "failed")
+        ]
+
+    return await handle_ci_completion(repo_full_name, workflow_name, run_key, conclusion, ctx, trigger_retry, fetch_evidence)
 
 
 gitlab_webhook_receiver = GitLabWebhookReceiver()

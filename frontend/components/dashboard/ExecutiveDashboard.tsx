@@ -7,7 +7,7 @@ import { Bot, ClipboardCheck, Plus, ShieldCheck, Sparkles, Target } from "lucide
 import { cn } from "@/utils/cn";
 import { stagger, variants } from "@/lib/motion-tokens";
 import type { StatusTone } from "@/components/dashboard/data";
-import { useDashboardOverview, useDashboardHealth, useDashboardResources, useDashboardTimeline, useDashboardAgents, useDashboardEvents, useDashboardHeader, useDashboardWebSocket, useDashboardDeployChecks } from "@/hooks";
+import { useDashboardOverview, useDashboardHealth, useDashboardResources, useDashboardTimeline, useDashboardAgents, useDashboardEvents, useDashboardHeader, useDashboardWebSocket, useDashboardDeployChecks, useDashboardFlakyTests } from "@/hooks";
 
 import { Sidebar } from "./Sidebar";
 import { ExecutiveHeader } from "./ExecutiveHeader";
@@ -18,6 +18,7 @@ import { SystemHealthPanel } from "./SystemHealthPanel";
 import { EventFeed } from "./EventFeed";
 import { ResourceUsage } from "./ResourceUsage";
 import { DeployRegressionsPanel } from "./DeployRegressionsPanel";
+import { FlakyTestsPanel } from "./FlakyTestsPanel";
 
 export default function ExecutiveDashboard() {
   const [collapsed, setCollapsed] = useState(false);
@@ -29,6 +30,7 @@ export default function ExecutiveDashboard() {
   const { data: events, isLoading: isEventsLoading } = useDashboardEvents();
   const { data: header } = useDashboardHeader();
   const { data: deployChecks, isLoading: isDeployChecksLoading } = useDashboardDeployChecks();
+  const { data: flakyTests, isLoading: isFlakyTestsLoading } = useDashboardFlakyTests();
 
   useDashboardWebSocket();
 
@@ -129,9 +131,10 @@ export default function ExecutiveDashboard() {
               <ResourceUsage items={resources?.resources} />
             </motion.div>
 
-            {/* Deploy Regressions */}
-            <motion.div variants={stagger(0.05)} className="grid gap-5 lg:grid-cols-1">
+            {/* Deploy Regressions + Flaky CI */}
+            <motion.div variants={stagger(0.05)} className="grid gap-5 lg:grid-cols-2">
               <DeployRegressionsPanel pending={deployChecks?.pending} recent={deployChecks?.recent} isLoading={isDeployChecksLoading} />
+              <FlakyTestsPanel pending={flakyTests?.pending} recent={flakyTests?.recent} isLoading={isFlakyTestsLoading} />
             </motion.div>
 
             {/* Footer */}

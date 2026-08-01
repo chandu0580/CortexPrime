@@ -960,6 +960,54 @@ async def recover_pending_deploy_checks() -> int:
     return recovered
 
 
+async def _check_flaky_test(ctx: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Entry point for the flaky-test detector's provider-agnostic state
+    machine (backend.services.enterprise_flaky_test_detector) from a
+    GitHub "workflow_run" completed webhook.
+
+    Only reacts to status == "completed" — the same event fires for
+    queued/in_progress too, neither of which has a conclusion yet.
+    """
+    from backend.services.enterprise_flaky_test_detector import handle_ci_completion
+
+    if ctx.get("workflow_status") != "completed":
+        return None
+
+    service = ctx.get("repo_full_name", "")
+    workflow_name = ctx.get("workflow_name", "")
+    run_id = ctx.get("workflow_run_id")
+    conclusion = ctx.get("workflow_conclusion") or ""
+    if not service or not workflow_name or not run_id:
+        return None
+
+    parts = service.split("/", 1)
+    if len(parts) != 2:
+        return None
+    owner, repo = parts
+    run_key = f"gh:{service}:{run_id}"
+
+    async def trigger_retry() -> bool:
+        gh = await _get_gh()
+        return await gh.rerun_failed_jobs(owner, repo, int(run_id))
+
+    async def fetch_evidence() -> List[Dict[str, Any]]:
+        gh = await _get_gh()
+        jobs = await gh.list_jobs_for_run(owner, repo, int(run_id), params={"filter": "all"})
+        return [
+            {
+                "attempt": job.get("run_attempt", 1),
+                "job_name": job.get("name", "unknown"),
+                "conclusion": job.get("conclusion", "unknown"),
+                "failed_steps": [
+                    s.get("name", "") for s in job.get("steps", []) if s.get("conclusion") == "failure"
+                ],
+            }
+            for job in jobs
+        ]
+
+    return await handle_ci_completion(service, workflow_name, run_key, conclusion, ctx, trigger_retry, fetch_evidence)
+
+
 async def _wire_to_engineering_executive(event_type: str, ctx: Dict[str, Any]) -> None:
     try:
         from backend.services.enterprise_engineering_executive import get_engineering_executive
@@ -1077,6 +1125,8 @@ class GithubIntegration:
             await _update_knowledge_graph("github_workflow_run", f"{repo_full}/{run_id}", ctx)
             await _notify_learning(internal_type, ctx)
             await _record_analytics("github.workflow_run", 1)
+            if ctx.get("workflow_status") == "completed":
+                await _check_flaky_test(ctx)
 
         elif event_type == "release" and owner and repo_name:
             tag = ctx.get("release_tag", "")

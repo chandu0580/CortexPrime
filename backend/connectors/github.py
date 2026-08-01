@@ -382,6 +382,26 @@ class GitHubConnector(BaseConnector):
         except Exception:
             return False
 
+    async def rerun_failed_jobs(self, owner: str, repo: str, run_id: int) -> bool:
+        """Re-run only the jobs that failed in this run, not the whole
+        workflow — this is what actually distinguishes "flaky" from "still
+        broken": if a job passes on a real re-run with no code change, it
+        wasn't a real failure."""
+        try:
+            await self._execute("rerun_failed_jobs", "workflows", self._request, "POST", f"/repos/{owner}/{repo}/actions/runs/{run_id}/rerun-failed-jobs")
+            return True
+        except Exception:
+            return False
+
+    async def list_jobs_for_run(self, owner: str, repo: str, run_id: int, **kwargs) -> List[Dict[str, Any]]:
+        params = {"per_page": 100, **kwargs.get("params", {})}
+        result = await self._execute("list_jobs_for_run", "workflows", self._request_list_paginated, "GET", f"/repos/{owner}/{repo}/actions/runs/{run_id}/jobs", params)
+        if isinstance(result, list):
+            return result
+        if isinstance(result, dict):
+            return result.get("jobs", [result])
+        return []
+
     # ------------------------------------------------------------------
     # Events API
     # ------------------------------------------------------------------
