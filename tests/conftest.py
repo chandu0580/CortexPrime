@@ -2,6 +2,8 @@
 pytest configuration for CortexPrime integration tests.
 """
 import os
+import tempfile
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -16,3 +18,22 @@ patch("openai.AzureOpenAI").start()
 
 # Use asyncio event loop for all async tests in this test suite
 pytest_plugins = ["pytest_asyncio"]
+
+
+@pytest.fixture(autouse=True)
+def _isolate_alert_correlator_store():
+    # enterprise_alert_correlator sits between three detectors (deploy-
+    # regression, flaky-test, rollback) and its own real, file-backed
+    # incident_history_store singleton persists across the whole test
+    # session. Without this, whichever test happens to run first for a
+    # given service name "wins" the real incident, and every later test
+    # using the same service (in this file or any other) gets routed down
+    # the "duplicate signal" path instead of the fresh-signal path it
+    # actually expects — non-deterministic depending on collection order.
+    # Global, not per-file, because the correlator is cross-cutting by
+    # design: any future detector wired into it inherits this same risk.
+    from backend.services.enterprise_alert_correlator import IncidentHistoryStore
+    with tempfile.TemporaryDirectory() as tmpdir:
+        test_store = IncidentHistoryStore(file_path=Path(tmpdir) / "incidents.json")
+        with patch("backend.services.enterprise_alert_correlator.incident_history_store", test_store):
+            yield

@@ -119,6 +119,11 @@ class JiraConnector(BaseConnector):
     async def complete_sprint(self, sprint_id: str, **kwargs) -> Dict[str, Any]:
         return await self._execute("complete_sprint", "sprints", self._request, "POST", f"/rest/agile/1.0/sprint/{sprint_id}", json={"state": "closed"})
 
+    async def add_comment(self, issue_key: str, body: str) -> Dict[str, Any]:
+        return await self._execute("add_comment", "issues", self._request, "POST", f"/rest/api/3/issue/{issue_key}/comment", json={
+            "body": self._build_description_doc(body),
+        })
+
     # ------------------------------------------------------------------
     # Internal HTTP helpers with retry + error handling
     # ------------------------------------------------------------------

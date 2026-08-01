@@ -861,6 +861,7 @@ async def _run_deploy_regression_check(
 
     try:
         from backend.connectors.registry import connector_registry
+        from backend.services.enterprise_alert_correlator import correlate_and_report
         from backend.services.enterprise_deploy_incident_reporter import report_incident
         from backend.services.enterprise_deploy_regression_detector import DeployRegressionDetector
         from backend.services.enterprise_deploy_rollback_executor import trigger_rollback
@@ -876,9 +877,15 @@ async def _run_deploy_regression_check(
                 "Deploy regression detected: %s (deployment %s) — %s",
                 service, deployment_id, "; ".join(verdict.reasons),
             )
-            issue = await report_incident(verdict, ctx)
+            issue = await correlate_and_report(
+                source="deploy_regression",
+                service=service,
+                summary="; ".join(verdict.reasons) or "Deploy regression detected",
+                reporter=lambda: report_incident(verdict, ctx),
+                severity="critical",
+            )
             if issue:
-                ticket_key = issue.get("key")
+                ticket_key = issue.get("key") or issue.get("ticket_key")
                 log.warning("Filed ticket %s for %s", ticket_key or issue, service)
             try:
                 await trigger_rollback(verdict, ctx, ticket_key=ticket_key)

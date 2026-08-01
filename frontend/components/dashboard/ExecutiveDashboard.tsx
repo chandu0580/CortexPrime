@@ -7,7 +7,7 @@ import { Bot, ClipboardCheck, Plus, ShieldCheck, Sparkles, Target } from "lucide
 import { cn } from "@/utils/cn";
 import { stagger, variants } from "@/lib/motion-tokens";
 import type { StatusTone } from "@/components/dashboard/data";
-import { useDashboardOverview, useDashboardHealth, useDashboardResources, useDashboardTimeline, useDashboardAgents, useDashboardEvents, useDashboardHeader, useDashboardWebSocket, useDashboardDeployChecks, useDashboardFlakyTests, useDashboardRollbacks } from "@/hooks";
+import { useDashboardOverview, useDashboardHealth, useDashboardResources, useDashboardTimeline, useDashboardAgents, useDashboardEvents, useDashboardHeader, useDashboardWebSocket, useDashboardDeployChecks, useDashboardFlakyTests, useDashboardRollbacks, useDashboardIncidents } from "@/hooks";
 
 import { Sidebar } from "./Sidebar";
 import { ExecutiveHeader } from "./ExecutiveHeader";
@@ -20,6 +20,7 @@ import { ResourceUsage } from "./ResourceUsage";
 import { DeployRegressionsPanel } from "./DeployRegressionsPanel";
 import { FlakyTestsPanel } from "./FlakyTestsPanel";
 import { RollbackHistoryPanel } from "./RollbackHistoryPanel";
+import { IncidentsPanel } from "./IncidentsPanel";
 
 export default function ExecutiveDashboard() {
   const [collapsed, setCollapsed] = useState(false);
@@ -33,6 +34,7 @@ export default function ExecutiveDashboard() {
   const { data: deployChecks, isLoading: isDeployChecksLoading } = useDashboardDeployChecks();
   const { data: flakyTests, isLoading: isFlakyTestsLoading } = useDashboardFlakyTests();
   const { data: rollbacks, isLoading: isRollbacksLoading } = useDashboardRollbacks();
+  const { data: incidents, isLoading: isIncidentsLoading } = useDashboardIncidents();
 
   useDashboardWebSocket();
 
@@ -138,6 +140,11 @@ export default function ExecutiveDashboard() {
               <DeployRegressionsPanel pending={deployChecks?.pending} recent={deployChecks?.recent} isLoading={isDeployChecksLoading} />
               <FlakyTestsPanel pending={flakyTests?.pending} recent={flakyTests?.recent} isLoading={isFlakyTestsLoading} />
               <RollbackHistoryPanel recent={rollbacks?.recent} isLoading={isRollbacksLoading} />
+            </motion.div>
+
+            {/* Correlated Incidents */}
+            <motion.div variants={stagger(0.05)} className="grid gap-5 lg:grid-cols-1">
+              <IncidentsPanel recent={incidents?.recent} isLoading={isIncidentsLoading} />
             </motion.div>
 
             {/* Footer */}

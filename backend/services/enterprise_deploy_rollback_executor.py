@@ -145,7 +145,7 @@ async def trigger_rollback(verdict: RegressionVerdict, ctx: Dict[str, Any], tick
             verdict.service, verdict.deployment_id, result.get("error"),
         )
 
-    return rollback_history_store.record(
+    recorded = rollback_history_store.record(
         provider=provider,
         service=verdict.service,
         environment=ctx.get("environment") or "production",
@@ -158,3 +158,16 @@ async def trigger_rollback(verdict: RegressionVerdict, ctx: Dict[str, Any], tick
         ticket_key=ticket_key,
         error=result.get("error"),
     )
+
+    try:
+        from backend.services.enterprise_alert_correlator import attach_signal
+        summary = (
+            f"Rollback to {result.get('target_sha')} triggered" if result.get("triggered")
+            else f"Rollback not triggered: {result.get('error')}"
+        )
+        await attach_signal(source="rollback", service=verdict.service, summary=summary,
+                             severity="info" if result.get("triggered") else "warning")
+    except Exception as exc:
+        log.debug("Incident signal attach skipped for %s: %s", verdict.service, exc)
+
+    return recorded

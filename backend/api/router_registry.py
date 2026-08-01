@@ -886,6 +886,15 @@ def register_all_routers(app: FastAPI) -> Dict[str, bool]:
         log.warning(f"Enterprise Deploy Rollback Automation routes unavailable: {_erb_err}")
 
     try:
+        from backend.api.enterprise_incidents_routes import router as enterprise_incidents_router
+        app.include_router(enterprise_incidents_router)
+        log.info("Enterprise Alert Incident Correlation routes registered at /api/incidents")
+        availability["enterprise_incidents"] = True
+    except Exception as _einc_err:
+        availability["enterprise_incidents"] = False
+        log.warning(f"Enterprise Alert Incident Correlation routes unavailable: {_einc_err}")
+
+    try:
         from backend.api.enterprise_cicd_routes import router as enterprise_cicd_router
         app.include_router(enterprise_cicd_router)
         log.info("Enterprise CI/CD Intelligence routes registered at /api/cicd")

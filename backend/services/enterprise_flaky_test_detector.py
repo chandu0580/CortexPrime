@@ -252,12 +252,20 @@ async def handle_ci_completion(
             evidence_summary = summarize_evidence(attempt_jobs)
             recorded = hstore.record(service, workflow_name, run_key, evidence_summary)
             if crosses_flaky_threshold(service, workflow_name, history_store=hstore):
+                from backend.services.enterprise_alert_correlator import correlate_and_report
                 from backend.services.enterprise_flaky_test_incident_reporter import report_flaky_incident
-                issue = await report_flaky_incident(
-                    service, workflow_name, evidence_summary, attempt_jobs, history_store=hstore,
+                issue = await correlate_and_report(
+                    source="flaky_test",
+                    service=service,
+                    summary=f"{workflow_name}: {evidence_summary.splitlines()[0] if evidence_summary else 'flaky test confirmed'}",
+                    reporter=lambda: report_flaky_incident(
+                        service, workflow_name, evidence_summary, attempt_jobs, history_store=hstore,
+                    ),
+                    severity="warning",
                 )
-                if issue and issue.get("key"):
-                    hstore.update_ticket_key(recorded["history_id"], issue["key"])
+                ticket_key = issue.get("key") or issue.get("ticket_key") if issue else None
+                if ticket_key:
+                    hstore.update_ticket_key(recorded["history_id"], ticket_key)
                 return issue
         # conclusion == "failure" again -> real failure, not flaky. Nothing
         # further to do; the existing CI-failure process owns it.
