@@ -15,12 +15,18 @@ Wired from: backend.services.enterprise_github_integration._check_deploy_regress
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, Dict, Optional
 
 from backend.services.enterprise_deploy_regression_detector import RegressionVerdict
 
 log = logging.getLogger(__name__)
 
+# "OPS" was a placeholder project key that doesn't exist in every Jira
+# instance — real instances have whatever project(s) their org actually
+# created. Configurable per-deployment rather than hardcoded.
+DEPLOY_JIRA_PROJECT_KEY_ENV = "DEPLOY_JIRA_PROJECT_KEY"
+DEPLOY_JIRA_ISSUE_TYPE_ENV = "DEPLOY_JIRA_ISSUE_TYPE"
 DEFAULT_JIRA_PROJECT_KEY = "OPS"
 DEFAULT_ISSUE_TYPE = "Bug"
 
@@ -105,8 +111,8 @@ async def report_incident(verdict: RegressionVerdict, ctx: Dict[str, Any]) -> Op
 
     try:
         issue = await jira.create_issue(
-            project_key=DEFAULT_JIRA_PROJECT_KEY,
-            issue_type=DEFAULT_ISSUE_TYPE,
+            project_key=os.getenv(DEPLOY_JIRA_PROJECT_KEY_ENV, DEFAULT_JIRA_PROJECT_KEY),
+            issue_type=os.getenv(DEPLOY_JIRA_ISSUE_TYPE_ENV, DEFAULT_ISSUE_TYPE),
             title=title,
             description=description,
         )
