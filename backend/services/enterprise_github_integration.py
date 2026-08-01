@@ -863,6 +863,7 @@ async def _run_deploy_regression_check(
         from backend.connectors.registry import connector_registry
         from backend.services.enterprise_deploy_incident_reporter import report_incident
         from backend.services.enterprise_deploy_regression_detector import DeployRegressionDetector
+        from backend.services.enterprise_deploy_rollback_executor import trigger_rollback
 
         if delay_seconds > 0:
             await asyncio.sleep(delay_seconds)
@@ -879,6 +880,10 @@ async def _run_deploy_regression_check(
             if issue:
                 ticket_key = issue.get("key")
                 log.warning("Filed ticket %s for %s", ticket_key or issue, service)
+            try:
+                await trigger_rollback(verdict, ctx, ticket_key=ticket_key)
+            except Exception as exc:
+                log.warning("Rollback trigger skipped for %s: %s", service, exc)
         else:
             log.info("Deploy clean: %s (deployment %s)", service, deployment_id)
         deploy_check_history_store.record(check_id, service, deployment_id, verdict.regressed, verdict.reasons, ticket_key)

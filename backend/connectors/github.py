@@ -242,6 +242,21 @@ class GitHubConnector(BaseConnector):
     async def get_deployment(self, owner: str, repo: str, deployment_id: int) -> Dict[str, Any]:
         return await self._execute("get_deployment", "deployments", self._request, "GET", f"/repos/{owner}/{repo}/deployments/{deployment_id}")
 
+    async def get_last_successful_deployment(self, owner: str, repo: str, environment: str, before_deployment_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
+        """Walk deployments for an environment (newest first) and return the most
+        recent one with a "success" status, excluding before_deployment_id itself.
+        Used to find the rollback target when a regression is confirmed."""
+        deployments = await self.list_deployments(owner, repo, environment=environment)
+        deployments = sorted(deployments, key=lambda d: d.get("created_at") or "", reverse=True)
+        for deployment in deployments:
+            deployment_id = deployment.get("id")
+            if before_deployment_id is not None and deployment_id == before_deployment_id:
+                continue
+            statuses = await self.list_deployment_statuses(owner, repo, deployment_id)
+            if any(s.get("state") == "success" for s in statuses):
+                return deployment
+        return None
+
     # ------------------------------------------------------------------
     # Commits API
     # ------------------------------------------------------------------

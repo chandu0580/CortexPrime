@@ -7,7 +7,7 @@ import { Bot, ClipboardCheck, Plus, ShieldCheck, Sparkles, Target } from "lucide
 import { cn } from "@/utils/cn";
 import { stagger, variants } from "@/lib/motion-tokens";
 import type { StatusTone } from "@/components/dashboard/data";
-import { useDashboardOverview, useDashboardHealth, useDashboardResources, useDashboardTimeline, useDashboardAgents, useDashboardEvents, useDashboardHeader, useDashboardWebSocket, useDashboardDeployChecks, useDashboardFlakyTests } from "@/hooks";
+import { useDashboardOverview, useDashboardHealth, useDashboardResources, useDashboardTimeline, useDashboardAgents, useDashboardEvents, useDashboardHeader, useDashboardWebSocket, useDashboardDeployChecks, useDashboardFlakyTests, useDashboardRollbacks } from "@/hooks";
 
 import { Sidebar } from "./Sidebar";
 import { ExecutiveHeader } from "./ExecutiveHeader";
@@ -19,6 +19,7 @@ import { EventFeed } from "./EventFeed";
 import { ResourceUsage } from "./ResourceUsage";
 import { DeployRegressionsPanel } from "./DeployRegressionsPanel";
 import { FlakyTestsPanel } from "./FlakyTestsPanel";
+import { RollbackHistoryPanel } from "./RollbackHistoryPanel";
 
 export default function ExecutiveDashboard() {
   const [collapsed, setCollapsed] = useState(false);
@@ -31,6 +32,7 @@ export default function ExecutiveDashboard() {
   const { data: header } = useDashboardHeader();
   const { data: deployChecks, isLoading: isDeployChecksLoading } = useDashboardDeployChecks();
   const { data: flakyTests, isLoading: isFlakyTestsLoading } = useDashboardFlakyTests();
+  const { data: rollbacks, isLoading: isRollbacksLoading } = useDashboardRollbacks();
 
   useDashboardWebSocket();
 
@@ -131,10 +133,11 @@ export default function ExecutiveDashboard() {
               <ResourceUsage items={resources?.resources} />
             </motion.div>
 
-            {/* Deploy Regressions + Flaky CI */}
-            <motion.div variants={stagger(0.05)} className="grid gap-5 lg:grid-cols-2">
+            {/* Deploy Regressions + Flaky CI + Automated Rollbacks */}
+            <motion.div variants={stagger(0.05)} className="grid gap-5 lg:grid-cols-3">
               <DeployRegressionsPanel pending={deployChecks?.pending} recent={deployChecks?.recent} isLoading={isDeployChecksLoading} />
               <FlakyTestsPanel pending={flakyTests?.pending} recent={flakyTests?.recent} isLoading={isFlakyTestsLoading} />
+              <RollbackHistoryPanel recent={rollbacks?.recent} isLoading={isRollbacksLoading} />
             </motion.div>
 
             {/* Footer */}

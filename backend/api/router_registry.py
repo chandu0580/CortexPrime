@@ -877,6 +877,15 @@ def register_all_routers(app: FastAPI) -> Dict[str, bool]:
         log.warning(f"Enterprise Flaky Test Detection routes unavailable: {_eft_err}")
 
     try:
+        from backend.api.enterprise_rollbacks_routes import router as enterprise_rollbacks_router
+        app.include_router(enterprise_rollbacks_router)
+        log.info("Enterprise Deploy Rollback Automation routes registered at /api/rollbacks")
+        availability["enterprise_rollbacks"] = True
+    except Exception as _erb_err:
+        availability["enterprise_rollbacks"] = False
+        log.warning(f"Enterprise Deploy Rollback Automation routes unavailable: {_erb_err}")
+
+    try:
         from backend.api.enterprise_cicd_routes import router as enterprise_cicd_router
         app.include_router(enterprise_cicd_router)
         log.info("Enterprise CI/CD Intelligence routes registered at /api/cicd")

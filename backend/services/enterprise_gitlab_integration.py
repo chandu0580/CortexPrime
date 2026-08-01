@@ -149,6 +149,7 @@ async def _process_deployment_event(payload: Dict[str, Any]) -> None:
         "timestamp": _now(),
         "repo_url": payload.get("project", {}).get("web_url", ""),
         "repo_full_name": repo_full_name,
+        "project_id": payload.get("project", {}).get("id"),
         "sender": payload.get("user", {}).get("username", ""),
         "deployment_id": deployment_id,
         "environment": payload.get("environment", ""),

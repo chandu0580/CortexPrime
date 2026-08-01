@@ -156,6 +156,25 @@ class GitLabCIConnector(BaseConnector):
     async def cancel_pipeline(self, project_id: int, pipeline_id: int) -> Dict[str, Any]:
         return await self._execute("cancel_pipeline", "pipelines", self._request, "POST", f"/projects/{project_id}/pipelines/{pipeline_id}/cancel")
 
+    # ---- Deployments ----
+
+    async def list_deployments(self, project_id: int, environment: Optional[str] = None, **kwargs) -> List[Dict[str, Any]]:
+        params = {"per_page": 100, "order_by": "finished_at", "sort": "desc", **kwargs}
+        if environment:
+            params["environment"] = environment
+        return await self._execute("list_deployments", "deployments", self._request_list, "GET", f"/projects/{project_id}/deployments", params=params)
+
+    async def get_last_successful_deployment(self, project_id: int, environment: str, before_deployment_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
+        """Most recent successful deployment for an environment, excluding
+        before_deployment_id itself. Used to find the rollback target when a
+        regression is confirmed."""
+        deployments = await self.list_deployments(project_id, environment=environment, status="success")
+        for deployment in deployments:
+            if before_deployment_id is not None and deployment.get("id") == before_deployment_id:
+                continue
+            return deployment
+        return None
+
     # ---- Jobs ----
 
     async def list_jobs(self, project_id: int, pipeline_id: int, **kwargs) -> List[Dict[str, Any]]:
