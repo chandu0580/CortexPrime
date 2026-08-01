@@ -62,34 +62,70 @@ def build_prompt(verdict: RegressionVerdict, diff_summary: str) -> str:
     )
 
 
-async def generate_hypothesis(verdict: RegressionVerdict, ctx: Dict[str, Any]) -> Optional[str]:
-    """Return an LLM-generated root-cause hypothesis grounded in the actual
-    deployed diff, or None if the commit/diff couldn't be fetched or the
-    LLM call failed. Never raises — this is a best-effort enrichment, not
-    a required step in filing an incident.
-    """
-    if not verdict.regressed:
-        return None
-
+async def _fetch_github_diff_summary(verdict: RegressionVerdict, ctx: Dict[str, Any]) -> Optional[str]:
     repo_full_name = ctx.get("repo_full_name", "")
     if "/" not in repo_full_name:
         return None
     owner, repo = repo_full_name.split("/", 1)
 
+    from backend.connectors.registry import connector_registry
+
+    gh = connector_registry.get("github")
+    if gh is None:
+        return None
+
+    deployment = await gh.get_deployment(owner, repo, int(verdict.deployment_id))
+    sha = deployment.get("sha", "")
+    if not sha:
+        return None
+
+    commit = await gh.get_commit(owner, repo, sha)
+    return _build_diff_summary(commit)
+
+
+async def _fetch_gitlab_diff_summary(verdict: RegressionVerdict, ctx: Dict[str, Any]) -> Optional[str]:
+    repo_full_name = ctx.get("repo_full_name", "")
+    sha = ctx.get("commit_sha", "")
+    if not repo_full_name or not sha:
+        return None
+
+    from urllib.parse import quote
+
+    from backend.connectors.registry import connector_registry
+
+    gl = connector_registry.get("gitlab_ci")
+    if gl is None:
+        return None
+
+    project_id = quote(repo_full_name, safe="")
+    commit = await gl.get_commit_with_diff(project_id, sha)
+    return _build_diff_summary(commit)
+
+
+_DIFF_FETCHERS = {
+    "gitlab_webhook": _fetch_gitlab_diff_summary,
+}
+
+
+async def generate_hypothesis(verdict: RegressionVerdict, ctx: Dict[str, Any]) -> Optional[str]:
+    """Return an LLM-generated root-cause hypothesis grounded in the actual
+    deployed diff, or None if the commit/diff couldn't be fetched or the
+    LLM call failed. Never raises — this is a best-effort enrichment, not
+    a required step in filing an incident.
+
+    Which connector fetches the diff depends on ctx["source"] (set by
+    whichever webhook receiver produced this ctx) — defaults to GitHub,
+    since that's the only source before GitLab CI support was added.
+    """
+    if not verdict.regressed:
+        return None
+
+    fetch_diff_summary = _DIFF_FETCHERS.get(ctx.get("source", ""), _fetch_github_diff_summary)
+
     try:
-        from backend.connectors.registry import connector_registry
-
-        gh = connector_registry.get("github")
-        if gh is None:
+        diff_summary = await fetch_diff_summary(verdict, ctx)
+        if not diff_summary:
             return None
-
-        deployment = await gh.get_deployment(owner, repo, int(verdict.deployment_id))
-        sha = deployment.get("sha", "")
-        if not sha:
-            return None
-
-        commit = await gh.get_commit(owner, repo, sha)
-        diff_summary = _build_diff_summary(commit)
     except Exception as exc:
         log.debug("Root cause reasoning: could not fetch commit diff for %s: %s", verdict.service, exc)
         return None

@@ -12,16 +12,17 @@ rather than building a parallel one.
 Wired from: POST /api/gitlab/webhook, on a "deployment" event whose
 status is "success".
 
-GitLab's webhook model differs from GitHub's in two ways worth noting:
-  - Signing: a plain shared-secret string sent verbatim in the
-    X-Gitlab-Token header (constant-time compared), not an HMAC signature
-    — GitLab does send the secret itself, unlike GitHub's proof-of-knowledge
-    scheme, so this must never be logged or echoed back.
-  - Root-cause reasoning (backend.services.enterprise_deploy_root_cause_reasoner)
-    fetches the deployed diff via the GitHub connector specifically, so it
-    has nothing to fetch for a GitLab-sourced deployment and returns None —
-    detection and ticketing still run fully; only the LLM hypothesis step
-    is unavailable until a GitLab-diff path is added.
+GitLab's webhook model differs from GitHub's in one way worth noting:
+Signing is a plain shared-secret string sent verbatim in the
+X-Gitlab-Token header (constant-time compared), not an HMAC signature —
+GitLab does send the secret itself, unlike GitHub's proof-of-knowledge
+scheme, so this must never be logged or echoed back.
+
+Root-cause reasoning (backend.services.enterprise_deploy_root_cause_reasoner)
+dispatches its diff-fetch by ctx["source"], so a gitlab_webhook-sourced ctx
+fetches via GitLabCIConnector.get_commit_with_diff (backend/connectors/gitlab_ci.py)
+instead of GitHub's connector — full parity with the GitHub path, not a
+degraded fallback.
 """
 from __future__ import annotations
 
@@ -143,6 +144,7 @@ async def _process_deployment_event(payload: Dict[str, Any]) -> None:
         "deployment_state": status,
         "deployment_description": payload.get("commit_title", ""),
         "deployment_log_url": payload.get("deployable_url", ""),
+        "commit_sha": payload.get("short_sha", ""),
     }
 
     await _check_deploy_regression(ctx)

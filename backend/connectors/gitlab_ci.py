@@ -216,6 +216,48 @@ class GitLabCIConnector(BaseConnector):
     async def enable_project_runner(self, project_id: int, runner_id: int) -> Dict[str, Any]:
         return await self._execute("enable_project_runner", "runners", self._request, "POST", f"/projects/{project_id}/runners", json={"runner_id": runner_id})
 
+    # ---- Repository (commits/diffs) ----
+
+    async def get_commit(self, project_id: str, sha: str) -> Dict[str, Any]:
+        """Raw GitLab commit metadata. project_id accepts either a numeric ID
+        or a URL-encoded path_with_namespace (GitLab's API treats both as
+        valid :id values)."""
+        return await self._execute("get_commit", "repository", self._request, "GET", f"/projects/{project_id}/repository/commits/{sha}")
+
+    async def get_commit_diff(self, project_id: str, sha: str) -> List[Dict[str, Any]]:
+        """Raw GitLab per-file diff list for a commit."""
+        return await self._execute("get_commit_diff", "repository", self._request_list, "GET", f"/projects/{project_id}/repository/commits/{sha}/diff")
+
+    async def get_commit_with_diff(self, project_id: str, sha: str) -> Dict[str, Any]:
+        """Commit message + diff, normalized into the same shape
+        enterprise_deploy_root_cause_reasoner._build_diff_summary already
+        expects from GitHub (commit.commit.message / commit.files[].{filename,status,patch}),
+        so that function stays provider-agnostic instead of forking per source.
+        """
+        commit = await self.get_commit(project_id, sha)
+        diff = await self.get_commit_diff(project_id, sha)
+
+        def _status(f: Dict[str, Any]) -> str:
+            if f.get("new_file"):
+                return "added"
+            if f.get("deleted_file"):
+                return "removed"
+            if f.get("renamed_file"):
+                return "renamed"
+            return "modified"
+
+        return {
+            "commit": {"message": commit.get("message", "")},
+            "files": [
+                {
+                    "filename": f.get("new_path") or f.get("old_path") or "unknown",
+                    "status": _status(f),
+                    "patch": f.get("diff", ""),
+                }
+                for f in diff
+            ],
+        }
+
     # ---- Merge Request Pipelines ----
 
     async def list_merge_request_pipelines(self, project_id: int, mr_iid: int) -> List[Dict[str, Any]]:

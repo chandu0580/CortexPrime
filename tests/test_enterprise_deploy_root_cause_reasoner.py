@@ -130,3 +130,55 @@ class TestGenerateHypothesis:
         with patch("backend.connectors.registry.connector_registry.get", return_value=fake_gh), \
              patch("backend.llm.llm_router.llm_router.route", new=AsyncMock(side_effect=RuntimeError("boom"))):
             assert await generate_hypothesis(_verdict(), _ctx()) is None
+
+
+def _gitlab_ctx() -> dict:
+    return {"source": "gitlab_webhook", "repo_full_name": "group/checkout-service", "commit_sha": "abc123"}
+
+
+@pytest.mark.asyncio
+class TestGenerateHypothesisGitLabSource:
+    """ctx["source"] == "gitlab_webhook" must route through the GitLab
+    connector instead of GitHub's — this is the whole point of having a
+    per-source dispatch table rather than a single hardcoded GitHub path."""
+
+    async def test_uses_gitlab_connector_not_github(self):
+        fake_gl = MagicMock()
+        fake_gl.get_commit_with_diff = AsyncMock(return_value=_commit(message="fix: batch query"))
+        fake_gh = MagicMock()  # must never be touched for a gitlab_webhook ctx
+
+        def _get(name):
+            return {"gitlab_ci": fake_gl, "github": fake_gh}.get(name)
+
+        fake_result = MagicMock(success=True, output="Batching likely explains it.")
+        with patch("backend.connectors.registry.connector_registry.get", side_effect=_get), \
+             patch("backend.llm.llm_router.llm_router.route", new=AsyncMock(return_value=fake_result)):
+            hypothesis = await generate_hypothesis(_verdict(), _gitlab_ctx())
+
+        assert hypothesis == "Batching likely explains it."
+        fake_gl.get_commit_with_diff.assert_awaited_once()
+        fake_gh.get_deployment.assert_not_called()
+
+    async def test_url_encodes_repo_full_name_as_project_id(self):
+        fake_gl = MagicMock()
+        fake_gl.get_commit_with_diff = AsyncMock(return_value=_commit())
+        fake_result = MagicMock(success=True, output="hypothesis")
+        with patch("backend.connectors.registry.connector_registry.get", return_value=fake_gl), \
+             patch("backend.llm.llm_router.llm_router.route", new=AsyncMock(return_value=fake_result)):
+            await generate_hypothesis(_verdict(), _gitlab_ctx())
+
+        fake_gl.get_commit_with_diff.assert_awaited_once_with("group%2Fcheckout-service", "abc123")
+
+    async def test_returns_none_when_commit_sha_missing(self):
+        ctx = {"source": "gitlab_webhook", "repo_full_name": "group/checkout-service"}
+        assert await generate_hypothesis(_verdict(), ctx) is None
+
+    async def test_returns_none_when_gitlab_connector_missing(self):
+        with patch("backend.connectors.registry.connector_registry.get", return_value=None):
+            assert await generate_hypothesis(_verdict(), _gitlab_ctx()) is None
+
+    async def test_returns_none_when_gitlab_diff_fetch_raises(self):
+        fake_gl = MagicMock()
+        fake_gl.get_commit_with_diff = AsyncMock(side_effect=RuntimeError("404"))
+        with patch("backend.connectors.registry.connector_registry.get", return_value=fake_gl):
+            assert await generate_hypothesis(_verdict(), _gitlab_ctx()) is None
