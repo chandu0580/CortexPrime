@@ -21,7 +21,7 @@ from backend.connectors.base import BaseConnector
 
 log = logging.getLogger(__name__)
 
-_GRAFANA_DEFAULT_URL = "http://localhost:3000"
+_GRAFANA_DEFAULT_URL = "http://localhost:3001"  # matches docker-compose.yml's host mapping (container's :3000 -> host :3001, since :3000 is the frontend dev server)
 _GRAFANA_TIMEOUT = 30.0
 
 
