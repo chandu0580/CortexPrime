@@ -7,10 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.database.engine import AsyncSessionLocal
 from backend.database.repositories.agents import AgentConfigRepository, AgentStateRepository
 from backend.database.repositories.billing import InvoiceRepository, UsageRecordRepository
-from backend.database.repositories.connectors import (
-    ConnectorActivityRepository,
-    ConnectorConfigRepository,
-)
+from backend.database.repositories.connector_activity_repository import ConnectorActivityRepository
+from backend.database.repositories.connectors import ConnectorConfigRepository
 from backend.database.repositories.digital_twin import (
     InfrastructureMetricRepository,
     InfrastructureModelRepository,

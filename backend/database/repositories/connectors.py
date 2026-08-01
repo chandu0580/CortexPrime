@@ -32,24 +32,6 @@ class ConnectorConfigModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
 
 
-class ConnectorActivityModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    __tablename__ = "connector_activity_bc"
-
-    connector_name: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
-    action: Mapped[str] = mapped_column(String(64), nullable=False)
-    status: Mapped[str] = mapped_column(String(32), nullable=False, default="success", server_default="success")
-    duration_ms: Mapped[Optional[int]] = mapped_column(nullable=True)
-    request_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    response_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    metadata_: Mapped[Optional[dict[str, Any]]] = mapped_column("metadata", JSONB, nullable=True)
-
-    __table_args__ = (
-        Index("idx_connector_activity_name", "connector_name", "created_at"),
-        Index("idx_connector_activity_status", "status"),
-    )
-
-
 class ConnectorConfigRepository(BaseRepository[ConnectorConfigModel]):
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(ConnectorConfigModel, session)
@@ -61,20 +43,5 @@ class ConnectorConfigRepository(BaseRepository[ConnectorConfigModel]):
 
     async def list_by_type(self, connector_type: str) -> list[ConnectorConfigModel]:
         stmt = select(ConnectorConfigModel).where(ConnectorConfigModel.connector_type == connector_type)
-        result = await self._session.execute(stmt)
-        return list(result.scalars().all())
-
-
-class ConnectorActivityRepository(BaseRepository[ConnectorActivityModel]):
-    def __init__(self, session: AsyncSession) -> None:
-        super().__init__(ConnectorActivityModel, session)
-
-    async def list_for_connector(self, connector_name: str, limit: int = 100, offset: int = 0) -> list[ConnectorActivityModel]:
-        stmt = (
-            select(ConnectorActivityModel)
-            .where(ConnectorActivityModel.connector_name == connector_name)
-            .order_by(ConnectorActivityModel.created_at.desc())
-            .limit(limit).offset(offset)
-        )
         result = await self._session.execute(stmt)
         return list(result.scalars().all())

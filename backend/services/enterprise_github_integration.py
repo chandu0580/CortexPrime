@@ -960,6 +960,22 @@ async def recover_pending_deploy_checks() -> int:
     return recovered
 
 
+async def _track_build(event_type: str, payload: Dict[str, Any]) -> None:
+    """Feed real webhook events into BuildIntelligence
+    (enterprise_cicd_intelligence.py) so its dashboard/trend/timeline
+    views — genuinely useful, but previously only reachable via a
+    standalone /api/cicd/pipeline-event endpoint nothing actually called —
+    get populated with real data instead of sitting permanently empty.
+    Best-effort only: never let this break the real webhook flow it's
+    riding along on.
+    """
+    try:
+        from backend.services.enterprise_cicd_intelligence import cicd_intelligence
+        await cicd_intelligence.ingest_pipeline_event(event_type, payload)
+    except Exception as exc:
+        log.debug("Build tracking skipped for %s event: %s", event_type, exc)
+
+
 async def _check_flaky_test(ctx: Dict[str, Any]) -> Optional["asyncio.Task"]:
     """Entry point for the flaky-test detector's provider-agnostic state
     machine (backend.services.enterprise_flaky_test_detector) from a
@@ -1139,6 +1155,7 @@ class GithubIntegration:
             await _update_knowledge_graph("github_workflow_run", f"{repo_full}/{run_id}", ctx)
             await _notify_learning(internal_type, ctx)
             await _record_analytics("github.workflow_run", 1)
+            await _track_build(event_type, payload)
             if ctx.get("workflow_status") == "completed":
                 await _check_flaky_test(ctx)
 

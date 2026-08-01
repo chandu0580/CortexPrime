@@ -1,4 +1,5 @@
 from backend.database.models.audit_log import AuditLog
+from backend.database.models.connector_activity import ConnectorActivityModel
 from backend.database.models.cost_intelligence import (
     CostRecordModel,
     OptimizationRecommendationModel,
@@ -19,6 +20,7 @@ __all__ = [
     "RuntimeAnalyticsRecord",
     "EmbeddingCacheRecord",
     "AuditLog",
+    "ConnectorActivityModel",
     "FleetModel",
     "FleetAgentModel",
     "FleetDeploymentModel",

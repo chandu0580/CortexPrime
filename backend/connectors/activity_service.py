@@ -5,11 +5,11 @@ import time
 import uuid
 from typing import Any, Dict, Optional
 
+from backend.database.engine import AsyncSessionLocal
 from backend.database.models.connector_activity import ConnectorActivityModel
 from backend.database.repositories.connector_activity_repository import (
     ConnectorActivityRepository,
 )
-from backend.database.session import get_session
 from backend.events.event_bus import event_bus
 from backend.events.event_models import CognitionEvent
 from backend.safety.audit_logger import audit_logger
@@ -34,7 +34,7 @@ class ConnectorActivityService:
         message: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> ConnectorActivityModel:
-        async for session in get_session():
+        async with AsyncSessionLocal() as session:
             repo = ConnectorActivityRepository(session)
             activity = await repo.create(
                 ConnectorActivityModel(
@@ -52,6 +52,7 @@ class ConnectorActivityService:
                     metadata_=metadata,
                 )
             )
+            await session.commit()
 
             user = initiated_by or "system"
             await audit_logger.alog(

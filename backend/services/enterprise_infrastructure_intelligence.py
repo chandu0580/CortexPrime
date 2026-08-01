@@ -1081,9 +1081,15 @@ class InfrastructureIntelligenceService:
             if ok:
                 self._docker = docker
                 log.info("Infrastructure Intelligence — Docker connector active")
-                # Start background Docker event listener
-                import asyncio
-                asyncio.create_task(self._start_docker_event_listener())
+                # Start background Docker event listener. Skipped under pytest:
+                # stream_events() blocks on a real socket read via asyncio.to_thread,
+                # which cannot be cancelled once started — if no Docker event arrives
+                # before a test's event loop tears down, task cancellation hangs
+                # forever waiting for the blocked thread to return.
+                import os
+                if "PYTEST_CURRENT_TEST" not in os.environ:
+                    import asyncio
+                    asyncio.create_task(self._start_docker_event_listener())
         except Exception as exc:
             log.debug("Docker connector not available: %s", exc)
         self._ready = True

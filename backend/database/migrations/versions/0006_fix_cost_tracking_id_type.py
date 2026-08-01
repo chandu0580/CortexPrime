@@ -23,6 +23,7 @@ depends_on = None
 # --------------------------------------------------------------------------- #
 
 def upgrade() -> None:
+    op.execute("ALTER TABLE cost_tracking ALTER COLUMN id DROP DEFAULT")
     op.alter_column(
         "cost_tracking",
         "id",
