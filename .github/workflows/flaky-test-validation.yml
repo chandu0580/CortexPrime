@@ -1,0 +1,19 @@
+name: Flaky Test Validation
+
+on:
+  workflow_dispatch:
+
+jobs:
+  maybe-flaky:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Simulate a flaky failure
+        run: |
+          echo "Run attempt: $GITHUB_RUN_ATTEMPT"
+          if [ "$GITHUB_RUN_ATTEMPT" = "1" ]; then
+            echo "Failing on first attempt to simulate a flaky test"
+            exit 1
+          else
+            echo "Passing on retry attempt $GITHUB_RUN_ATTEMPT"
+            exit 0
+          fi
