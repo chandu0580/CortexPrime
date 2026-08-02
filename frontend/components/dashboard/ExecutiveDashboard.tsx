@@ -7,7 +7,7 @@ import { Bot, ClipboardCheck, Plus, ShieldCheck, Sparkles, Target } from "lucide
 import { cn } from "@/utils/cn";
 import { stagger, variants } from "@/lib/motion-tokens";
 import type { StatusTone } from "@/components/dashboard/data";
-import { useDashboardOverview, useDashboardHealth, useDashboardResources, useDashboardTimeline, useDashboardAgents, useDashboardEvents, useDashboardHeader, useDashboardWebSocket, useDashboardDeployChecks, useDashboardFlakyTests, useDashboardRollbacks, useDashboardIncidents, useDashboardCredentials } from "@/hooks";
+import { useDashboardOverview, useDashboardHealth, useDashboardResources, useDashboardTimeline, useDashboardAgents, useDashboardEvents, useDashboardHeader, useDashboardWebSocket, useDashboardDeployChecks, useDashboardFlakyTests, useDashboardRollbacks, useDashboardIncidents, useDashboardCredentials, useDashboardRootCause } from "@/hooks";
 
 import { Sidebar } from "./Sidebar";
 import { ExecutiveHeader } from "./ExecutiveHeader";
@@ -22,6 +22,7 @@ import { FlakyTestsPanel } from "./FlakyTestsPanel";
 import { RollbackHistoryPanel } from "./RollbackHistoryPanel";
 import { IncidentsPanel } from "./IncidentsPanel";
 import { CredentialHealthPanel } from "./CredentialHealthPanel";
+import { RootCauseAnalysisPanel } from "./RootCauseAnalysisPanel";
 
 export default function ExecutiveDashboard() {
   const [collapsed, setCollapsed] = useState(false);
@@ -37,6 +38,7 @@ export default function ExecutiveDashboard() {
   const { data: rollbacks, isLoading: isRollbacksLoading } = useDashboardRollbacks();
   const { data: incidents, isLoading: isIncidentsLoading } = useDashboardIncidents();
   const { data: credentials, isLoading: isCredentialsLoading } = useDashboardCredentials();
+  const { data: rootCause, isLoading: isRootCauseLoading } = useDashboardRootCause();
 
   useDashboardWebSocket();
 
@@ -148,6 +150,16 @@ export default function ExecutiveDashboard() {
             <motion.div variants={stagger(0.05)} className="grid gap-5 lg:grid-cols-[2fr_1fr]">
               <IncidentsPanel recent={incidents?.recent} isLoading={isIncidentsLoading} />
               <CredentialHealthPanel latest={credentials?.latest} isLoading={isCredentialsLoading} />
+            </motion.div>
+
+            {/* Root Cause Analysis */}
+            <motion.div variants={stagger(0.05)} className="grid gap-5 lg:grid-cols-1">
+              <RootCauseAnalysisPanel
+                totalAnalyses={rootCause?.totalAnalyses}
+                avgConfidence={rootCause?.avgConfidence}
+                recentAnalyses={rootCause?.recentAnalyses}
+                isLoading={isRootCauseLoading}
+              />
             </motion.div>
 
             {/* Footer */}
