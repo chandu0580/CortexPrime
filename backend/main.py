@@ -542,23 +542,6 @@ async def lifespan(_app: FastAPI):
     except Exception as exc:
         log.warning(f"Autonomous Mission Generator startup incomplete: {exc}")
 
-    # 5d) Enterprise Watchers — initialize connector watchers, then start
-    # continuous polling. Skipped under pytest: this is an always-on
-    # asyncio.create_task background loop, the same shape that caused a
-    # multi-hour test-suite hang earlier this session (a different one,
-    # in enterprise_infrastructure_intelligence.py) — unlike that one,
-    # every watcher's poll() here is confirmed real async I/O (httpx),
-    # not a to_thread-wrapped blocking call, so it's safe to run, but
-    # there's still no reason to have it running during tests.
-    try:
-        results = await watcher_manager.initialize_all()
-        ready = sum(1 for v in results.values() if v)
-        log.info("Enterprise Watchers initialized — %d/%d ready", ready, len(results))
-        if "PYTEST_CURRENT_TEST" not in os.environ:
-            asyncio.create_task(watcher_manager.start_polling())
-            log.info("Enterprise Watchers — continuous polling started")
-    except Exception as exc:
-        log.warning(f"Enterprise Watchers startup incomplete: {exc}")
 
     # 5e) Enterprise Recommendation Engine — start periodic scanning
     try:
@@ -1014,6 +997,31 @@ async def lifespan(_app: FastAPI):
         await check_all_credentials()
     except Exception as exc:
         log.debug("Startup credential check skipped: %s", exc)
+
+    # Enterprise Watchers — initialize connector watchers, then start
+    # continuous polling. Must run AFTER connector registration above —
+    # EnterpriseWatcher.initialize() looks connectors up in the shared
+    # connector_registry, which isn't populated until this point; running
+    # it earlier (where it lived before) meant every watcher always
+    # reported "connector not registered", including for connectors
+    # (GitHub, Jira, GitLab CI) that are genuinely configured and working.
+    #
+    # Skipped under pytest: this is an always-on asyncio.create_task
+    # background loop, the same shape that caused a multi-hour test-suite
+    # hang earlier this session (a different one, in
+    # enterprise_infrastructure_intelligence.py) — unlike that one, every
+    # watcher's poll() here is confirmed real async I/O (httpx), not a
+    # to_thread-wrapped blocking call, so it's safe to run, but there's
+    # still no reason to have it running during tests.
+    try:
+        results = await watcher_manager.initialize_all()
+        ready = sum(1 for v in results.values() if v)
+        log.info("Enterprise Watchers initialized — %d/%d ready", ready, len(results))
+        if "PYTEST_CURRENT_TEST" not in os.environ:
+            asyncio.create_task(watcher_manager.start_polling())
+            log.info("Enterprise Watchers — continuous polling started")
+    except Exception as exc:
+        log.warning(f"Enterprise Watchers startup incomplete: {exc}")
 
     _log_registered_routes(_app)
     log.info("CortexPrime runtime startup complete - all subsystems online")
