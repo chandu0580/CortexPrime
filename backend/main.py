@@ -1006,6 +1006,14 @@ async def lifespan(_app: FastAPI):
     except Exception as exc:
         log.debug("Startup vulnerability check skipped: %s", exc)
 
+    # One-shot branch protection check, same reasoning as credentials above —
+    # see enterprise_branch_protection_monitor's module docstring.
+    try:
+        from backend.services.enterprise_branch_protection_monitor import check_all_repos as check_branch_protection
+        await check_branch_protection()
+    except Exception as exc:
+        log.debug("Startup branch protection check skipped: %s", exc)
+
     # Enterprise Watchers — initialize connector watchers, then start
     # continuous polling. Must run AFTER connector registration above —
     # EnterpriseWatcher.initialize() looks connectors up in the shared

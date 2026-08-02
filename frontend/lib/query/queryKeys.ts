@@ -70,6 +70,7 @@ export const queryKeys = {
         credentials: () => [...queryKeys.dashboard.all, "credentials"] as const,
         rootCause:   () => [...queryKeys.dashboard.all, "rootCause"] as const,
         vulnerabilities: () => [...queryKeys.dashboard.all, "vulnerabilities"] as const,
+        branchProtection: () => [...queryKeys.dashboard.all, "branchProtection"] as const,
     },
     settings: {
         all:         ["settings"] as const,

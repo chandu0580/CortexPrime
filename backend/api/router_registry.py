@@ -913,6 +913,15 @@ def register_all_routers(app: FastAPI) -> Dict[str, bool]:
         log.warning(f"Enterprise Vulnerability Monitoring routes unavailable: {_evuln_err}")
 
     try:
+        from backend.api.enterprise_branch_protection_routes import router as enterprise_branch_protection_router
+        app.include_router(enterprise_branch_protection_router)
+        log.info("Enterprise Branch Protection Monitoring routes registered at /api/branch-protection")
+        availability["enterprise_branch_protection"] = True
+    except Exception as _ebp_err:
+        availability["enterprise_branch_protection"] = False
+        log.warning(f"Enterprise Branch Protection Monitoring routes unavailable: {_ebp_err}")
+
+    try:
         from backend.api.enterprise_cicd_routes import router as enterprise_cicd_router
         app.include_router(enterprise_cicd_router)
         log.info("Enterprise CI/CD Intelligence routes registered at /api/cicd")
