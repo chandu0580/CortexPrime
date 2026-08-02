@@ -542,11 +542,21 @@ async def lifespan(_app: FastAPI):
     except Exception as exc:
         log.warning(f"Autonomous Mission Generator startup incomplete: {exc}")
 
-    # 5d) Enterprise Watchers — initialize connector watchers
+    # 5d) Enterprise Watchers — initialize connector watchers, then start
+    # continuous polling. Skipped under pytest: this is an always-on
+    # asyncio.create_task background loop, the same shape that caused a
+    # multi-hour test-suite hang earlier this session (a different one,
+    # in enterprise_infrastructure_intelligence.py) — unlike that one,
+    # every watcher's poll() here is confirmed real async I/O (httpx),
+    # not a to_thread-wrapped blocking call, so it's safe to run, but
+    # there's still no reason to have it running during tests.
     try:
         results = await watcher_manager.initialize_all()
         ready = sum(1 for v in results.values() if v)
         log.info("Enterprise Watchers initialized — %d/%d ready", ready, len(results))
+        if "PYTEST_CURRENT_TEST" not in os.environ:
+            asyncio.create_task(watcher_manager.start_polling())
+            log.info("Enterprise Watchers — continuous polling started")
     except Exception as exc:
         log.warning(f"Enterprise Watchers startup incomplete: {exc}")
 

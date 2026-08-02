@@ -75,6 +75,30 @@ async def _safe_call(connector: Any, method_name: str, *args, **kwargs) -> Any:
         return None
 
 
+async def evaluate_event_against_rules(event: Dict[str, Any]) -> Dict[str, int]:
+    """Record a detected event, evaluate it against monitoring rules, and
+    auto-create a mission for any matching rule with auto_create_mission=True.
+
+    Shared by the continuous poll loop (WatcherManager._poll_loop) and the
+    manual POST /api/monitoring/poll endpoint, so both paths actually
+    trigger the same rule-driven automation — previously only the manual
+    endpoint did; the background loop detected events and streamed them to
+    the UI event feed, but never evaluated them against rules at all.
+    """
+    from backend.services.autonomous_mission_generator import auto_mission_generator
+    from backend.services.monitoring_rules_engine import monitoring_rules
+
+    monitoring_rules.record_event(event)
+    matching_rules = await monitoring_rules.evaluate_event(event)
+    missions_created = 0
+    for rule in matching_rules:
+        if rule.auto_create_mission:
+            result = await auto_mission_generator.create_mission(rule, event)
+            if result:
+                missions_created += 1
+    return {"rules_matched": len(matching_rules), "missions_created": missions_created}
+
+
 # ---------------------------------------------------------------------------
 # Base watcher
 # ---------------------------------------------------------------------------
@@ -591,12 +615,21 @@ class WatcherManager:
 
     async def _poll_loop(self, watcher: EnterpriseWatcher) -> None:
         """Continuous poll loop for a single watcher."""
+        # Without this, EnterpriseWatcher.shutdown()'s cancellation logic
+        # (keyed on self._task) has nothing to cancel — start_polling()
+        # creates this loop as a Task but never stored it anywhere, so
+        # shutdown_all() silently cancelled nothing.
+        watcher._task = asyncio.current_task()
         watcher._running = True
         while watcher._running:
             try:
                 events = await watcher.poll()
                 for event in events:
                     await watcher.process_event(event)
+                    try:
+                        await evaluate_event_against_rules(event.to_dict())
+                    except Exception as exc:
+                        log.debug("Rule evaluation failed for watcher %s event: %s", watcher.connector_type, exc)
                 if events:
                     log.info(
                         "Watcher %s detected %d event(s)",

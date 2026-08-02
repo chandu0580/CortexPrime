@@ -24,7 +24,7 @@ from fastapi import APIRouter, HTTPException, Query
 from backend.events.enterprise_event_types import EnterpriseEventTypes as EET
 from backend.services.autonomous_mission_generator import auto_mission_generator
 from backend.services.enterprise_event_hub import enterprise_hub
-from backend.services.enterprise_watchers import watcher_manager
+from backend.services.enterprise_watchers import evaluate_event_against_rules, watcher_manager
 from backend.services.monitoring_rules_engine import monitoring_rules
 
 log = logging.getLogger(__name__)
@@ -183,18 +183,15 @@ async def trigger_poll(
     """Trigger a manual poll of watchers."""
     try:
         events = await watcher_manager.poll_once(connector_type=connector)
-        # Evaluate each detected event against rules
+        # Evaluate each detected event against rules — same shared helper
+        # the continuous poll loop uses, so both paths trigger identical
+        # rule-driven automation.
         matched_count = 0
         mission_count = 0
         for event in events:
-            monitoring_rules.record_event(event)
-            matching_rules = await monitoring_rules.evaluate_event(event)
-            for rule in matching_rules:
-                matched_count += 1
-                if rule.auto_create_mission:
-                    result = await auto_mission_generator.create_mission(rule, event)
-                    if result:
-                        mission_count += 1
+            result = await evaluate_event_against_rules(event)
+            matched_count += result["rules_matched"]
+            mission_count += result["missions_created"]
 
         return {
             "status": "completed",
