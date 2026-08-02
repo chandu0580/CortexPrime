@@ -442,11 +442,15 @@ class MissionReplayStore:
             except Exception as exc:
                 log.debug("replay_store Redis read skipped: %s", exc)
 
-        # In-memory fallback
+        # In-memory fallback — sort by sequence to match _pg_fetch's
+        # ORDER BY sequence, since events can land in _mem out of sequence
+        # order (e.g. a Redis write failing mid-stream falls a later event
+        # back to _mem while earlier ones already made it to Redis).
         mem = self._mem.get(execution_id, [])
         if mem:
-            end_idx = len(mem) if end == -1 else end + 1
-            return mem[start:end_idx]
+            ordered = sorted(mem, key=lambda e: e.get("sequence", 0))
+            end_idx = len(ordered) if end == -1 else end + 1
+            return ordered[start:end_idx]
         return []
 
     async def _pg_fetch(

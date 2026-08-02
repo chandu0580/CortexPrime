@@ -66,6 +66,10 @@ def _jittered_backoff(attempt: int) -> float:
     return max(0.1, delay + jitter)
 
 
+def _use_ssl() -> bool:
+    return os.getenv("REDIS_USE_SSL", "false").lower() in ("true", "1", "yes")
+
+
 # ===========================================================================
 # POOL MANAGER
 # ===========================================================================
@@ -99,7 +103,7 @@ class RedisConnectionPool:
     def _pool_kwargs(self) -> dict:
         pool_size = int(os.getenv("REDIS_POOL_SIZE", "20"))
         timeout   = int(os.getenv("REDIS_TIMEOUT",   "5"))
-        return dict(
+        kwargs = dict(
             encoding               = "utf-8",
             decode_responses       = True,
             max_connections        = pool_size,
@@ -109,11 +113,15 @@ class RedisConnectionPool:
             socket_keepalive_options = {},
             health_check_interval  = 30,   # seconds between background pings
             retry_on_timeout       = True,
-            ssl                    = _use_ssl(),
         )
-
-def _use_ssl() -> bool:
-    return os.getenv("REDIS_USE_SSL", "false").lower() in ("true", "1", "yes")
+        # redis-py's plain Connection class (used for a redis:// URL) doesn't
+        # accept an `ssl` kwarg at all — only SSLConnection (rediss:// URL)
+        # does. Passing ssl=False unconditionally broke every connection
+        # attempt with "AbstractConnection.__init__() got an unexpected
+        # keyword argument 'ssl'", so only include it when actually wanted.
+        if _use_ssl():
+            kwargs["ssl"] = True
+        return kwargs
 
     async def _try_connect(self) -> bool:
         if not _REDIS_AVAILABLE:

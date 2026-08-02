@@ -159,8 +159,16 @@ class TestEventRetrieval:
         events = await store.get_events("nonexistent")
         assert events == []
 
-    async def test_returns_events_in_sequence_order(self):
+    async def test_returns_events_in_sequence_order(self, monkeypatch):
         from backend.services.mission_replay_store import MissionReplayStore
+
+        # This test is about in-memory fallback ordering, not real Redis —
+        # force the in-memory path so a genuinely-connected Redis (empty for
+        # this execution_id) can't shadow the _mem data set up below.
+        monkeypatch.setattr(
+            "backend.infrastructure.redis.connection.redis_connection._client",
+            None,
+        )
 
         store = MissionReplayStore()
 
@@ -178,8 +186,10 @@ class TestEventRetrieval:
         from backend.services.mission_replay_store import MissionReplayStore
 
         store = MissionReplayStore()
+        # client is a read-only @property backed by _client — patch the
+        # backing attribute, not the property itself (which has no setter).
         monkeypatch.setattr(
-            "backend.infrastructure.redis.connection.redis_connection.client",
+            "backend.infrastructure.redis.connection.redis_connection._client",
             None,
         )
 
