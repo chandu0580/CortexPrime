@@ -26,12 +26,13 @@ real Approval Center (backend.approval_center) — a production rollback is
 always at least MEDIUM risk, escalating to HIGH (manager + executive
 approval) for a production/prod/live/critical environment, which is the
 common case here. Only an APPROVED or BREAK_GLASS workflow proceeds to the
-actual rollback; otherwise this records a "blocked pending approval" entry
-and returns without touching anything. Scope note: this does NOT
-auto-resume the rollback once a human approves later via
-POST /api/approval-center/workflows/{id}/approve — that re-trigger is a
-distinct follow-on (an event-driven dispatcher or a re-entrant retry on the
-next detection cycle), not built here.
+actual rollback; otherwise this stashes the minimal args needed to replay
+the rollback in enterprise_approval_action_dispatcher's pending-action
+store (keyed by workflow_id) and records a "blocked pending approval"
+entry. Once a human approves via POST /api/approval-center/workflows/{id}
+/approve, the dispatcher's EventBus subscription picks up the resulting
+approval_workflow_completed event and replays this exact rollback for
+real — approving is not a dead end.
 """
 from __future__ import annotations
 
@@ -45,6 +46,8 @@ from backend.services.enterprise_deploy_regression_detector import RegressionVer
 from backend.services.enterprise_deploy_rollback_store import rollback_history_store
 
 log = logging.getLogger(__name__)
+
+ACTION_TYPE = "rollback"
 
 
 async def _rollback_via_github(verdict: RegressionVerdict, ctx: Dict[str, Any]) -> Dict[str, Any]:
@@ -128,59 +131,14 @@ _ROLLBACK_HANDLERS = {
 }
 
 
-async def trigger_rollback(verdict: RegressionVerdict, ctx: Dict[str, Any], ticket_key: Optional[str] = None) -> Optional[Dict[str, Any]]:
-    """Attempt an automated rollback for a confirmed regression and record
-    the outcome. Returns the history entry, or None if verdict isn't a
-    regression or the source is unrecognized — callers must not treat a
-    "triggered": False entry as an exception, just an informative record
-    of why no rollback happened (e.g. no known-good target)."""
-    if not verdict.regressed:
-        return None
-
-    handler = _ROLLBACK_HANDLERS.get(ctx.get("source"))
-    if handler is None:
-        log.debug("Rollback skipped — unrecognized ctx source: %s", ctx.get("source"))
-        return None
-
+async def _execute_rollback(verdict: RegressionVerdict, ctx: Dict[str, Any], ticket_key: Optional[str] = None) -> Dict[str, Any]:
+    """The real action, run only once a workflow is APPROVED/BREAK_GLASS —
+    called directly by trigger_rollback on the happy path, and by
+    replay_rollback (via the approval-action dispatcher) once a
+    previously-blocked rollback gets approved."""
+    handler = _ROLLBACK_HANDLERS[ctx["source"]]
     environment = ctx.get("environment") or "production"
     provider = "github" if ctx.get("source") == "github_webhook" else "gitlab"
-
-    workflow = await approval_workflow_engine.create_workflow(
-        execution_id=f"rollback-{verdict.service}-{verdict.deployment_id}",
-        mission_id="enterprise.automated_rollback",
-        objective=f"Automated rollback of {verdict.service} (deployment {verdict.deployment_id}): "
-                  f"{'; '.join(verdict.reasons)}"[:200],
-        risk_level=assess_risk_from_context(
-            RiskLevel.MEDIUM, target_environment=environment, affected_systems=[verdict.service],
-        ),
-    )
-
-    if workflow.status not in (WorkflowStatus.APPROVED, WorkflowStatus.BREAK_GLASS):
-        log.warning(
-            "Rollback for %s (deployment %s) requires approval before executing — workflow %s "
-            "is %s. Approve via POST /api/approval-center/workflows/%s/approve (or break-glass).",
-            verdict.service, verdict.deployment_id, workflow.workflow_id, workflow.status.value, workflow.workflow_id,
-        )
-        recorded = rollback_history_store.record(
-            provider=provider,
-            service=verdict.service,
-            environment=environment,
-            bad_deployment_id=verdict.deployment_id,
-            reasons=verdict.reasons,
-            triggered=False,
-            ticket_key=ticket_key,
-            error=f"Awaiting approval (workflow {workflow.workflow_id}, status {workflow.status.value})",
-        )
-        try:
-            from backend.services.enterprise_alert_correlator import attach_signal
-            await attach_signal(
-                source="rollback", service=verdict.service,
-                summary=f"Rollback blocked pending approval (workflow {workflow.workflow_id})",
-                severity="warning",
-            )
-        except Exception as exc:
-            log.debug("Incident signal attach skipped for %s: %s", verdict.service, exc)
-        return recorded
 
     try:
         result = await handler(verdict, ctx)
@@ -225,3 +183,81 @@ async def trigger_rollback(verdict: RegressionVerdict, ctx: Dict[str, Any], tick
         log.debug("Incident signal attach skipped for %s: %s", verdict.service, exc)
 
     return recorded
+
+
+async def replay_rollback(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Reconstruct a minimal RegressionVerdict from a stashed pending-action
+    payload and run the real rollback. Called by
+    enterprise_approval_action_dispatcher once a blocked rollback's
+    workflow becomes APPROVED/BREAK_GLASS."""
+    verdict = RegressionVerdict(
+        service=payload["service"], deployment_id=payload["deployment_id"],
+        regressed=True, reasons=payload["reasons"],
+    )
+    return await _execute_rollback(verdict, payload["ctx"], payload.get("ticket_key"))
+
+
+async def trigger_rollback(verdict: RegressionVerdict, ctx: Dict[str, Any], ticket_key: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Attempt an automated rollback for a confirmed regression and record
+    the outcome. Returns the history entry, or None if verdict isn't a
+    regression or the source is unrecognized — callers must not treat a
+    "triggered": False entry as an exception, just an informative record
+    of why no rollback happened (e.g. no known-good target)."""
+    if not verdict.regressed:
+        return None
+
+    handler = _ROLLBACK_HANDLERS.get(ctx.get("source"))
+    if handler is None:
+        log.debug("Rollback skipped — unrecognized ctx source: %s", ctx.get("source"))
+        return None
+
+    environment = ctx.get("environment") or "production"
+    provider = "github" if ctx.get("source") == "github_webhook" else "gitlab"
+    execution_id = f"rollback-{verdict.service}-{verdict.deployment_id}"
+
+    workflow = approval_workflow_engine.get_workflow_by_execution(execution_id)
+    if workflow is None:
+        workflow = await approval_workflow_engine.create_workflow(
+            execution_id=execution_id,
+            mission_id="enterprise.automated_rollback",
+            objective=f"Automated rollback of {verdict.service} (deployment {verdict.deployment_id}): "
+                      f"{'; '.join(verdict.reasons)}"[:200],
+            risk_level=assess_risk_from_context(
+                RiskLevel.MEDIUM, target_environment=environment, affected_systems=[verdict.service],
+            ),
+        )
+
+    if workflow.status not in (WorkflowStatus.APPROVED, WorkflowStatus.BREAK_GLASS):
+        log.warning(
+            "Rollback for %s (deployment %s) requires approval before executing — workflow %s "
+            "is %s. Approve via POST /api/approval-center/workflows/%s/approve (or break-glass) "
+            "and it will be replayed automatically.",
+            verdict.service, verdict.deployment_id, workflow.workflow_id, workflow.status.value, workflow.workflow_id,
+        )
+        from backend.services.enterprise_approval_action_dispatcher import pending_action_store
+        pending_action_store.save(workflow.workflow_id, ACTION_TYPE, {
+            "service": verdict.service, "deployment_id": verdict.deployment_id,
+            "reasons": verdict.reasons, "ctx": ctx, "ticket_key": ticket_key,
+        })
+        recorded = rollback_history_store.record(
+            provider=provider,
+            service=verdict.service,
+            environment=environment,
+            bad_deployment_id=verdict.deployment_id,
+            reasons=verdict.reasons,
+            triggered=False,
+            ticket_key=ticket_key,
+            error=f"Awaiting approval (workflow {workflow.workflow_id}, status {workflow.status.value})",
+        )
+        try:
+            from backend.services.enterprise_alert_correlator import attach_signal
+            await attach_signal(
+                source="rollback", service=verdict.service,
+                summary=f"Rollback blocked pending approval (workflow {workflow.workflow_id})",
+                severity="warning",
+            )
+        except Exception as exc:
+            log.debug("Incident signal attach skipped for %s: %s", verdict.service, exc)
+        return recorded
+
+    return await _execute_rollback(verdict, ctx, ticket_key)

@@ -1014,6 +1014,16 @@ async def lifespan(_app: FastAPI):
     except Exception as exc:
         log.debug("Startup branch protection check skipped: %s", exc)
 
+    # Approval action dispatcher — subscribes to the EventBus so approving
+    # a blocked rollback/vuln-fix/branch-protection workflow via
+    # POST /api/approval-center/workflows/{id}/approve actually replays the
+    # real action instead of approving being a dead end.
+    try:
+        from backend.services.enterprise_approval_action_dispatcher import initialize as init_approval_dispatcher
+        init_approval_dispatcher()
+    except Exception as exc:
+        log.warning("Approval action dispatcher startup incomplete: %s", exc)
+
     # Enterprise Watchers — initialize connector watchers, then start
     # continuous polling. Must run AFTER connector registration above —
     # EnterpriseWatcher.initialize() looks connectors up in the shared

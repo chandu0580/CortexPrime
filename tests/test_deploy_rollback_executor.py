@@ -35,6 +35,21 @@ def default_approved_workflow(monkeypatch):
         "backend.approval_center.workflows.approval_workflow_engine.create_workflow",
         AsyncMock(return_value=_workflow(WorkflowStatus.APPROVED)),
     )
+    monkeypatch.setattr(
+        "backend.approval_center.workflows.approval_workflow_engine.get_workflow_by_execution",
+        lambda execution_id: None,
+    )
+
+
+@pytest.fixture(autouse=True)
+def isolated_pending_action_store(monkeypatch):
+    from backend.services.enterprise_approval_action_dispatcher import PendingActionStore
+    with tempfile.TemporaryDirectory() as tmpdir:
+        test_store = PendingActionStore(file_path=Path(tmpdir) / "pending_actions.json")
+        monkeypatch.setattr(
+            "backend.services.enterprise_approval_action_dispatcher.pending_action_store", test_store
+        )
+        yield test_store
 
 
 def _verdict(regressed=True, deployment_id="42") -> RegressionVerdict:
@@ -162,7 +177,7 @@ class TestTriggerRollback:
 
 
 class TestApprovalGate:
-    async def test_blocks_and_does_not_touch_github_when_not_approved(self, store, monkeypatch):
+    async def test_blocks_and_does_not_touch_github_when_not_approved(self, store, monkeypatch, isolated_pending_action_store):
         monkeypatch.setattr(
             "backend.approval_center.workflows.approval_workflow_engine.create_workflow",
             AsyncMock(return_value=_workflow(WorkflowStatus.PENDING)),
@@ -177,6 +192,11 @@ class TestApprovalGate:
         assert "Awaiting approval" in result["error"]
         assert "wf_test123" in result["error"]
         fake_gh.get_last_successful_deployment.assert_not_awaited()
+
+        pending = isolated_pending_action_store.list_pending()
+        assert "wf_test123" in pending
+        assert pending["wf_test123"]["action_type"] == "rollback"
+        assert pending["wf_test123"]["payload"]["service"] == "org/repo"
 
     async def test_proceeds_on_break_glass(self, store):
         with patch(
@@ -201,3 +221,25 @@ class TestApprovalGate:
         ):
             result = await trigger_rollback(_verdict(regressed=False), _github_ctx())
         assert result is None
+
+    async def test_does_not_recreate_workflow_when_one_already_exists_for_execution_id(self, store, monkeypatch):
+        # Idempotent re-entry: if a workflow already exists for this
+        # execution_id (e.g. a repeated detection cycle for the same bad
+        # deployment), reuse it instead of creating a duplicate.
+        existing = _workflow(WorkflowStatus.APPROVED)
+        monkeypatch.setattr(
+            "backend.approval_center.workflows.approval_workflow_engine.get_workflow_by_execution",
+            lambda execution_id: existing,
+        )
+        create_mock = AsyncMock(side_effect=AssertionError("should not create a new workflow"))
+        monkeypatch.setattr("backend.approval_center.workflows.approval_workflow_engine.create_workflow", create_mock)
+
+        fake_gh = MagicMock()
+        fake_gh.get_last_successful_deployment = AsyncMock(return_value={"id": 41, "sha": "goodsha"})
+        fake_gh.create_deployment = AsyncMock(return_value={"id": 99})
+
+        with patch("backend.connectors.registry.connector_registry.get", return_value=fake_gh):
+            result = await trigger_rollback(_verdict(), _github_ctx())
+
+        assert result["triggered"] is True
+        create_mock.assert_not_awaited()

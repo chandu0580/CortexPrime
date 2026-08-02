@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import tempfile
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -20,9 +22,28 @@ def _workflow(status: WorkflowStatus) -> ApprovalWorkflow:
     )
 
 
+@pytest.fixture(autouse=True)
+def default_no_existing_workflow(monkeypatch):
+    monkeypatch.setattr(
+        "backend.approval_center.workflows.approval_workflow_engine.get_workflow_by_execution",
+        lambda execution_id: None,
+    )
+
+
+@pytest.fixture(autouse=True)
+def isolated_pending_action_store(monkeypatch):
+    from backend.services.enterprise_approval_action_dispatcher import PendingActionStore
+    with tempfile.TemporaryDirectory() as tmpdir:
+        test_store = PendingActionStore(file_path=Path(tmpdir) / "pending_actions.json")
+        monkeypatch.setattr(
+            "backend.services.enterprise_approval_action_dispatcher.pending_action_store", test_store
+        )
+        yield test_store
+
+
 @pytest.mark.asyncio
 class TestEnableMinimalProtection:
-    async def test_blocks_and_does_not_touch_github_when_not_approved(self):
+    async def test_blocks_and_does_not_touch_github_when_not_approved(self, isolated_pending_action_store):
         with patch(
             "backend.approval_center.workflows.approval_workflow_engine.create_workflow",
             new=AsyncMock(return_value=_workflow(WorkflowStatus.PENDING)),
@@ -30,6 +51,11 @@ class TestEnableMinimalProtection:
             result = await enable_minimal_protection("o", "r", "main")
         assert result is None
         mock_get.assert_not_called()
+
+        pending = isolated_pending_action_store.list_pending()
+        assert "wf_bp123" in pending
+        assert pending["wf_bp123"]["action_type"] == "branch_protection_fix"
+        assert pending["wf_bp123"]["payload"]["branch"] == "main"
 
     async def test_returns_none_when_github_not_registered(self):
         with patch(
@@ -65,6 +91,24 @@ class TestEnableMinimalProtection:
         ), patch("backend.connectors.registry.connector_registry.get", return_value=fake_gh):
             result = await enable_minimal_protection("o", "r", "main")
         assert result == {"ok": True}
+
+    async def test_does_not_recreate_workflow_when_one_already_exists(self, monkeypatch):
+        existing = _workflow(WorkflowStatus.APPROVED)
+        monkeypatch.setattr(
+            "backend.approval_center.workflows.approval_workflow_engine.get_workflow_by_execution",
+            lambda execution_id: existing,
+        )
+        create_mock = AsyncMock(side_effect=AssertionError("should not create a new workflow"))
+        monkeypatch.setattr("backend.approval_center.workflows.approval_workflow_engine.create_workflow", create_mock)
+
+        fake_gh = MagicMock()
+        fake_gh.update_branch_protection = AsyncMock(return_value={"ok": True})
+
+        with patch("backend.connectors.registry.connector_registry.get", return_value=fake_gh):
+            result = await enable_minimal_protection("o", "r", "main")
+
+        assert result == {"ok": True}
+        create_mock.assert_not_awaited()
 
     async def test_exception_during_update_returns_none(self):
         fake_gh = MagicMock()

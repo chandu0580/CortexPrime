@@ -17,7 +17,13 @@ Approval gate: routed through the real Approval Center. Unlike the
 vulnerability auto-fix PR (reversible, doesn't touch anything running),
 changing a repo's real merge rules is a genuine workflow-affecting action
 — it changes how every future PR on this branch gets merged — so this
-always requires at least one manager approval, never auto-approves.
+always requires at least one manager approval, never auto-approves. If
+blocked, the args needed to replay this exact call are stashed in
+enterprise_approval_action_dispatcher's pending-action store (keyed by
+workflow_id); once a human approves via POST /api/approval-center/
+workflows/{id}/approve, the dispatcher calls this function again — the
+get_workflow_by_execution check below finds the now-approved workflow and
+proceeds straight to the real update_branch_protection call.
 """
 from __future__ import annotations
 
@@ -25,6 +31,8 @@ import logging
 from typing import Any, Dict, Optional
 
 log = logging.getLogger(__name__)
+
+ACTION_TYPE = "branch_protection_fix"
 
 
 async def enable_minimal_protection(
@@ -42,18 +50,26 @@ async def enable_minimal_protection(
     from backend.approval_center.workflows import approval_workflow_engine
     from backend.connectors.registry import connector_registry
 
-    workflow = await approval_workflow_engine.create_workflow(
-        execution_id=f"branchprotect-{owner}-{repo}-{branch}",
-        mission_id="enterprise.branch_protection_autofix",
-        objective=f"Enable minimal branch protection on {owner}/{repo}@{branch}"[:200],
-        risk_level=RiskLevel.MEDIUM,
-    )
+    execution_id = f"branchprotect-{owner}-{repo}-{branch}"
+    workflow = approval_workflow_engine.get_workflow_by_execution(execution_id)
+    if workflow is None:
+        workflow = await approval_workflow_engine.create_workflow(
+            execution_id=execution_id,
+            mission_id="enterprise.branch_protection_autofix",
+            objective=f"Enable minimal branch protection on {owner}/{repo}@{branch}"[:200],
+            risk_level=RiskLevel.MEDIUM,
+        )
     if workflow.status not in (WorkflowStatus.APPROVED, WorkflowStatus.BREAK_GLASS):
         log.warning(
             "Branch protection fix for %s/%s@%s requires approval before applying — workflow %s "
-            "is %s. Approve via POST /api/approval-center/workflows/%s/approve (or break-glass).",
+            "is %s. Approve via POST /api/approval-center/workflows/%s/approve (or break-glass) "
+            "and it will be replayed automatically.",
             owner, repo, branch, workflow.workflow_id, workflow.status.value, workflow.workflow_id,
         )
+        from backend.services.enterprise_approval_action_dispatcher import pending_action_store
+        pending_action_store.save(workflow.workflow_id, ACTION_TYPE, {
+            "owner": owner, "repo": repo, "branch": branch, "ticket_key": ticket_key,
+        })
         return None
 
     gh = connector_registry.get("github")
