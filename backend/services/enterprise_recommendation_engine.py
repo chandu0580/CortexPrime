@@ -48,6 +48,14 @@ RECOMMENDATION_CATEGORIES = [
 PRIORITY_LEVELS = ["low", "medium", "high", "critical"]
 RISK_LEVELS = ["low", "medium", "high", "critical"]
 
+# Maps a caller-supplied context string (see generate()) to one of
+# RECOMMENDATION_CATEGORIES. Unrecognized contexts fall back to
+# "operations" — generate() is meant to stay usable by any future caller,
+# not just root_cause_analysis (its first real caller).
+_CONTEXT_CATEGORIES: Dict[str, str] = {
+    "root_cause_analysis": "reliability",
+}
+
 RECOMMENDATION_EVENT_GENERATED = "recommendation.generated"
 RECOMMENDATION_DISMISSED = "recommendation.dismissed"
 RECOMMENDATION_EXECUTED = "recommendation.executed"
@@ -851,6 +859,37 @@ class EnterpriseRecommendationEngine:
     def get_by_id(self, rec_id: str) -> Optional[Dict[str, Any]]:
         rec = self._recommendations.get(rec_id)
         return rec.to_dict() if rec else None
+
+    async def generate(self, context: str, summary: str, metrics: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """On-demand recommendation for callers that already ran their own
+        evidence-gathering (e.g. RootCauseAnalysisService), rather than
+        waiting for this engine's own event-driven analyzers to notice
+        something independently. Still flows through the same
+        Recommendation / _add_if_new / persistence path as every other
+        recommendation, so it shows up in get_active()/get_dashboard() like
+        any other — not a side-channel bypass.
+        """
+        metrics = metrics or {}
+        category = _CONTEXT_CATEGORIES.get(context, "operations")
+        confidence = metrics.get("confidence")
+        impacted = metrics.get("impacted_entities")
+        elevated = isinstance(impacted, (int, float)) and impacted > 3
+
+        rec = Recommendation(
+            category=category,
+            title=f"{context.replace('_', ' ').title()}: {summary}"[:200],
+            description=summary,
+            reason=f"Generated from {context} (metrics: {metrics})",
+            evidence=[{"source": context, "metrics": metrics}],
+            confidence=confidence if isinstance(confidence, (int, float)) else 0.5,
+            risk="high" if elevated else "medium",
+            priority="high" if elevated else "medium",
+            source=context,
+        )
+        self._add_if_new(rec)
+        self._persist()
+        await self._emit_recommendation_event(f"{context}: {summary}")
+        return rec.to_dict()
 
     def dismiss(self, rec_id: str) -> bool:
         rec = self._recommendations.get(rec_id)
