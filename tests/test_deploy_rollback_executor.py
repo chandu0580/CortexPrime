@@ -6,11 +6,35 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from backend.approval_center.models import ApprovalWorkflow, RiskLevel, WorkflowStatus
 from backend.services.enterprise_deploy_regression_detector import MetricWindow, RegressionVerdict
 from backend.services.enterprise_deploy_rollback_executor import trigger_rollback
 from backend.services.enterprise_deploy_rollback_store import RollbackHistoryStore
 
 pytestmark = pytest.mark.asyncio
+
+
+def _workflow(status: WorkflowStatus, risk_level: RiskLevel = RiskLevel.HIGH) -> ApprovalWorkflow:
+    return ApprovalWorkflow(
+        workflow_id="wf_test123",
+        execution_id="test-exec",
+        mission_id="enterprise.automated_rollback",
+        policy_id="policy_high",
+        objective="test rollback",
+        risk_level=risk_level,
+        status=status,
+    )
+
+
+@pytest.fixture(autouse=True)
+def default_approved_workflow(monkeypatch):
+    """By default, every test in this file gets an auto-approved workflow —
+    these tests exercise the rollback LOGIC, not the approval gate itself
+    (that's covered by TestApprovalGate below)."""
+    monkeypatch.setattr(
+        "backend.approval_center.workflows.approval_workflow_engine.create_workflow",
+        AsyncMock(return_value=_workflow(WorkflowStatus.APPROVED)),
+    )
 
 
 def _verdict(regressed=True, deployment_id="42") -> RegressionVerdict:
@@ -135,3 +159,45 @@ class TestTriggerRollback:
         recent = store.list_recent()
         assert len(recent) == 1
         assert recent[0]["service"] == "org/repo"
+
+
+class TestApprovalGate:
+    async def test_blocks_and_does_not_touch_github_when_not_approved(self, store, monkeypatch):
+        monkeypatch.setattr(
+            "backend.approval_center.workflows.approval_workflow_engine.create_workflow",
+            AsyncMock(return_value=_workflow(WorkflowStatus.PENDING)),
+        )
+        fake_gh = MagicMock()
+        fake_gh.get_last_successful_deployment = AsyncMock(return_value={"id": 41, "sha": "goodsha"})
+
+        with patch("backend.connectors.registry.connector_registry.get", return_value=fake_gh):
+            result = await trigger_rollback(_verdict(), _github_ctx())
+
+        assert result["triggered"] is False
+        assert "Awaiting approval" in result["error"]
+        assert "wf_test123" in result["error"]
+        fake_gh.get_last_successful_deployment.assert_not_awaited()
+
+    async def test_proceeds_on_break_glass(self, store):
+        with patch(
+            "backend.approval_center.workflows.approval_workflow_engine.create_workflow",
+            AsyncMock(return_value=_workflow(WorkflowStatus.BREAK_GLASS)),
+        ):
+            fake_gh = MagicMock()
+            fake_gh.get_last_successful_deployment = AsyncMock(return_value={"id": 41, "sha": "goodsha"})
+            fake_gh.create_deployment = AsyncMock(return_value={"id": 99})
+
+            with patch("backend.connectors.registry.connector_registry.get", return_value=fake_gh):
+                result = await trigger_rollback(_verdict(), _github_ctx())
+
+        assert result["triggered"] is True
+        fake_gh.create_deployment.assert_awaited_once()
+
+    async def test_still_returns_none_for_non_regression_before_gate_runs(self, store):
+        # Should short-circuit before ever creating a workflow.
+        with patch(
+            "backend.approval_center.workflows.approval_workflow_engine.create_workflow",
+            AsyncMock(side_effect=AssertionError("should not be called")),
+        ):
+            result = await trigger_rollback(_verdict(regressed=False), _github_ctx())
+        assert result is None

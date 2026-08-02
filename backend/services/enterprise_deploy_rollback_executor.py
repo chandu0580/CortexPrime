@@ -20,12 +20,27 @@ Scope note: this triggers the rollback and records that the trigger
 succeeded or failed. It does not track whether the resulting redeploy
 itself later completes successfully — that's a distinct, larger piece of
 work (a second webhook-driven closed loop), not silently folded in here.
+
+Approval gate: before actually touching anything, this routes through the
+real Approval Center (backend.approval_center) — a production rollback is
+always at least MEDIUM risk, escalating to HIGH (manager + executive
+approval) for a production/prod/live/critical environment, which is the
+common case here. Only an APPROVED or BREAK_GLASS workflow proceeds to the
+actual rollback; otherwise this records a "blocked pending approval" entry
+and returns without touching anything. Scope note: this does NOT
+auto-resume the rollback once a human approves later via
+POST /api/approval-center/workflows/{id}/approve — that re-trigger is a
+distinct follow-on (an event-driven dispatcher or a re-entrant retry on the
+next detection cycle), not built here.
 """
 from __future__ import annotations
 
 import logging
 from typing import Any, Dict, Optional
 
+from backend.approval_center.models import RiskLevel, WorkflowStatus
+from backend.approval_center.policies import assess_risk_from_context
+from backend.approval_center.workflows import approval_workflow_engine
 from backend.services.enterprise_deploy_regression_detector import RegressionVerdict
 from backend.services.enterprise_deploy_rollback_store import rollback_history_store
 
@@ -127,13 +142,52 @@ async def trigger_rollback(verdict: RegressionVerdict, ctx: Dict[str, Any], tick
         log.debug("Rollback skipped — unrecognized ctx source: %s", ctx.get("source"))
         return None
 
+    environment = ctx.get("environment") or "production"
+    provider = "github" if ctx.get("source") == "github_webhook" else "gitlab"
+
+    workflow = await approval_workflow_engine.create_workflow(
+        execution_id=f"rollback-{verdict.service}-{verdict.deployment_id}",
+        mission_id="enterprise.automated_rollback",
+        objective=f"Automated rollback of {verdict.service} (deployment {verdict.deployment_id}): "
+                  f"{'; '.join(verdict.reasons)}"[:200],
+        risk_level=assess_risk_from_context(
+            RiskLevel.MEDIUM, target_environment=environment, affected_systems=[verdict.service],
+        ),
+    )
+
+    if workflow.status not in (WorkflowStatus.APPROVED, WorkflowStatus.BREAK_GLASS):
+        log.warning(
+            "Rollback for %s (deployment %s) requires approval before executing — workflow %s "
+            "is %s. Approve via POST /api/approval-center/workflows/%s/approve (or break-glass).",
+            verdict.service, verdict.deployment_id, workflow.workflow_id, workflow.status.value, workflow.workflow_id,
+        )
+        recorded = rollback_history_store.record(
+            provider=provider,
+            service=verdict.service,
+            environment=environment,
+            bad_deployment_id=verdict.deployment_id,
+            reasons=verdict.reasons,
+            triggered=False,
+            ticket_key=ticket_key,
+            error=f"Awaiting approval (workflow {workflow.workflow_id}, status {workflow.status.value})",
+        )
+        try:
+            from backend.services.enterprise_alert_correlator import attach_signal
+            await attach_signal(
+                source="rollback", service=verdict.service,
+                summary=f"Rollback blocked pending approval (workflow {workflow.workflow_id})",
+                severity="warning",
+            )
+        except Exception as exc:
+            log.debug("Incident signal attach skipped for %s: %s", verdict.service, exc)
+        return recorded
+
     try:
         result = await handler(verdict, ctx)
     except Exception as exc:
         log.warning("Automated rollback failed for %s: %s", verdict.service, exc)
         result = {"triggered": False, "error": str(exc)}
 
-    provider = "github" if ctx.get("source") == "github_webhook" else "gitlab"
     if result.get("triggered"):
         log.warning(
             "Automated rollback triggered for %s (deployment %s) -> sha %s",
@@ -148,7 +202,7 @@ async def trigger_rollback(verdict: RegressionVerdict, ctx: Dict[str, Any], tick
     recorded = rollback_history_store.record(
         provider=provider,
         service=verdict.service,
-        environment=ctx.get("environment") or "production",
+        environment=environment,
         bad_deployment_id=verdict.deployment_id,
         reasons=verdict.reasons,
         triggered=result.get("triggered", False),

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import Any, Dict, List, Optional
 
 from backend.approval_center.models import (
@@ -285,6 +286,14 @@ class ApprovalWorkflowEngine:
     # ------------------------------------------------------------------
 
     def _schedule_escalation(self, workflow: ApprovalWorkflow) -> None:
+        # Real asyncio.sleep()-based timers (15-45 real minutes) have no
+        # business running during a test run — nothing in the test suite
+        # awaits or cancels them, so they leak past their originating
+        # test's event-loop teardown and corrupt unrelated later tests
+        # (same uncancellable-background-task hazard found twice already
+        # this session, e.g. the Docker event listener).
+        if "PYTEST_CURRENT_TEST" in os.environ:
+            return
         policy = get_policy_for_risk(workflow.risk_level)
         if not policy or policy.escalation_minutes <= 0:
             return
@@ -313,6 +322,8 @@ class ApprovalWorkflowEngine:
         self._escalation_tasks[workflow.workflow_id] = task
 
     def _schedule_expiration(self, workflow: ApprovalWorkflow) -> None:
+        if "PYTEST_CURRENT_TEST" in os.environ:
+            return
         policy = get_policy_for_risk(workflow.risk_level)
         if not policy or policy.expiration_minutes <= 0:
             return

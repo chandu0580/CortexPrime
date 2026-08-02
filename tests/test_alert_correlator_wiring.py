@@ -99,6 +99,7 @@ class TestFlakyTestRoutesThroughCorrelator:
 
 class TestRollbackAttachesSignal:
     async def test_attach_signal_called_after_recording(self):
+        from backend.approval_center.models import ApprovalWorkflow, RiskLevel, WorkflowStatus
         from backend.services.enterprise_deploy_regression_detector import MetricWindow, RegressionVerdict
         from backend.services.enterprise_deploy_rollback_executor import trigger_rollback
 
@@ -112,17 +113,28 @@ class TestRollbackAttachesSignal:
         fake_gh.get_last_successful_deployment = AsyncMock(return_value={"id": 41, "sha": "goodsha"})
         fake_gh.create_deployment = AsyncMock(return_value={"id": 99})
 
+        approved_workflow = ApprovalWorkflow(
+            workflow_id="wf_test", execution_id="test-exec", mission_id="enterprise.automated_rollback",
+            policy_id="policy_low", objective="test", risk_level=RiskLevel.LOW,
+            status=WorkflowStatus.APPROVED,
+        )
+
         with tempfile.TemporaryDirectory() as tmpdir:
             from backend.services.enterprise_deploy_rollback_store import RollbackHistoryStore
             test_store = RollbackHistoryStore(file_path=Path(tmpdir) / "rollback_history.json")
             with patch("backend.services.enterprise_deploy_rollback_executor.rollback_history_store", test_store), \
                  patch("backend.connectors.registry.connector_registry.get", return_value=fake_gh), \
                  patch(
+                     "backend.approval_center.workflows.approval_workflow_engine.create_workflow",
+                     new=AsyncMock(return_value=approved_workflow),
+                 ), \
+                 patch(
                      "backend.services.enterprise_alert_correlator.attach_signal",
                      new=AsyncMock(return_value=None),
                  ) as mock_attach:
                 await trigger_rollback(verdict, {"source": "github_webhook", "environment": "production"})
 
+        fake_gh.create_deployment.assert_awaited_once()
         mock_attach.assert_awaited_once()
         _, kwargs = mock_attach.call_args
         assert kwargs["source"] == "rollback"

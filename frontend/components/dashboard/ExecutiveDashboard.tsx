@@ -7,7 +7,7 @@ import { Bot, ClipboardCheck, Plus, ShieldCheck, Sparkles, Target } from "lucide
 import { cn } from "@/utils/cn";
 import { stagger, variants } from "@/lib/motion-tokens";
 import type { StatusTone } from "@/components/dashboard/data";
-import { useDashboardOverview, useDashboardHealth, useDashboardResources, useDashboardTimeline, useDashboardAgents, useDashboardEvents, useDashboardHeader, useDashboardWebSocket, useDashboardDeployChecks, useDashboardFlakyTests, useDashboardRollbacks, useDashboardIncidents, useDashboardCredentials, useDashboardRootCause } from "@/hooks";
+import { useDashboardOverview, useDashboardHealth, useDashboardResources, useDashboardTimeline, useDashboardAgents, useDashboardEvents, useDashboardHeader, useDashboardWebSocket, useDashboardDeployChecks, useDashboardFlakyTests, useDashboardRollbacks, useDashboardIncidents, useDashboardCredentials, useDashboardRootCause, useDashboardVulnerabilities } from "@/hooks";
 
 import { Sidebar } from "./Sidebar";
 import { ExecutiveHeader } from "./ExecutiveHeader";
@@ -23,6 +23,7 @@ import { RollbackHistoryPanel } from "./RollbackHistoryPanel";
 import { IncidentsPanel } from "./IncidentsPanel";
 import { CredentialHealthPanel } from "./CredentialHealthPanel";
 import { RootCauseAnalysisPanel } from "./RootCauseAnalysisPanel";
+import { VulnerabilityPanel } from "./VulnerabilityPanel";
 
 export default function ExecutiveDashboard() {
   const [collapsed, setCollapsed] = useState(false);
@@ -39,6 +40,7 @@ export default function ExecutiveDashboard() {
   const { data: incidents, isLoading: isIncidentsLoading } = useDashboardIncidents();
   const { data: credentials, isLoading: isCredentialsLoading } = useDashboardCredentials();
   const { data: rootCause, isLoading: isRootCauseLoading } = useDashboardRootCause();
+  const { data: vulnerabilities, isLoading: isVulnerabilitiesLoading } = useDashboardVulnerabilities();
 
   useDashboardWebSocket();
 
@@ -160,6 +162,11 @@ export default function ExecutiveDashboard() {
                 recentAnalyses={rootCause?.recentAnalyses}
                 isLoading={isRootCauseLoading}
               />
+            </motion.div>
+
+            {/* Vulnerability Monitoring */}
+            <motion.div variants={stagger(0.05)} className="grid gap-5 lg:grid-cols-1">
+              <VulnerabilityPanel latest={vulnerabilities?.latest} isLoading={isVulnerabilitiesLoading} />
             </motion.div>
 
             {/* Footer */}

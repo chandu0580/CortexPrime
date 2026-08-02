@@ -904,6 +904,15 @@ def register_all_routers(app: FastAPI) -> Dict[str, bool]:
         log.warning(f"Enterprise Credential Monitoring routes unavailable: {_ecred_err}")
 
     try:
+        from backend.api.enterprise_vulnerabilities_routes import router as enterprise_vulnerabilities_router
+        app.include_router(enterprise_vulnerabilities_router)
+        log.info("Enterprise Vulnerability Monitoring routes registered at /api/vulnerabilities")
+        availability["enterprise_vulnerabilities"] = True
+    except Exception as _evuln_err:
+        availability["enterprise_vulnerabilities"] = False
+        log.warning(f"Enterprise Vulnerability Monitoring routes unavailable: {_evuln_err}")
+
+    try:
         from backend.api.enterprise_cicd_routes import router as enterprise_cicd_router
         app.include_router(enterprise_cicd_router)
         log.info("Enterprise CI/CD Intelligence routes registered at /api/cicd")

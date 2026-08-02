@@ -998,6 +998,14 @@ async def lifespan(_app: FastAPI):
     except Exception as exc:
         log.debug("Startup credential check skipped: %s", exc)
 
+    # One-shot vulnerability check, same reasoning as credentials above —
+    # see enterprise_vulnerability_monitor's module docstring.
+    try:
+        from backend.services.enterprise_vulnerability_monitor import check_vulnerabilities
+        await check_vulnerabilities()
+    except Exception as exc:
+        log.debug("Startup vulnerability check skipped: %s", exc)
+
     # Enterprise Watchers — initialize connector watchers, then start
     # continuous polling. Must run AFTER connector registration above —
     # EnterpriseWatcher.initialize() looks connectors up in the shared

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import json
 import logging
@@ -193,6 +194,44 @@ class GitHubConnector(BaseConnector):
         ref_resp = await self._request("GET", f"/repos/{owner}/{repo}/git/refs/heads/{source_branch}")
         sha = ref_resp["object"]["sha"]
         return await self._execute("create_branch", "branches", self._request, "POST", f"/repos/{owner}/{repo}/git/refs", json={"ref": f"refs/heads/{branch_name}", "sha": sha, **kwargs})
+
+    # ------------------------------------------------------------------
+    # Contents API — enough to compose a single-file edit + PR (a
+    # dependency-manifest version bump) without the full git blob/tree
+    # plumbing a multi-file commit would need.
+    # ------------------------------------------------------------------
+
+    async def get_file_contents(self, owner: str, repo: str, path: str, ref: Optional[str] = None) -> Dict[str, Any]:
+        """GET /repos/{owner}/{repo}/contents/{path} — returns base64 content + sha,
+        the sha is required by update_file_contents to prove you're editing the
+        version you just read (GitHub rejects the write otherwise)."""
+        params = {"ref": ref} if ref else {}
+        return await self._execute("get_file_contents", "contents", self._request, "GET", f"/repos/{owner}/{repo}/contents/{path}", params=params)
+
+    async def update_file_contents(self, owner: str, repo: str, path: str, message: str, content: str, sha: str, branch: str) -> Dict[str, Any]:
+        """PUT /repos/{owner}/{repo}/contents/{path} — content is the RAW
+        (not yet base64-encoded) new file text; this encodes it."""
+        encoded = base64.b64encode(content.encode("utf-8")).decode("ascii")
+        return await self._execute("update_file_contents", "contents", self._request, "PUT", f"/repos/{owner}/{repo}/contents/{path}", json={"message": message, "content": encoded, "sha": sha, "branch": branch})
+
+    # ------------------------------------------------------------------
+    # Dependabot Alerts API
+    # ------------------------------------------------------------------
+
+    async def list_dependabot_alerts(self, owner: str, repo: str, state: str = "open", **kwargs) -> List[Dict[str, Any]]:
+        """GET /repos/{owner}/{repo}/dependabot/alerts — requires Dependabot
+        alerts enabled on the repo (Settings -> Security); a token with plain
+        `repo` scope is sufficient once that's on, no separate scope needed
+        in practice despite GitHub's docs suggesting security_events.
+
+        Deliberately uses _request_list (single page), not
+        _request_list_paginated — this endpoint only supports cursor-based
+        pagination (Link header before/after) and rejects the classic
+        ?page=N param entirely with a 400. per_page=100 covers realistic
+        repos; a repo with over 100 open alerts is an edge case not worth
+        the extra cursor-following complexity right now."""
+        params = {"state": state, "per_page": 100, **kwargs.get("params", {})}
+        return await self._execute("list_dependabot_alerts", "dependabot", self._request_list, "GET", f"/repos/{owner}/{repo}/dependabot/alerts", params)
 
     async def create_release(self, owner: str, repo: str, tag_name: str, name: str = "", body: str = "", draft: bool = False, prerelease: bool = False, **kwargs) -> Dict[str, Any]:
         return await self._execute("create_release", "releases", self._request, "POST", f"/repos/{owner}/{repo}/releases", json={"tag_name": tag_name, "name": name or tag_name, "body": body, "draft": draft, "prerelease": prerelease, **kwargs})
