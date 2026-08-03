@@ -211,6 +211,8 @@ class DockerConnector(BaseConnector):
                 "started_at": attrs.get("State", {}).get("StartedAt", ""),
                 "finished_at": attrs.get("State", {}).get("FinishedAt", ""),
                 "health": attrs.get("State", {}).get("Health", {}).get("Status", ""),
+                "oom_killed": attrs.get("State", {}).get("OOMKilled", False),
+                "exit_code": attrs.get("State", {}).get("ExitCode", 0),
                 "platform": attrs.get("Platform", ""),
                 "volumes": [
                     {
@@ -268,6 +270,8 @@ class DockerConnector(BaseConnector):
             "started_at": attrs.get("State", {}).get("StartedAt", ""),
             "finished_at": attrs.get("State", {}).get("FinishedAt", ""),
             "health": attrs.get("State", {}).get("Health", {}).get("Status", ""),
+            "oom_killed": attrs.get("State", {}).get("OOMKilled", False),
+            "exit_code": attrs.get("State", {}).get("ExitCode", 0),
             "platform": attrs.get("Platform", ""),
             "volumes": [
                 {"source": m.get("Source", ""), "destination": m.get("Destination", ""), "mode": m.get("Mode", ""), "rw": m.get("RW", True)}
@@ -290,6 +294,18 @@ class DockerConnector(BaseConnector):
             "hostname_path": attrs.get("HostnamePath", ""),
             "hosts_path": attrs.get("HostsPath", ""),
         }
+
+    async def restart_container(self, container_id: str, timeout: int = 10) -> bool:
+        return await self._execute(
+            "restart_container", "containers",
+            self._restart_container, container_id, timeout,
+        )
+
+    async def _restart_container(self, container_id: str, timeout: int = 10) -> bool:
+        client = self._ensure_client()
+        container = await self._api_call(client.containers.get, container_id)
+        await self._api_call(container.restart, timeout=timeout)
+        return True
 
     async def get_container_logs(
         self, container_id: str, tail: int = 100, timestamps: bool = False,

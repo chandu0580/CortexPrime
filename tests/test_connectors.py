@@ -412,6 +412,6 @@ class TestKnownConnectorNames:
         # The real known-connector-type roster lives as `connector_type` on each watcher
         # class in enterprise_watchers.py, which is what this test actually meant to check.
         from backend.services.enterprise_watchers import _WATCHER_CLASSES
-        expected = {"github", "jira", "slack", "teams", "azure_devops", "servicenow", "confluence", "notion"}
+        expected = {"github", "jira", "slack", "teams", "azure_devops", "servicenow", "confluence", "notion", "docker"}
         actual = {cls.connector_type for cls in _WATCHER_CLASSES}
         assert actual == expected

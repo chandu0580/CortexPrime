@@ -108,10 +108,16 @@ async def _dispatch_branch_protection_fix(payload: Dict[str, Any]) -> None:
     await enable_minimal_protection(**payload)
 
 
+async def _dispatch_docker_health_fix(payload: Dict[str, Any]) -> None:
+    from backend.services.enterprise_docker_health_fix_executor import restart_crashlooping_container
+    await restart_crashlooping_container(**payload)
+
+
 _DISPATCH_HANDLERS: Dict[str, Callable[[Dict[str, Any]], Awaitable[None]]] = {
     "rollback": _dispatch_rollback,
     "vulnerability_fix_pr": _dispatch_vulnerability_fix_pr,
     "branch_protection_fix": _dispatch_branch_protection_fix,
+    "docker_health_fix": _dispatch_docker_health_fix,
 }
 
 

@@ -7,7 +7,7 @@ import { Bot, ClipboardCheck, Plus, ShieldCheck, Sparkles, Target } from "lucide
 import { cn } from "@/utils/cn";
 import { stagger, variants } from "@/lib/motion-tokens";
 import type { StatusTone } from "@/components/dashboard/data";
-import { useDashboardOverview, useDashboardHealth, useDashboardResources, useDashboardTimeline, useDashboardAgents, useDashboardEvents, useDashboardHeader, useDashboardWebSocket, useDashboardDeployChecks, useDashboardFlakyTests, useDashboardRollbacks, useDashboardIncidents, useDashboardCredentials, useDashboardRootCause, useDashboardVulnerabilities, useDashboardBranchProtection } from "@/hooks";
+import { useDashboardOverview, useDashboardHealth, useDashboardResources, useDashboardTimeline, useDashboardAgents, useDashboardEvents, useDashboardHeader, useDashboardWebSocket, useDashboardDeployChecks, useDashboardFlakyTests, useDashboardRollbacks, useDashboardIncidents, useDashboardCredentials, useDashboardRootCause, useDashboardVulnerabilities, useDashboardBranchProtection, useDashboardDockerHealth } from "@/hooks";
 
 import { Sidebar } from "./Sidebar";
 import { ExecutiveHeader } from "./ExecutiveHeader";
@@ -25,6 +25,7 @@ import { CredentialHealthPanel } from "./CredentialHealthPanel";
 import { RootCauseAnalysisPanel } from "./RootCauseAnalysisPanel";
 import { VulnerabilityPanel } from "./VulnerabilityPanel";
 import { BranchProtectionPanel } from "./BranchProtectionPanel";
+import { DockerHealthPanel } from "./DockerHealthPanel";
 
 export default function ExecutiveDashboard() {
   const [collapsed, setCollapsed] = useState(false);
@@ -43,6 +44,7 @@ export default function ExecutiveDashboard() {
   const { data: rootCause, isLoading: isRootCauseLoading } = useDashboardRootCause();
   const { data: vulnerabilities, isLoading: isVulnerabilitiesLoading } = useDashboardVulnerabilities();
   const { data: branchProtection, isLoading: isBranchProtectionLoading } = useDashboardBranchProtection();
+  const { data: dockerHealth, isLoading: isDockerHealthLoading } = useDashboardDockerHealth();
 
   useDashboardWebSocket();
 
@@ -170,6 +172,11 @@ export default function ExecutiveDashboard() {
             <motion.div variants={stagger(0.05)} className="grid gap-5 lg:grid-cols-2">
               <VulnerabilityPanel latest={vulnerabilities?.latest} isLoading={isVulnerabilitiesLoading} />
               <BranchProtectionPanel recent={branchProtection?.recent} isLoading={isBranchProtectionLoading} />
+            </motion.div>
+
+            {/* Container Health */}
+            <motion.div variants={stagger(0.05)} className="grid gap-5 lg:grid-cols-1">
+              <DockerHealthPanel recent={dockerHealth?.recent} isLoading={isDockerHealthLoading} />
             </motion.div>
 
             {/* Footer */}

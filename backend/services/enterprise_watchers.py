@@ -540,6 +540,54 @@ class NotionWatcher(EnterpriseWatcher):
 
 
 # ---------------------------------------------------------------------------
+# Docker Container Health Watcher
+# ---------------------------------------------------------------------------
+
+class DockerHealthWatcher(EnterpriseWatcher):
+    """Unlike the other watchers here (generic connector-event polling that
+    feeds the monitoring_rules auto-mission pipeline), poll() also runs the
+    real detect -> Jira-ticket -> gated-fix loop directly via
+    enterprise_docker_health_monitor.check_all_containers() — the same
+    check_all_repos()-style detector every other domain (branch-protection,
+    vulnerability, etc.) uses, just wired continuously instead of one-shot
+    since a crash-looping container is time-sensitive. The DetectedEvents
+    returned below are only for the generic WebSocket/monitoring-rules feed
+    on top of that — the ticket-filing already happened inside check_all_containers().
+    """
+    connector_type = "docker"
+    poll_interval = 30
+
+    async def poll(self) -> List[DetectedEvent]:
+        from backend.services.enterprise_docker_health_monitor import check_all_containers
+
+        events: List[DetectedEvent] = []
+        try:
+            results = await check_all_containers()
+        except Exception as exc:
+            log.debug("Docker health check failed: %s", exc)
+            return events
+
+        for entry in results:
+            if not entry.get("gaps"):
+                continue
+            events.append(DetectedEvent(
+                connector_type="docker",
+                event_type="container_health_gap",
+                severity=entry.get("severity", "warning"),
+                title=f"Container health gap: {entry.get('container', 'unknown')}",
+                description="; ".join(g["description"] for g in entry["gaps"]),
+                metadata={
+                    "container": entry.get("container"),
+                    "container_id": entry.get("container_id"),
+                    "gaps": entry.get("gaps"),
+                    "ticket_key": entry.get("ticket_key"),
+                },
+            ))
+
+        return events
+
+
+# ---------------------------------------------------------------------------
 # Watcher Manager
 # ---------------------------------------------------------------------------
 
@@ -552,6 +600,7 @@ _WATCHER_CLASSES: List[type] = [
     ServiceNowWatcher,
     ConfluenceWatcher,
     NotionWatcher,
+    DockerHealthWatcher,
 ]
 
 

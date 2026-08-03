@@ -922,6 +922,15 @@ def register_all_routers(app: FastAPI) -> Dict[str, bool]:
         log.warning(f"Enterprise Branch Protection Monitoring routes unavailable: {_ebp_err}")
 
     try:
+        from backend.api.enterprise_docker_health_routes import router as enterprise_docker_health_router
+        app.include_router(enterprise_docker_health_router)
+        log.info("Enterprise Docker Health Monitoring routes registered at /api/docker-health")
+        availability["enterprise_docker_health"] = True
+    except Exception as _edh_err:
+        availability["enterprise_docker_health"] = False
+        log.warning(f"Enterprise Docker Health Monitoring routes unavailable: {_edh_err}")
+
+    try:
         from backend.api.enterprise_cicd_routes import router as enterprise_cicd_router
         app.include_router(enterprise_cicd_router)
         log.info("Enterprise CI/CD Intelligence routes registered at /api/cicd")
