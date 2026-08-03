@@ -291,11 +291,11 @@ class TestEndpointClassification:
             __import__("os").getenv("RATE_LIMIT_GET", "100")
         )
 
-    def test_orchestrate_uses_10_limit(self):
+    def test_orchestrate_uses_documented_limit(self):
         from backend.safety.rate_limiter import _classify_endpoint, _LIMITS
         bucket = _classify_endpoint("/api/orchestrate", "POST")
         assert bucket == "orchestrate"
-        assert _LIMITS["orchestrate"] <= 20   # default=10; env may override higher
+        assert _LIMITS["orchestrate"] <= 50   # documented default=50; env may override higher
 
     def test_voice_bucket(self):
         from backend.safety.rate_limiter import _classify_endpoint

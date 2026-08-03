@@ -59,7 +59,7 @@ def infra():
 
 class TestConstants:
     def test_infra_events_count(self):
-        assert len(INFRA_EVENTS) == 17
+        assert len(INFRA_EVENTS) == 66
 
     def test_supported_platforms(self):
         assert "kubernetes" in SUPPORTED_PLATFORMS
@@ -201,7 +201,7 @@ class TestDockerIntelligence:
         h = DockerIntelligence.get_container_health()
         assert h["total"] == 2
         assert h["running"] == 1
-        assert h["error"] == 1
+        assert h["stopped"] == 1
 
     def test_get_container(self):
         c = DockerIntelligence.get_container("nonexistent")
@@ -524,11 +524,17 @@ class TestIntegrationStubs:
 
 
 class TestInfraEvents:
+    # Event values now carry per-integration prefixes (docker., argocd.,
+    # grafana., loki., otel., prometheus., terraform.), not just infra.
+    _KNOWN_PREFIXES = (
+        "infra.", "docker.", "argocd.", "grafana.", "loki.", "otel.", "prometheus.", "terraform.",
+    )
+
     def test_all_event_types_are_strings(self):
         for key, val in INFRA_EVENTS.items():
             assert isinstance(key, str)
             assert isinstance(val, str)
-            assert val.startswith("infra.")
+            assert val.startswith(self._KNOWN_PREFIXES), val
 
     def test_event_hub_topic_routing(self):
         from backend.services.enterprise_event_hub import _topic_for_event

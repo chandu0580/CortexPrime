@@ -3,7 +3,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 NGINX_CONF = REPO_ROOT / "infra" / "nginx" / "conf.d" / "cortex.conf"
-FRONTEND_MIDDLEWARE = REPO_ROOT / "frontend" / "middleware.ts"
+FRONTEND_MIDDLEWARE = REPO_ROOT / "frontend" / "proxy.ts"
 FRONTEND_LAYOUT = REPO_ROOT / "frontend" / "app" / "layout.tsx"
 
 

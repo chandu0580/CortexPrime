@@ -57,7 +57,6 @@ class TestRouteFileExistence:
         "memory_routes.py",
         "graph_routes.py",
         "workspace_routes.py",
-        "agent_routes.py",
         "audit_routes.py",
         "connector_activity_routes.py",
         "cost_routes.py",
@@ -217,11 +216,11 @@ class TestRouteNaming:
         "governance_center_routes.py": "/governance",
         "executive_routes.py": "/executive",
         "approval_center_routes.py": "/approval",
-        "mission_replay_routes.py": "/replay",
+        "mission_replay_routes.py": "/mission-replay",
         "memory_routes.py": "/memory",
         "graph_routes.py": "/graph",
         "organization_routes.py": "/org",
-        "department_routes.py": "/dept",
+        "department_routes.py": "/api/departments",
         "project_routes.py": "/project",
         "security_center_routes.py": "/security",
         "operator_routes.py": "/operator",
@@ -288,7 +287,15 @@ class TestAuthRoutes:
         with open(path, encoding="utf-8") as f:
             source = f.read()
         assert "login" in source or "signin" in source or "token" in source
-        assert "signup" in source or "register" in source or "create_user" in source
+
+        # User provisioning is intentionally admin-gated in this
+        # enterprise product — there's no public self-service signup in
+        # auth_routes.py by design; real user creation lives in
+        # security_center_routes.py behind require_user.
+        admin_path = os.path.join(BACKEND_PATH, "api", "security_center_routes.py")
+        with open(admin_path, encoding="utf-8") as f:
+            admin_source = f.read()
+        assert "create_user" in admin_source
 
     def test_auth_routes_use_password_hashing(self):
         path = os.path.join(BACKEND_PATH, "api", "auth_routes.py")

@@ -128,7 +128,7 @@ async def test_execute_mission_logs_completion(monkeypatch):
     monkeypatch.setattr(mod, "_governance_log", lambda *args, **kwargs: logs.append(args))
     monkeypatch.setattr(mod, "_governance_assess", lambda objective: None)
     monkeypatch.setattr(mod, "_is_emergency_stopped", lambda execution_id: False)
-    async def _run_pipeline(execution_id, objective, session_id, workspace_id, voice_context=None):
+    async def _run_pipeline(execution_id, objective, session_id, workspace_id, voice_context=None, mission_span=None):
         return {"status": "completed", "execution_id": execution_id, "response": "ok"}
 
     monkeypatch.setattr(service, "_run_pipeline", _run_pipeline)

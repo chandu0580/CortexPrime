@@ -192,13 +192,13 @@ async def test_resume_engine_find_resume_point():
     timeline = [
         {"stage": "repository", "status": "completed"},
         {"stage": "workspace", "status": "completed"},
-        {"stage": "patch", "status": "completed"},
+        {"stage": "patch_generation", "status": "completed"},
         {"stage": "build", "status": "completed"},
         {"stage": "qa", "status": "running"},
     ]
     resume_idx = ResumeEngine.find_resume_point(timeline)
-    # Should resume from qa (index 4) after build (index 3)
-    assert resume_idx == 4
+    # Should resume from qa (index 6) after build (index 5)
+    assert resume_idx == 6
     assert DELIVERY_STAGES[resume_idx] == "qa"
 
 
@@ -253,13 +253,13 @@ async def test_get_blueprint(orchestrator):
 def test_delivery_stages_completeness():
     """All required stages are defined."""
     required_stages = [
-        "repository", "workspace", "patch", "build", "qa",
-        "security", "approval", "pr", "deployment", "verification",
-        "monitoring", "learning",
+        "repository", "workspace", "patch_generation", "build", "qa",
+        "security", "approval", "pr", "deployment", "k8s_verification",
+        "observability", "learning",
     ]
     for stage in required_stages:
         assert stage in DELIVERY_STAGES, f"Missing stage: {stage}"
-    assert len(DELIVERY_STAGES) == 12
+    assert len(DELIVERY_STAGES) == 22
 
 
 def test_delivery_states_completeness():

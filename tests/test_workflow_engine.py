@@ -38,15 +38,27 @@ class TestApprovalQueue:
         )
 
         queue = ApprovalQueue()
-        req = await queue.request(
+
+        # ApprovalQueue.request() blocks until resolved or timed out — it can
+        # never itself return "pending". Run it as a background task so we
+        # can observe the pending state before resolving it.
+        task = asyncio.create_task(queue.request(
             execution_id="exec-1",
             agent="orchestrator",
             action="execute_mission",
             description="Test mission",
             risk_level="medium",
             timeout=5,
-        )
-        assert req.status.value == "pending"
+        ))
+        await asyncio.sleep(0.05)
+
+        pending = queue.get_pending()
+        assert len(pending) == 1
+        assert pending[0]["execution_id"] == "exec-1"
+        assert pending[0]["status"] == "pending"
+
+        queue.approve(pending[0]["request_id"], approved_by="admin")
+        req = await task
         assert req.execution_id == "exec-1"
 
     async def test_approve_resolves_request(self, monkeypatch):

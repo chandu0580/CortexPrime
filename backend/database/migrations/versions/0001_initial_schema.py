@@ -198,9 +198,12 @@ def upgrade() -> None:
         sa.Column("updated_at",   TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("NOW()")),
     )
     op.drop_column("embedding_cache", "embedding")
-    op.execute("ALTER TABLE embedding_cache ADD COLUMN embedding vector(1536) NOT NULL DEFAULT '[0]'::vector(1536)")
-    # Remove the dummy default after the column exists
-    op.execute("ALTER TABLE embedding_cache ALTER COLUMN embedding DROP DEFAULT")
+    # No default needed: this column is added immediately after the table
+    # itself is created, so there are no existing rows for NOT NULL to
+    # validate against. (A prior version tried to give it a dummy default
+    # of '[0]'::vector(1536), which pgvector rejects outright — that
+    # literal is a 1-dimensional vector, not a 1536-dimension one.)
+    op.execute("ALTER TABLE embedding_cache ADD COLUMN embedding vector(1536) NOT NULL")
 
     op.create_index("idx_emb_cache_hash", "embedding_cache", ["text_hash"], unique=True)
 
@@ -211,5 +214,13 @@ def downgrade() -> None:
     op.drop_table("reflection_history")
     op.drop_table("semantic_memory")
     op.drop_table("episodic_memory")
+    # reflection_log / cognition_events predate this migration chain (bootstrapped
+    # by the legacy init.sql, not created by any upgrade() here) but 0003's
+    # downgrade() recreates reflection_log with an FK to missions, and
+    # cognition_events is created outside Alembic entirely via
+    # Base.metadata.create_all() — both must be gone before missions can drop
+    # when downgrading all the way to base.
+    op.execute("DROP TABLE IF EXISTS reflection_log CASCADE")
+    op.execute("DROP TABLE IF EXISTS cognition_events CASCADE")
     op.drop_table("missions")
     op.execute("DROP FUNCTION IF EXISTS set_updated_at() CASCADE")

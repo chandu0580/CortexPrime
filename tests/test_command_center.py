@@ -304,10 +304,12 @@ class TestEmissionPatterns:
         mock_manager.broadcast = _fake_global_broadcast
 
         import backend.websocket.connection_pool as cp
-        import backend.websocket.connection_manager as cm
 
         monkeypatch.setattr(cp, "connection_pool", mock_pool)
-        monkeypatch.setattr(cm, "manager", mock_manager)
+        # mission_runtime does `from ... import manager` at module scope, so
+        # patching the connection_manager module's attribute doesn't reach
+        # it — patch mission_runtime's own bound name instead.
+        monkeypatch.setattr(mod, "manager", mock_manager)
 
         await mod._send_stream_chunk({"test": True}, "sess-disc")
         assert len(global_broadcasts) == 1

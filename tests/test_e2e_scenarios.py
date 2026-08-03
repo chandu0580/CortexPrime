@@ -1607,11 +1607,14 @@ sys.exit(0)
     async def test_delivery_stages_defined_correctly(self):
         """Delivery stages match the expected order."""
         assert DELIVERY_STAGES == [
-            "repository", "workspace", "patch", "build", "qa",
-            "security", "approval", "pr", "deployment",
-            "verification", "monitoring", "learning",
+            "trigger_pipeline", "repository", "workspace", "sandbox_execution",
+            "code_intel_scan", "build", "qa", "security", "patch_generation",
+            "engineering_review", "approval", "pr", "deployment", "gitops_sync",
+            "k8s_verification", "observability", "root_cause_analysis",
+            "learning", "recommendation", "replay_capture", "knowledge_graph",
+            "complete",
         ]
-        assert len(DELIVERY_STAGES) == 12
+        assert len(DELIVERY_STAGES) == 22
 
     @pytest.mark.asyncio
     async def test_delivery_orchestrator_dashboard_stats(self):
@@ -1703,16 +1706,17 @@ sys.exit(0)
         timeline = [
             {"stage": "repository", "status": "completed"},
             {"stage": "workspace", "status": "completed"},
-            {"stage": "patch", "status": "running"},
+            {"stage": "patch_generation", "status": "running"},
         ]
         resume_idx = ResumeEngine.find_resume_point(timeline)
-        # patch (index 2) is running, not completed, so resume from patch
-        assert resume_idx == 2
+        # patch_generation is running, not completed, so the last completed
+        # stage is workspace (index 2) — resume from the stage after it
+        assert resume_idx == 3
 
         timeline2 = [
             {"stage": "repository", "status": "completed"},
             {"stage": "workspace", "status": "completed"},
-            {"stage": "patch", "status": "completed"},
+            {"stage": "patch_generation", "status": "completed"},
         ]
         resume_idx2 = ResumeEngine.find_resume_point(timeline2)
-        assert resume_idx2 == 3  # Next after patch (build)
+        assert resume_idx2 == 9  # Next after patch_generation (engineering_review)

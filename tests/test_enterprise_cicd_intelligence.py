@@ -29,7 +29,7 @@ from backend.events.enterprise_event_types import EnterpriseEventTypes as EET
 
 class TestCiCdEvents:
     def test_all_events_defined(self):
-        assert len(CICD_EVENTS) == 16
+        assert len(CICD_EVENTS) == 21
 
     def test_event_values_format(self):
         for key, val in CICD_EVENTS.items():
@@ -220,11 +220,15 @@ class TestArtifactIntelligence:
         assert len(arts) >= 1
 
     def test_dashboard_stats(self):
+        # get_dashboard_stats() now returns a generic by_type breakdown
+        # instead of hardcoded top-level keys per artifact type.
+        ArtifactIntelligence.track_artifact({"artifact_type": "docker_image", "name": "nginx", "tag": "latest"})
+        ArtifactIntelligence.track_artifact({"artifact_type": "helm_chart", "name": "mychart", "tag": "1.0.0"})
         stats = ArtifactIntelligence.get_dashboard_stats()
         assert "total_artifacts" in stats
-        assert "docker_images" in stats
-        assert "helm_charts" in stats
-        assert "generic" in stats
+        assert "by_type" in stats
+        assert "docker_image" in stats["by_type"]
+        assert "helm_chart" in stats["by_type"]
 
     def test_get_nonexistent(self):
         assert ArtifactIntelligence.get_artifact("nonexistent") is None

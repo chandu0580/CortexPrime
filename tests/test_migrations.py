@@ -49,19 +49,32 @@ pytestmark = pytest.mark.skipif(not _db_reachable(), reason=_SKIP_REASON)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _run_alembic(cmd: str) -> None:
-    """Run ``alembic <cmd>`` synchronously via the project's alembic.ini."""
+async def _run_alembic(cmd: str) -> None:
+    """Run ``alembic <cmd>`` via the project's alembic.ini.
+
+    Alembic's env.py does `asyncio.run(run_migrations_online())` at
+    module-import/config time, which raises "asyncio.run() cannot be
+    called from a running event loop" if invoked directly from inside a
+    pytest-asyncio test coroutine — production code
+    (backend/database/migrator.py) already avoids this by offloading to
+    a thread executor; this helper needs the same treatment.
+    """
+    import asyncio
+
     from backend.database.migrator import _build_alembic_config
     from alembic import command as alembic_command
 
-    cfg = _build_alembic_config()
-    if cmd == "upgrade head":
-        alembic_command.upgrade(cfg, "head")
-    elif cmd.startswith("downgrade "):
-        target = cmd.split(" ", 1)[1]
-        alembic_command.downgrade(cfg, target)
-    else:
-        raise ValueError(f"Unknown alembic command: {cmd}")
+    def _do() -> None:
+        cfg = _build_alembic_config()
+        if cmd == "upgrade head":
+            alembic_command.upgrade(cfg, "head")
+        elif cmd.startswith("downgrade "):
+            target = cmd.split(" ", 1)[1]
+            alembic_command.downgrade(cfg, target)
+        else:
+            raise ValueError(f"Unknown alembic command: {cmd}")
+
+    await asyncio.to_thread(_do)
 
 
 def _get_current_rev() -> list[str]:
@@ -123,7 +136,7 @@ async def test_fresh_database_all_tables_created():
     must exist: missions, episodic_memory, audit_logs, etc.
     """
     # Bring schema to head (idempotent if already there)
-    _run_alembic("upgrade head")
+    await _run_alembic("upgrade head")
 
     expected_tables = [
         "missions",
@@ -146,8 +159,8 @@ async def test_fresh_database_all_tables_created():
 @pytest.mark.asyncio
 async def test_existing_database_idempotent():
     """Running upgrade head a second time must succeed without errors."""
-    _run_alembic("upgrade head")
-    _run_alembic("upgrade head")  # second run — must be a no-op
+    await _run_alembic("upgrade head")
+    await _run_alembic("upgrade head")  # second run — must be a no-op
 
     current = _get_current_rev()
     heads   = _get_head_revs()
@@ -165,17 +178,17 @@ async def test_schema_upgrade_audit_logs():
     then upgrade again and verify the table is recreated.
     """
     # Start from head
-    _run_alembic("upgrade head")
+    await _run_alembic("upgrade head")
     assert _table_exists("audit_logs"), "audit_logs must exist at head"
 
     # Downgrade by one step (removes audit_logs)
-    _run_alembic("downgrade 0001_initial_schema")
+    await _run_alembic("downgrade 0001_initial_schema")
     assert not _table_exists("audit_logs"), (
         "audit_logs must be dropped after downgrade to 0001_initial_schema"
     )
 
     # Upgrade back to head
-    _run_alembic("upgrade head")
+    await _run_alembic("upgrade head")
     assert _table_exists("audit_logs"), (
         "audit_logs must be recreated after upgrade head"
     )
@@ -191,9 +204,9 @@ async def test_rollback_to_base():
     Downgrading to ``base`` (no revisions applied) should remove all
     application tables created by the migrations.
     """
-    _run_alembic("upgrade head")  # ensure we start from head
+    await _run_alembic("upgrade head")  # ensure we start from head
 
-    _run_alembic("downgrade base")
+    await _run_alembic("downgrade base")
 
     core_tables = [
         "missions",
@@ -210,7 +223,7 @@ async def test_rollback_to_base():
         )
 
     # Re-apply so subsequent tests are not broken
-    _run_alembic("upgrade head")
+    await _run_alembic("upgrade head")
 
 
 # ---------------------------------------------------------------------------
@@ -218,9 +231,15 @@ async def test_rollback_to_base():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_run_migrations_success():
+async def test_run_migrations_success(monkeypatch):
     """run_migrations() returns MigrationResult with status='success'."""
     from backend.database.migrator import run_migrations, MigrationResult
+
+    # run_migrations() intentionally skips by default outside production
+    # (a real safety gate) — force it on so this test actually exercises
+    # the upgrade path instead of always hitting status="skipped".
+    monkeypatch.setenv("STARTUP_DB_MIGRATIONS", "true")
+    monkeypatch.delenv("SKIP_DB_MIGRATIONS", raising=False)
 
     result = await run_migrations()
     assert isinstance(result, MigrationResult)
@@ -253,7 +272,7 @@ async def test_health_database_endpoint():
     from backend.main import app
 
     # Ensure migrations are applied
-    _run_alembic("upgrade head")
+    await _run_alembic("upgrade head")
 
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
@@ -283,8 +302,8 @@ async def test_health_database_shows_pending_when_behind():
     from httpx import AsyncClient, ASGITransport
     from backend.main import app
 
-    _run_alembic("upgrade head")
-    _run_alembic("downgrade 0001_initial_schema")  # one step behind
+    await _run_alembic("upgrade head")
+    await _run_alembic("downgrade 0001_initial_schema")  # one step behind
 
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
@@ -296,4 +315,4 @@ async def test_health_database_shows_pending_when_behind():
     assert body["migration"]["up_to_date"] is False
 
     # Restore
-    _run_alembic("upgrade head")
+    await _run_alembic("upgrade head")
