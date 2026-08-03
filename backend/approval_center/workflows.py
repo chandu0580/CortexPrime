@@ -365,16 +365,19 @@ class ApprovalWorkflowEngine:
     ) -> None:
         try:
             from backend.safety.approval_queue import approval_queue
+            # ApprovalQueue.approve()/reject() are plain sync methods, not
+            # coroutines — awaiting them raised TypeError on every call,
+            # silently swallowed by the except below regardless of the
+            # kwarg names, which is how this went unnoticed.
             if approved:
-                await approval_queue.approve(
+                approval_queue.approve(
                     request_id=workflow.execution_id,
-                    resolved_by="approval_workflow_engine",
-                    reason=f"Workflow {workflow.workflow_id} completed",
+                    approved_by="approval_workflow_engine",
                 )
             else:
-                await approval_queue.reject(
+                approval_queue.reject(
                     request_id=workflow.execution_id,
-                    resolved_by="approval_workflow_engine",
+                    rejected_by="approval_workflow_engine",
                     reason=f"Workflow {workflow.workflow_id} {workflow.status.value}",
                 )
         except Exception as exc:
