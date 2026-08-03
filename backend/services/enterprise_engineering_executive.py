@@ -309,7 +309,18 @@ class StageExecutor:
         self, stage: Dict[str, Any], plan: Dict[str, Any], ctx: Dict[str, Any]
     ) -> Tuple[bool, Optional[Dict[str, Any]], str]:
         repo_path = ctx.get("repo_path", "")
-        result = await self._code_intelligence.scan_repository(repo_path or ".")
+        if not repo_path:
+            # _execute_workspace's WorkspaceManager is a document/RAG store,
+            # not a git checkout — it never populates ctx["repo_path"]. This
+            # used to silently fall back to scan_repository("."), scanning
+            # whatever directory the server process happens to be running
+            # from (the live application repo, not the mission's target
+            # repo) — semantically wrong always, and increasingly slow as
+            # that live repo grows. Skip gracefully instead.
+            result = {"error": "no repo_path available — code intelligence scan skipped"}
+            ctx["code_intel_result"] = result
+            return True, result, ""
+        result = await self._code_intelligence.scan_repository(repo_path)
         ctx["code_intel_result"] = result
         return True, result, ""
 
