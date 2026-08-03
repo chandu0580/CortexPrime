@@ -400,12 +400,20 @@ class MissionReplayStore:
         """Atomically increment and return the next sequence number."""
         client = redis_connection.client
         if client:
-            try:
-                seq = await client.incr(_seq_key(execution_id))
-                await client.expire(_seq_key(execution_id), _REPLAY_REDIS_TTL)
-                return int(seq)
-            except Exception:
-                pass
+            # A single transient Redis error mid-run (connection-pool
+            # pressure, a momentary network blip) must not silently switch
+            # this call to the in-memory counter while a sibling call for
+            # the same execution_id stays on Redis — that desyncs the two
+            # counters and produces duplicate/out-of-order sequence numbers.
+            # One retry covers the transient case; only fall back to
+            # in-memory if Redis is genuinely unavailable.
+            for _ in range(2):
+                try:
+                    seq = await client.incr(_seq_key(execution_id))
+                    await client.expire(_seq_key(execution_id), _REPLAY_REDIS_TTL)
+                    return int(seq)
+                except Exception:
+                    continue
         # In-memory fallback
         self._seq[execution_id] = self._seq.get(execution_id, 0) + 1
         return self._seq[execution_id]
