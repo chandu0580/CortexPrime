@@ -1128,8 +1128,24 @@ class InfrastructureIntelligenceService:
             log.debug("Metric recording failed: %s", exc)
 
     async def _sync_runtime_store(self, source: str, entity: Dict[str, Any]) -> None:
-        """Write infrastructure entity state to RuntimeStore as an EngineeringExecution."""
+        """Write infrastructure entity state to RuntimeStore as an EngineeringExecution.
+
+        create_execution() does a full synchronous read-modify-write of
+        runtime_store.json — confirmed to take ~200ms against the real,
+        1600+-entry file this session, via a direct timed call. This method
+        fires on every real Docker daemon event (every container on the
+        host, not just CortexPrime's own, since the event listener
+        subscribes to the whole daemon) at ~150-200ms intervals — back to
+        back with no asyncio.to_thread offload, that blocking write
+        monopolized the single event loop thread almost continuously,
+        starving every other coroutine (confirmed: a concurrent
+        /api/auth/login request never got scheduled at all while this was
+        happening). Same fix shape as DockerConnector.stream_events()'s
+        earlier event-loop-starvation fix this session.
+        """
         try:
+            import asyncio
+
             from backend.services.enterprise_runtime_store import EngineeringExecution, runtime_store
             exec_id = entity.get(f"{source}_id") or entity.get("cluster_id") or _id("infra")
             execution = EngineeringExecution(
@@ -1151,7 +1167,7 @@ class InfrastructureIntelligenceService:
                 created_at=entity.get("created_at", _now()),
                 updated_at=entity.get("updated_at", _now()),
             )
-            runtime_store.create_execution(execution)
+            await asyncio.to_thread(runtime_store.create_execution, execution)
         except Exception as exc:
             log.debug("RuntimeStore sync failed for %s: %s", source, exc)
 
