@@ -270,6 +270,42 @@ class TestProviderStats:
                     "error_rate", "circuit_open", "last_error"):
             assert key in d
 
+    def test_forced_open_until_holds_circuit_open_independent_of_failures(self):
+        from backend.llm.llm_router import ProviderStats
+        s = ProviderStats(provider="test")
+        assert s.circuit_open is False
+        s.forced_open_until = time.time() + 60
+        assert s.circuit_open is True
+        # No consecutive failures recorded — this isn't the failure-based path.
+        assert s.consecutive_fails == 0
+
+    def test_forced_open_until_expires(self):
+        from backend.llm.llm_router import ProviderStats
+        s = ProviderStats(provider="test")
+        s.forced_open_until = time.time() - 1
+        assert s.circuit_open is False
+
+
+class TestForceCircuitOpen:
+    def test_holds_provider_circuit_open_for_real_duration(self):
+        from backend.llm.llm_router import LLMRouter
+        router = LLMRouter()
+        assert router._stats["openai"].circuit_open is False
+        ok = router.force_circuit_open("openai", duration_secs=60)
+        assert ok is True
+        assert router._stats["openai"].circuit_open is True
+
+    def test_unknown_provider_returns_false(self):
+        from backend.llm.llm_router import LLMRouter
+        router = LLMRouter()
+        assert router.force_circuit_open("not-a-real-provider", duration_secs=60) is False
+
+    def test_does_not_affect_other_providers(self):
+        from backend.llm.llm_router import LLMRouter
+        router = LLMRouter()
+        router.force_circuit_open("openai", duration_secs=60)
+        assert router._stats["claude"].circuit_open is False
+
 
 # ---------------------------------------------------------------------------
 # Unit: LLMRouter.route — provider unavailability + failover

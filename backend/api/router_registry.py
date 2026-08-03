@@ -931,6 +931,15 @@ def register_all_routers(app: FastAPI) -> Dict[str, bool]:
         log.warning(f"Enterprise Docker Health Monitoring routes unavailable: {_edh_err}")
 
     try:
+        from backend.api.enterprise_cost_anomaly_routes import router as enterprise_cost_anomaly_router
+        app.include_router(enterprise_cost_anomaly_router)
+        log.info("Enterprise Cost Anomaly Monitoring routes registered at /api/cost-anomaly")
+        availability["enterprise_cost_anomaly"] = True
+    except Exception as _eca_err:
+        availability["enterprise_cost_anomaly"] = False
+        log.warning(f"Enterprise Cost Anomaly Monitoring routes unavailable: {_eca_err}")
+
+    try:
         from backend.api.enterprise_cicd_routes import router as enterprise_cicd_router
         app.include_router(enterprise_cicd_router)
         log.info("Enterprise CI/CD Intelligence routes registered at /api/cicd")

@@ -134,6 +134,7 @@ class ProviderStats:
     total_latency_ms:    float = 0.0
     consecutive_fails:   int   = 0
     circuit_opened_at:   float = 0.0   # epoch when circuit was tripped
+    forced_open_until:   float = 0.0   # epoch until which force_circuit_open() holds the circuit open
     last_error:          str   = ""
     last_used_at:        float = 0.0
     last_success_at:     float = 0.0
@@ -149,6 +150,8 @@ class ProviderStats:
 
     @property
     def circuit_open(self) -> bool:
+        if time.time() < self.forced_open_until:
+            return True
         if self.consecutive_fails < CIRCUIT_FAIL_THRESHOLD:
             return False
         return (time.time() - self.circuit_opened_at) < CIRCUIT_OPEN_SECS
@@ -597,6 +600,24 @@ class LLMRouter:
                 self._stats[name] = ProviderStats(provider=name)
             self._fallback_count_total = 0
             self._recent.clear()
+
+    def force_circuit_open(self, provider: str, duration_secs: int) -> bool:
+        """Manually hold a provider's circuit open for `duration_secs`,
+        independent of its real failure history — route() already skips
+        any provider whose circuit_open is true, so this reuses that exact
+        mechanism rather than adding a second skip path. Used by
+        enterprise_cost_anomaly_fix_executor to temporarily disable an
+        over-spending provider. Returns False if the provider name isn't
+        recognized."""
+        stats = self._stats.get(provider)
+        if stats is None:
+            return False
+        stats.forced_open_until = time.time() + duration_secs
+        log.warning(
+            "LLMRouter: provider=%s forced open for %ds (cost-anomaly fix)",
+            provider, duration_secs,
+        )
+        return True
 
     # ------------------------------------------------------------------
     # Internal helpers

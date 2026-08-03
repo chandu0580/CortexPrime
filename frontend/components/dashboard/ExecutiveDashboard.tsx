@@ -7,7 +7,7 @@ import { Bot, ClipboardCheck, Plus, ShieldCheck, Sparkles, Target } from "lucide
 import { cn } from "@/utils/cn";
 import { stagger, variants } from "@/lib/motion-tokens";
 import type { StatusTone } from "@/components/dashboard/data";
-import { useDashboardOverview, useDashboardHealth, useDashboardResources, useDashboardTimeline, useDashboardAgents, useDashboardEvents, useDashboardHeader, useDashboardWebSocket, useDashboardDeployChecks, useDashboardFlakyTests, useDashboardRollbacks, useDashboardIncidents, useDashboardCredentials, useDashboardRootCause, useDashboardVulnerabilities, useDashboardBranchProtection, useDashboardDockerHealth } from "@/hooks";
+import { useDashboardOverview, useDashboardHealth, useDashboardResources, useDashboardTimeline, useDashboardAgents, useDashboardEvents, useDashboardHeader, useDashboardWebSocket, useDashboardDeployChecks, useDashboardFlakyTests, useDashboardRollbacks, useDashboardIncidents, useDashboardCredentials, useDashboardRootCause, useDashboardVulnerabilities, useDashboardBranchProtection, useDashboardDockerHealth, useDashboardCostAnomaly } from "@/hooks";
 
 import { Sidebar } from "./Sidebar";
 import { ExecutiveHeader } from "./ExecutiveHeader";
@@ -26,6 +26,7 @@ import { RootCauseAnalysisPanel } from "./RootCauseAnalysisPanel";
 import { VulnerabilityPanel } from "./VulnerabilityPanel";
 import { BranchProtectionPanel } from "./BranchProtectionPanel";
 import { DockerHealthPanel } from "./DockerHealthPanel";
+import { CostAnomalyPanel } from "./CostAnomalyPanel";
 
 export default function ExecutiveDashboard() {
   const [collapsed, setCollapsed] = useState(false);
@@ -45,6 +46,7 @@ export default function ExecutiveDashboard() {
   const { data: vulnerabilities, isLoading: isVulnerabilitiesLoading } = useDashboardVulnerabilities();
   const { data: branchProtection, isLoading: isBranchProtectionLoading } = useDashboardBranchProtection();
   const { data: dockerHealth, isLoading: isDockerHealthLoading } = useDashboardDockerHealth();
+  const { data: costAnomaly, isLoading: isCostAnomalyLoading } = useDashboardCostAnomaly();
 
   useDashboardWebSocket();
 
@@ -174,9 +176,10 @@ export default function ExecutiveDashboard() {
               <BranchProtectionPanel recent={branchProtection?.recent} isLoading={isBranchProtectionLoading} />
             </motion.div>
 
-            {/* Container Health */}
-            <motion.div variants={stagger(0.05)} className="grid gap-5 lg:grid-cols-1">
+            {/* Container Health + Cost Anomalies */}
+            <motion.div variants={stagger(0.05)} className="grid gap-5 lg:grid-cols-2">
               <DockerHealthPanel recent={dockerHealth?.recent} isLoading={isDockerHealthLoading} />
+              <CostAnomalyPanel recent={costAnomaly?.recent} isLoading={isCostAnomalyLoading} />
             </motion.div>
 
             {/* Footer */}

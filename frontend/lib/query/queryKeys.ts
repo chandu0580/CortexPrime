@@ -72,6 +72,7 @@ export const queryKeys = {
         vulnerabilities: () => [...queryKeys.dashboard.all, "vulnerabilities"] as const,
         branchProtection: () => [...queryKeys.dashboard.all, "branchProtection"] as const,
         dockerHealth: () => [...queryKeys.dashboard.all, "dockerHealth"] as const,
+        costAnomaly: () => [...queryKeys.dashboard.all, "costAnomaly"] as const,
     },
     settings: {
         all:         ["settings"] as const,

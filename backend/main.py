@@ -1014,6 +1014,16 @@ async def lifespan(_app: FastAPI):
     except Exception as exc:
         log.debug("Startup branch protection check skipped: %s", exc)
 
+    # One-shot cost anomaly check, same reasoning as credentials/branch
+    # protection above — see enterprise_cost_anomaly_monitor's module
+    # docstring. Cost accumulates over a day, so a one-shot startup check
+    # + on-demand endpoint is the right cadence, not continuous polling.
+    try:
+        from backend.services.enterprise_cost_anomaly_monitor import check_all_providers as check_cost_anomalies
+        await check_cost_anomalies()
+    except Exception as exc:
+        log.debug("Startup cost anomaly check skipped: %s", exc)
+
     # Approval action dispatcher — subscribes to the EventBus so approving
     # a blocked rollback/vuln-fix/branch-protection workflow via
     # POST /api/approval-center/workflows/{id}/approve actually replays the

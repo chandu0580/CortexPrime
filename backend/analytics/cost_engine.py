@@ -72,6 +72,17 @@ _COST_TABLE: Dict[str, Dict[str, tuple]] = {
 }
 
 
+# llm_router.py's internal provider keys ("claude", "azure", "gemini")
+# don't match _COST_TABLE's keys ("anthropic", "azure_openai", "google") —
+# only "openai"/"ollama"/"groq" happen to line up. Without this alias,
+# every real Claude/Azure/Gemini call silently estimates to $0.00.
+_PROVIDER_ALIASES: Dict[str, str] = {
+    "claude": "anthropic",
+    "azure": "azure_openai",
+    "gemini": "google",
+}
+
+
 def estimate_cost(
     provider: str,
     model: str,
@@ -83,7 +94,8 @@ def estimate_cost(
     Estimate cost in USD using the built-in cost table.
     Returns 0.0 if provider/model not in table (no error).
     """
-    p = _COST_TABLE.get(provider.lower(), {})
+    provider = _PROVIDER_ALIASES.get(provider.lower(), provider.lower())
+    p = _COST_TABLE.get(provider, {})
     # Try exact match then prefix match
     rates = p.get(model) or next(
         (v for k, v in p.items() if model.startswith(k) or k.startswith(model.split("-")[0])),

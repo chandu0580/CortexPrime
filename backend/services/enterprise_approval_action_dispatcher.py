@@ -113,11 +113,17 @@ async def _dispatch_docker_health_fix(payload: Dict[str, Any]) -> None:
     await restart_crashlooping_container(**payload)
 
 
+async def _dispatch_cost_anomaly_fix(payload: Dict[str, Any]) -> None:
+    from backend.services.enterprise_cost_anomaly_fix_executor import disable_provider_temporarily
+    await disable_provider_temporarily(**payload)
+
+
 _DISPATCH_HANDLERS: Dict[str, Callable[[Dict[str, Any]], Awaitable[None]]] = {
     "rollback": _dispatch_rollback,
     "vulnerability_fix_pr": _dispatch_vulnerability_fix_pr,
     "branch_protection_fix": _dispatch_branch_protection_fix,
     "docker_health_fix": _dispatch_docker_health_fix,
+    "cost_anomaly_fix": _dispatch_cost_anomaly_fix,
 }
 
 
