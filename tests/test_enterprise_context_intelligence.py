@@ -203,6 +203,13 @@ class TestDecisionIntegration:
             repository="org/repo",
             branch="main",
             commit_sha="abc123",
+            # Explicit empty dict (not None) — without this, analyze()
+            # auto-builds a real repository brain for "org/repo", and that
+            # generic identifier's on-disk history is polluted by 231
+            # other test-file references across the suite, non-deterministically
+            # adding risk factors this "without_context" test isn't
+            # exercising on purpose.
+            repository_brain={},
         )
         assert report is not None
         assert report.change_report.has_frontend_changes is True

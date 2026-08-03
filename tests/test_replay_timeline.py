@@ -343,10 +343,18 @@ class TestSequenceCounter:
         assert s2 == s1 + 1
 
     async def test_sequence_independent_per_execution(self):
+        import uuid
+
         from backend.services.mission_replay_store import MissionReplayStore
 
+        # Unique per run — real Redis INCR counters for generic literals
+        # like "exec-a"/"exec-b" persist across test runs, so a fixed
+        # literal collides with leftover state from other tests.
+        exec_a = f"exec-a-{uuid.uuid4().hex[:8]}"
+        exec_b = f"exec-b-{uuid.uuid4().hex[:8]}"
+
         store = MissionReplayStore()
-        s1 = await store._next_seq("exec-a")
-        s2 = await store._next_seq("exec-b")
+        s1 = await store._next_seq(exec_a)
+        s2 = await store._next_seq(exec_b)
         assert s1 == 1
         assert s2 == 1

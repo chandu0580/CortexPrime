@@ -1349,7 +1349,7 @@ class EnterpriseEngineeringExecutive:
         report: Dict[str, Any] = {
             "execution_id": eng_id,
             "objective": objective,
-            "started_at": self._now(),
+            "started_at": _now(),
             "agents": {},
             "status": "running",
             "artifacts": {},
@@ -1456,7 +1456,7 @@ class EnterpriseEngineeringExecutive:
             report["agents"]["sre_engineer"] = {"error": str(exc)}
 
         report["status"] = "completed"
-        report["completed_at"] = self._now()
+        report["completed_at"] = _now()
 
         # Update knowledge graph
         await self._record_engineering_artifacts(eng_id, objective, report)

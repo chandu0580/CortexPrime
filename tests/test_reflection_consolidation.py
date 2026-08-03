@@ -80,9 +80,25 @@ async def _table_exists_async(table_name: str) -> bool:
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-async def unique_mission_id() -> str:
-    """Return a fresh UUID string for test isolation."""
-    return str(uuid.uuid4())
+async def unique_mission_id():
+    """Return a fresh UUID string for test isolation, backed by a real row
+    in `missions` — reflection_history.mission_id has a real FK constraint
+    against it, so a random UUID with no matching row fails with
+    ForeignKeyViolationError as soon as the write path actually runs."""
+    from backend.memory.db.postgres_client import postgres_client
+
+    mission_id = str(uuid.uuid4())
+    pool = await postgres_client.pool()
+    if pool is not None:
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO missions (id, title, objective) VALUES ($1, $2, $3)",
+                uuid.UUID(mission_id), "test mission", "reflection consolidation test",
+            )
+    yield mission_id
+    if pool is not None:
+        async with pool.acquire() as conn:
+            await conn.execute("DELETE FROM missions WHERE id = $1", uuid.UUID(mission_id))
 
 
 @pytest.fixture
@@ -264,7 +280,7 @@ async def test_reflection_api_round_trip(unique_agent):
 
     # Build a valid JWT so auth passes
     from backend.auth.jwt_handler import create_access_token
-    valid_token = create_access_token({"sub": "test_user", "role": "admin"})
+    valid_token = create_access_token("test_user", role="admin")
 
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"

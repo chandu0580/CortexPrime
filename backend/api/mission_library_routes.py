@@ -3,14 +3,19 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from backend.auth.dependencies import require_user
 from backend.mission_library.definitions import get_mission, list_missions
 from backend.mission_library.executor import mission_executor
 
 log = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/mission-library", tags=["Mission Library"])
+router = APIRouter(
+    prefix="/api/mission-library",
+    tags=["Mission Library"],
+    dependencies=[Depends(require_user)],
+)
 
 
 @router.get("/missions")

@@ -276,7 +276,13 @@ class TestCredentialService:
         reloaded = CredentialService.load("jira")
         assert reloaded["email"] == "test@test.com"
 
-    def test_remove_credentials(self):
+    def test_remove_credentials(self, monkeypatch):
+        # backend/.env ships a non-empty placeholder SLACK_BOT_TOKEN;
+        # CredentialService.exists() falls back to checking the env var,
+        # so without clearing it this test sees the placeholder as a
+        # real credential even after explicitly removing it from the
+        # in-memory store.
+        monkeypatch.delenv("SLACK_BOT_TOKEN", raising=False)
         self._reset()
         from backend.services.credential_service import CredentialService
 

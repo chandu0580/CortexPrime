@@ -441,34 +441,34 @@ async def _stream_llm_to_ws(
                 continue
     except Exception as stream_err:
         log.warning("Azure streaming failed: %s — falling back to bulk", stream_err)
-        result = await llm_gateway.generate_azure(
-            prompt        = prompt,
-            agent_type    = "general",
-            system_prompt = system,
-        )
-        if not result.get("success"):
-            result = await llm_gateway.generate_openai(prompt=prompt, model="gpt-4o-mini")
+        try:
+            result = await llm_gateway.generate_azure(
+                prompt        = prompt,
+                agent_type    = "general",
+                system_prompt = system,
+            )
+            if not result.get("success"):
+                result = await llm_gateway.generate_openai(prompt=prompt, model="gpt-4o-mini")
 
-        full_text = result.get("output", "")
-        if full_text:
-            words = full_text.split(" ")
-            for i, word in enumerate(words):
-                token = word + (" " if i < len(words) - 1 else "")
-                await _send_stream_chunk({
-                    "agent":        "orchestrator",
-                    "event_type":   "stream_chunk",
-                    "stream":       True,
-                    "stream_chunk": token,
-                    "execution_id": execution_id,
-                    "session_id":   session_id,
-                    "status":       "streaming",
-                    "message":      "Streaming response",
-                }, session_id)
-                await asyncio.sleep(0.018)
-
-    except Exception as e:
-        log.error("Stream failed entirely: %s", e)
-        full_text = f"I encountered an error generating the response: {str(e)}"
+            full_text = result.get("output", "")
+            if full_text:
+                words = full_text.split(" ")
+                for i, word in enumerate(words):
+                    token = word + (" " if i < len(words) - 1 else "")
+                    await _send_stream_chunk({
+                        "agent":        "orchestrator",
+                        "event_type":   "stream_chunk",
+                        "stream":       True,
+                        "stream_chunk": token,
+                        "execution_id": execution_id,
+                        "session_id":   session_id,
+                        "status":       "streaming",
+                        "message":      "Streaming response",
+                    }, session_id)
+                    await asyncio.sleep(0.018)
+        except Exception as e:
+            log.error("Stream fallback failed entirely: %s", e)
+            full_text = f"I encountered an error generating the response: {str(e)}"
 
     # Signal stream end to the originating session
     await _send_stream_chunk({

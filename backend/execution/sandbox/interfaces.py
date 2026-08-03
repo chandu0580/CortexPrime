@@ -192,7 +192,7 @@ _SAFE_BUILTINS: dict[str, Any] = {
 _MAX_SCRIPT_LENGTH = 65536
 _DENIED_PATTERNS = [
     "import", "__import__", "exec", "eval", "compile",
-    "open", "file", "input", "__file__", "__loader__",
+    "open", "file", "input(", "__file__", "__loader__",
     "os.", "subprocess", "sys.", "shutil", "pathlib",
     "ctypes", "socket", "requests", "urllib",
 ]

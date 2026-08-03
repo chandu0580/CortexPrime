@@ -14,12 +14,18 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
+
+from backend.auth.dependencies import require_user
 
 log = logging.getLogger(__name__)
 
-graph_router = APIRouter(prefix="/api/graph", tags=["cognitive-graph"])
+graph_router = APIRouter(
+    prefix="/api/graph",
+    tags=["cognitive-graph"],
+    dependencies=[Depends(require_user)],
+)
 
 
 # ---------------------------------------------------------------------------

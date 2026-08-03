@@ -27,7 +27,7 @@ class MemoryCompressor:
         context.status = MemoryStatus.COMPRESSED
 
         log.info(
-            "Compressed memory for %s: %d reasoning steps → %d, outputs before → %d after",
+            "Compressed memory for %s: %d reasoning steps → %d, %d outputs before → %d after",
             context.mission_id,
             original_step_count,
             len(context.reasoning_memory.reasoning_chain),

@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from backend.approval_center.models import (
     ApproverRole,
@@ -17,10 +17,15 @@ from backend.approval_center.policies import (
     list_policies,
 )
 from backend.approval_center.workflows import approval_workflow_engine
+from backend.auth.dependencies import require_user
 
 log = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/approval-center", tags=["Approval Center"])
+router = APIRouter(
+    prefix="/api/approval-center",
+    tags=["Approval Center"],
+    dependencies=[Depends(require_user)],
+)
 
 
 # ------------------------------------------------------------------

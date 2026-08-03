@@ -49,7 +49,13 @@ class TestSessionRuntime:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_revoke_all_user_sessions_without_redis(self, session_runtime):
+    async def test_revoke_all_user_sessions_without_redis(self, session_runtime, monkeypatch):
+        # Same as test_count_active_sessions_without_redis above — with
+        # real Redis up, "user-123" is a generic literal other tests in
+        # this file also use, so real leftover sessions can make this
+        # return nonzero unless the redis-unavailable path is forced
+        # explicitly rather than relying on Redis being ambiently absent.
+        monkeypatch.setattr(session_runtime, "_get_redis", AsyncMock(return_value=None))
         count = await session_runtime.revoke_all_user_sessions("user-123")
         assert count == 0
 
@@ -64,7 +70,13 @@ class TestSessionRuntime:
         assert sessions == []
 
     @pytest.mark.asyncio
-    async def test_count_active_sessions_without_redis(self, session_runtime):
+    async def test_count_active_sessions_without_redis(self, session_runtime, monkeypatch):
+        # count_active_sessions() only returns the -1 sentinel when Redis
+        # is genuinely unavailable — with real Redis up (as in this suite's
+        # normal test environment), it takes the real scan-based path
+        # instead. Force the redis-unavailable branch explicitly rather
+        # than relying on Redis being ambiently absent.
+        monkeypatch.setattr(session_runtime, "_get_redis", AsyncMock(return_value=None))
         count = await session_runtime.count_active_sessions()
         assert count == -1
 
