@@ -335,11 +335,17 @@ class TestSequenceCounter:
     """Test _next_seq atomic increment."""
 
     async def test_sequence_increments(self):
+        import uuid
+
         from backend.services.mission_replay_store import MissionReplayStore
 
+        # Unique per run — see test_sequence_independent_per_execution below;
+        # a fixed literal risks desync if the real-Redis/in-memory-fallback
+        # path differs between the two calls due to leftover state.
+        exec_id = f"exec-seq-{uuid.uuid4().hex[:8]}"
         store = MissionReplayStore()
-        s1 = await store._next_seq("exec-seq")
-        s2 = await store._next_seq("exec-seq")
+        s1 = await store._next_seq(exec_id)
+        s2 = await store._next_seq(exec_id)
         assert s2 == s1 + 1
 
     async def test_sequence_independent_per_execution(self):

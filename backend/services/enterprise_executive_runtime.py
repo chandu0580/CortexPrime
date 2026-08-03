@@ -399,7 +399,11 @@ class EnterpriseEngineeringExecutiveRuntime:
             strat = decision.get("deployment_strategy", {})
             self._update_mission(mission_id,
                                  decision_id=report.report_id,
-                                 risk_score=risk.get("score", 0),
+                                 # engineering_decision_engine's RiskAssessment.score is 0-100;
+                                 # every consumer of mission.risk_score elsewhere in this file
+                                 # (PolicyConfig thresholds, confidence=1.0-risk_score, etc.)
+                                 # treats it as 0-1 — normalize at the boundary.
+                                 risk_score=risk.get("score", 0) / 100.0,
                                  risk_level=risk.get("level", "low"),
                                  deployment_strategy=strat.get("strategy", "rolling"),
                                  )

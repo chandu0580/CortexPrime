@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -46,14 +47,22 @@ def rca():
 
 @pytest.fixture
 def sample_timeline() -> List[Dict[str, Any]]:
+    # Relative to "now" (not a fixed past date) — TimelineCorrelator.build_timeline
+    # filters events older than hours_back, so a hardcoded absolute date becomes
+    # a time bomb: it silently drops out of every window once enough time passes.
+    base = datetime.now(timezone.utc) - timedelta(hours=1)
+
+    def _ts(minutes: int) -> str:
+        return (base + timedelta(minutes=minutes)).isoformat().replace("+00:00", "Z")
+
     return [
-        {"source": "github", "type": "push", "name": "main", "status": "passed", "timestamp": "2026-07-11T10:00:00Z"},
-        {"source": "cicd", "type": "build", "name": "CI Build #42", "status": "failed", "timestamp": "2026-07-11T10:05:00Z"},
-        {"source": "infrastructure", "type": "k8s_deployment", "name": "api-server", "status": "rollback", "timestamp": "2026-07-11T10:10:00Z"},
-        {"source": "infrastructure", "type": "k8s_pod", "name": "api-server-7d8f9", "status": "crashloop", "timestamp": "2026-07-11T10:12:00Z"},
-        {"source": "prometheus", "type": "alert", "name": "HighErrorRate", "status": "firing", "timestamp": "2026-07-11T10:08:00Z"},
-        {"source": "loki", "type": "log_analysis", "name": "api-server-prod", "status": "error", "timestamp": "2026-07-11T10:15:00Z"},
-        {"source": "opentelemetry", "type": "trace", "name": "api-server/GET /orders", "status": "error", "timestamp": "2026-07-11T10:14:00Z"},
+        {"source": "github", "type": "push", "name": "main", "status": "passed", "timestamp": _ts(0)},
+        {"source": "cicd", "type": "build", "name": "CI Build #42", "status": "failed", "timestamp": _ts(5)},
+        {"source": "infrastructure", "type": "k8s_deployment", "name": "api-server", "status": "rollback", "timestamp": _ts(10)},
+        {"source": "infrastructure", "type": "k8s_pod", "name": "api-server-7d8f9", "status": "crashloop", "timestamp": _ts(12)},
+        {"source": "prometheus", "type": "alert", "name": "HighErrorRate", "status": "firing", "timestamp": _ts(8)},
+        {"source": "loki", "type": "log_analysis", "name": "api-server-prod", "status": "error", "timestamp": _ts(15)},
+        {"source": "opentelemetry", "type": "trace", "name": "api-server/GET /orders", "status": "error", "timestamp": _ts(14)},
     ]
 
 

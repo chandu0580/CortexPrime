@@ -27,6 +27,17 @@ def _id() -> str:
     return uuid.uuid4().hex[:12]
 
 
+def _outcome_from_exec(d: Dict[str, Any]) -> str:
+    s = d.get("status", "")
+    if s in ("rolled_back", "cancelled"):
+        return "rolled_back"
+    if s in ("failed", "error"):
+        return "failed"
+    if s in ("completed", "success"):
+        return "success"
+    return "unknown"
+
+
 # =============================================================================
 # Phase 1 — Engineering Experience Model
 # =============================================================================
@@ -450,14 +461,7 @@ class PatternMiner:
             return []
 
     def _outcome_from_exec(self, d: Dict[str, Any]) -> str:
-        s = d.get("status", "")
-        if s in ("rolled_back", "cancelled"):
-            return "rolled_back"
-        if s in ("failed", "error"):
-            return "failed"
-        if s in ("completed", "success"):
-            return "success"
-        return "unknown"
+        return _outcome_from_exec(d)
 
 
 # =============================================================================
@@ -586,7 +590,7 @@ class SimilarityEngine:
                     commit_sha=d.get("commit_sha", ""),
                     changed_services=[],
                     change_categories=[],
-                    outcome=d.get("status", ""),
+                    outcome=_outcome_from_exec(d),
                     risk_level=d.get("risk_level", "unknown"),
                     deployment_strategy=d.get("deployment_strategy", "rolling"),
                     duration_seconds=float(d.get("duration_seconds", 0)),

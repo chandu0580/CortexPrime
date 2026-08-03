@@ -85,6 +85,13 @@ class PostgresClient:
         async with p.acquire() as conn:
             return await conn.fetchrow(query, *args)
 
+    async def fetchval(self, query: str, *args) -> Any:
+        p = await self.pool()
+        if p is None:
+            return None
+        async with p.acquire() as conn:
+            return await conn.fetchval(query, *args)
+
     async def close(self) -> None:
         if self._pool:
             await self._pool.close()
