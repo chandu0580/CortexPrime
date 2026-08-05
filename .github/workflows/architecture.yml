@@ -1,0 +1,81 @@
+name: Architecture Gate
+
+# Runs the Constitution as fitness functions. A blocking violation fails the
+# build, so no merge is possible while an enforced invariant is broken.
+#
+# Deliberately a separate workflow from the main test suite: an architectural
+# regression should be legible as such, not buried among unit-test failures.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  architecture:
+    name: Constitution fitness functions
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # The gate parses source with `ast`; it never imports application code,
+      # so it needs no application dependencies. Only the harness's own test
+      # run below requires pytest.
+      - name: Run the architecture gate
+        run: python -m backend.platform.architecture
+
+      - name: Generate the markdown report
+        if: always()
+        run: |
+          python -m backend.platform.architecture --markdown \
+            --output architecture-report.md
+
+      - name: Publish the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: architecture-report
+          path: architecture-report.md
+
+      - name: Comment the report on the pull request
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('architecture-report.md', 'utf8');
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body,
+            });
+
+  harness:
+    name: Harness self-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    # The gate proves the architecture holds. These prove the gate would notice
+    # if it stopped holding -- a suite that cannot fail is worse than none,
+    # because it is trusted.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install test dependencies
+        run: pip install pytest pytest-asyncio
+
+      - name: Verify every rule fails when violated
+        run: |
+          pytest tests/architecture/ -q \
+            --confcutdir=tests/architecture -p no:cacheprovider
