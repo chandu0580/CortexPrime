@@ -1,339 +1,198 @@
 # CortexPrime
 
-A full-stack autonomous multi-agent AI operating system with a cinematic real-time UI, cognitive orchestration, computer-use capabilities, voice interaction, and a persistent memory architecture.
+**An autonomous DevOps operating platform — built so that an AI can be trusted with production access.**
+
+CortexPrime detects real infrastructure problems, explains the root cause, and proposes or performs the fix. The hard part is not making an AI act. It is making an AI act on production systems in a way an enterprise can actually authorise, audit, and stop.
+
+That constraint shapes every line of this codebase.
 
 ---
 
-## Table of Contents
+## The problem
 
-- [Overview](#overview)
-- [Architecture](#architecture)
-- [Tech Stack](#tech-stack)
-- [Project Structure](#project-structure)
-- [Getting Started](#getting-started)
-- [Running the Application](#running-the-application)
-- [Frontend Pages](#frontend-pages)
-- [Backend API](#backend-api)
-- [Environment Variables](#environment-variables)
-- [Key Features](#key-features)
+Every "AI agent that runs commands" demo works until it meets a real estate. Then the questions start:
+
+- Who approved this action, and against exactly which version of it?
+- The API call timed out — did the deletion happen or not?
+- The tool description says it reads data. What if it doesn't?
+- A tenant's private capability just appeared in another tenant's list. How?
+- The agent retried a failed payment. Was that safe?
+- Something changed at 3am. What ran, under whose authority, and can we prove it?
+
+Most agent frameworks cannot answer these. They treat safety as a prompt or a wrapper. CortexPrime treats it as **architecture**: the unsafe operation is not blocked at runtime, it is *unrepresentable* in the type system and the control flow.
 
 ---
 
-## Overview
+## The thesis
 
-CortexPrime is an autonomous AI runtime that coordinates multiple specialized agents (Planner, Researcher, Critic, Optimizer, Orchestrator) to complete complex missions. It exposes a real-time WebSocket event bus, a REST API, and a Next.js frontend that visualises cognitive state, agent activity, memory, and live streaming responses.
+Six separations, each enforced in code rather than convention:
+
+```
+existence  ≠  trust  ≠  permission  ≠  selection  ≠  binding  ≠  execution
+```
+
+A capability existing in the registry does not mean it is trusted. Trusted does not mean a given user may use it. Permission does not decide *which* implementation runs. Selection does not grant standing authority. And a binding made 30 seconds ago is re-verified before anything touches a real system.
+
+Some concrete consequences, all implemented and tested:
+
+| Invariant | Why it exists |
+|---|---|
+| **"Unknown" is a first-class outcome** | A lapsed lease or lost response means *nobody knows* whether the change landed. Calling that "failed" and retrying is how a delete runs twice. |
+| **Undeclared effects never default to safe** | A tool that doesn't say whether it mutates is treated as the most dangerous case, not the most convenient one. |
+| **No silent retry** | Every retry is a recorded decision with a reason. Ambiguity is checked *before* worthwhileness, so an operation that must not repeat is refused even when the error looks retryable. |
+| **Revocation is terminal** | A revoked capability has no transition back. Restoring it means a new version and a new decision — not flipping a boolean. |
+| **Separation of duties** | Whoever registers a capability cannot be the one who enables or trusts it. |
+| **Replay cannot execute** | The replay engine holds no repository, no worker pool, no queue. Re-running history is structurally impossible, not merely discouraged. |
+| **Fails closed everywhere** | Policy engine unreachable → deny. Worker unresolvable → refuse. No default worker, no default tenant, no fallback provider. |
+| **No LLM in the security path** | Authorization and provider selection are deterministic and inspectable. A model may later *suggest*; it never decides. |
+
+**Exactly-once is never claimed.** Nothing that crosses a network can honestly promise it. The system models the choice — at-least-once with idempotency, or at-most-once with surfaced ambiguity — and says which one it is making.
 
 ---
 
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                        Frontend (Next.js)                     │
-│  /, /runtime, /cognition, /memory, /operator, /voice          │
-│  Zustand stores · WebSocket live events · REST API client     │
-└─────────────────────────┬────────────────────────────────────┘
-                           │  HTTP :8000  /  WS :8000/ws
-┌─────────────────────────▼────────────────────────────────────┐
-│                    Backend (FastAPI + uvicorn)                 │
-│  Agent Registry · Event Bus · Runtime State · LLM Router      │
-│  Agents: Planner · Researcher · Critic · Optimizer            │
-│  Memory: Episodic · Semantic · Short-term · Vector (Chroma)   │
-│  Tools: Browser (Playwright) · Computer-use · Vision · Voice  │
-└──────────────────────────────────────────────────────────────┘
+  USER INTENT
+      │
+      ▼
+┌─────────────────────────────────────────────────────────────┐
+│  MISSION CONTROL PLANE          what should happen           │
+│                                                              │
+│  Mission → Intent → Planner → Workflow → approved graph      │
+└──────────────────────────────┬──────────────────────────────┘
+                               │  digest-verified handoff
+┌──────────────────────────────▼──────────────────────────────┐
+│  CAPABILITY FABRIC              what may happen               │
+│                                                              │
+│  Identity → Discovery → Authorization → Resolution → Binding │
+└──────────────────────────────┬──────────────────────────────┘
+                               │  immutable, expiring binding
+┌──────────────────────────────▼──────────────────────────────┐
+│  EXECUTION RUNTIME             what did happen                │
+│                                                              │
+│  Leases · Attempts · Checkpoints · Recovery · Replay · Audit │
+└──────────────────────────────┬──────────────────────────────┘
+                               │  worker contract  (Phase 3.3)
+                               ▼
+                    Workers / Connectors / MCP
 ```
+
+**12 bounded contexts**, each owning one responsibility and forbidden from importing another. Cross-context wiring happens only in named composition roots, so "what talks to what" is one greppable file rather than an archaeology project.
 
 ---
 
-## Tech Stack
+## Current status
 
-### Backend
-| Package | Purpose |
+Honest, because anyone technical will check.
+
+| Layer | State |
 |---|---|
-| FastAPI + uvicorn | REST API + WebSocket server |
-| OpenAI / Anthropic / Google Gemini / Ollama | LLM providers |
-| ChromaDB | Vector memory |
-| Playwright | Browser automation |
-| pyautogui + mss | Desktop computer-use |
-| edge-tts + SpeechRecognition | Voice I/O |
-| pymupdf | PDF / OCR processing |
+| Mission → Intent → Planner → Workflow control plane | **Implemented** — full lifecycle, policy gates, digest binding |
+| Durable execution core (leases, attempts, checkpoints, recovery, replay) | **Implemented** |
+| Capability Fabric (identity, discovery, authorization, resolution, binding) | **Implemented** |
+| Worker execution contract | **Implemented** — the contract and the pre-execution gate |
+| Workers & connectors (shell, Docker, K8s, MCP, GitHub, AWS…) | **Not built** — next phase |
+| Durable persistence | **Not built** — repositories are in-memory behind Protocols |
+| Credential management | **Not built** — Protocol seam only |
+| Authorization policy engine | **Placeholder** — coarse grant checks, designed for replacement |
+| V1 agent runtime (agents, memory, voice, browser, ~50 UI screens) | **Working** — the product this architecture is being built beneath |
 
-### Frontend
-| Package | Purpose |
-|---|---|
-| Next.js 16 + React 19 | App framework |
-| TypeScript | Type safety |
-| TailwindCSS v4 | Styling |
-| Zustand v5 | State management |
-| ReactFlow v11 | Agent graph visualisation |
-| Framer Motion | Animations |
-| Recharts | Runtime metrics charts |
-| Axios | HTTP client |
-| react-markdown | Markdown rendering |
+The V2 architecture is being introduced under the working V1 system via a strangler migration. V1 proved the product; V2 is making it safe enough to sell to an enterprise.
 
 ---
 
-## Project Structure
+## Why the engineering is the moat
+
+Ambitious AI products are easy to demo and hard to trust. What is unusual here is not the feature list — it is that the safety properties are **mechanically enforced**:
+
+- **27 Architecture Decision Records.** Every non-obvious choice is written down with its reasoning, its cost, and what it deliberately does *not* claim.
+- **A written Constitution, executed as CI.** 22 architectural rules run as fitness functions on every pull request. A blocking violation fails the build — bounded-context isolation, tenancy on every repository method, no new authoritative file stores, dependency direction. Architecture that drifts is architecture that was never enforced.
+- **Documentation that refuses to oversell.** The ADRs contain explicit "what this does not claim" sections. Where persistence is in-memory, it says so. Where a code branch is currently unreachable, it says so.
+- **Failures are first-class.** Denials, refusals, ambiguity and unknown outcomes are modelled, recorded and auditable. A security system that only logs successes cannot explain why an attack was stopped.
 
 ```
-cortexprime/
-├── backend/                  # FastAPI application
-│   ├── main.py               # App entrypoint (uvicorn target)
-│   ├── api/                  # Route definitions
-│   ├── agents/               # Agent implementations
-│   ├── core/                 # Logging, errors, exception handlers
-│   ├── middleware/           # Request ID correlation middleware
-│   ├── events/               # Event bus + event models
-│   ├── llm/                  # LLM provider routing
-│   ├── memory/               # Memory subsystems
-│   ├── orchestrator/         # Mission orchestration
-│   ├── runtime/              # Agent registry + runtime state
-│   ├── tools/                # API, repair, autonomy tools
-│   ├── voice/                # TTS + STT
-│   ├── vision/               # Screenshot + OCR
-│   ├── websocket/            # WebSocket router
-│   ├── .env                  # Environment variables (not committed)
-│   └── .env.example          # Template — copy to .env
-│
-├── frontend/                 # Next.js application
-│   ├── app/                  # App router pages
-│   ├── components/           # UI components
-│   ├── hooks/                # Custom React hooks
-│   ├── services/             # API + WebSocket clients
-│   ├── store/                # Zustand stores
-│   ├── types/                # TypeScript types
-│   ├── utils/                # Utility functions
-│   └── styles/               # Global CSS + animations
-│
-├── agents/                   # Standalone agent configs
-├── cognitive_core/           # Cognition + world model
-├── langgraph_system/         # LangGraph runtime graphs
-├── memory_architecture/      # Memory subsystem modules
-├── scripts/                  # Bootstrap + deployment scripts
-├── tests/                    # Integration + unit tests (pytest)
-├── docs/                     # DEPLOYMENT.md, PRODUCTION_CHECKLIST.md
-├── .github/workflows/        # CI/CD — test, security, release
-├── requirements.txt          # Python runtime dependencies
-├── requirements-dev.txt      # Dev/test tooling (pytest-cov, ruff, mypy)
-└── docker-compose.yml        # Container orchestration
+.github/workflows/architecture.yml   →  Constitution fitness functions
+docs/adr/                            →  27 decision records
+backend/platform/architecture/       →  the rules themselves
 ```
 
 ---
 
-## Getting Started
+## Tech stack
 
-### Prerequisites
+**Backend** — Python 3.13, FastAPI, domain-driven design with strict bounded contexts
+**Frontend** — Next.js, TypeScript, Zustand, live WebSocket event streaming (~50 screens)
+**AI** — OpenAI, Anthropic, Google Gemini, Ollama (provider-routed)
+**Data** — PostgreSQL, Redis, ChromaDB, Neo4j
+**Infra** — Docker, Kubernetes (Helm charts), GitHub Actions CI
 
-- Python 3.11+
-- Node.js 20+
-- A virtual environment tool (`venv`)
+Scale: ~1,000 backend modules · ~1,800 frontend modules · 231 test files
 
-### 1. Clone and set up the Python environment
+---
 
-```powershell
-git clone <repo-url>
-cd cortexprime
+## Repository map
 
-python -m venv venv
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
-.\venv\Scripts\Activate.ps1
+```
+backend/
+  contexts/          12 bounded contexts (the V2 architecture)
+  contracts/         published vocabulary shared across contexts
+  platform/          hashing, identity, events, audit, storage, architecture rules
+  api/               REST surface + composition roots
+docs/adr/            27 architecture decision records
+tests/               unit, architecture, integration
+frontend/            Next.js application
+helm/ · infra/       deployment
+```
 
+---
+
+## Getting started
+
+```bash
+# Backend
+python -m venv venv && source venv/bin/activate   # Windows: venv\Scripts\activate
 pip install -r requirements.txt
+cp .env.example backend/.env                      # add your API keys
+uvicorn backend.main:app --reload --port 8000
+
+# Frontend
+cd frontend && npm install && npm run dev         # http://localhost:3000
 ```
 
-### 2. Configure environment variables
+Verify the architecture gate locally:
 
-Create `backend/.env` (already present) and set at minimum:
-
-```env
-OPENAI_API_KEY=sk-...
-```
-
-Optional provider keys:
-
-```env
-ANTHROPIC_API_KEY=...
-GOOGLE_API_KEY=...
-```
-
-### 3. Install frontend dependencies
-
-```powershell
-cd frontend
-npm install
+```bash
+python -c "from backend.platform.architecture import analyze; r=analyze(); print('gate passed:', r.gate_passed)"
 ```
 
 ---
 
-## Running the Application
+## Roadmap
 
-### Start the backend
-
-> **Important:** always run this command from the **project root** (`C:\projects\cortexprime`), not from inside the `backend/` folder. The module path `backend.main` requires the root to be on Python's path.
-
-```powershell
-# From C:\projects\cortexprime  (project root)
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
-.\venv\Scripts\Activate.ps1
-
-.\venv\Scripts\uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-Backend available at: **http://localhost:8000**  
-API docs (Swagger UI): **http://localhost:8000/docs**  
-WebSocket endpoint: **ws://localhost:8000/ws**
-
-### Start the frontend
-
-```powershell
-cd frontend
-npm run dev
-```
-
-Frontend available at: **http://localhost:3000**
-
-### Using Docker Compose (production)
-
-Use the production override for deployment-like local runs:
-
-#### First run (or after Dockerfile / dependency / source changes)
-
-```powershell
-docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file backend/.env up -d --build
-```
-
-#### Normal daily start (no rebuild)
-
-```powershell
-docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file backend/.env up -d
-```
-
-#### Check service health
-
-```powershell
-docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file backend/.env ps
-```
-
-#### Stop the stack
-
-```powershell
-docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file backend/.env down
-```
-
-All 9 services should become healthy: nginx (TLS :443), frontend (:3000 internal), backend (:8000 internal), postgres, redis, rabbitmq, neo4j, prometheus (:9090), grafana (:3001).
-
-> Opening Docker Desktop alone does not start this stack if containers are stopped. Run `docker compose ... up -d` to start it.
-
----
-
-## Frontend Pages
-
-| Route | Description |
-|---|---|
-| `/` | Landing page V4 — mouse-reactive, interactive capability cards |
-| `/command` | Command centre — chat, mission timeline, runtime status |
-| `/runtime` | Live agent activity, metrics, events, health |
-| `/cognition` | Cognition pulse, Agent Graph V2, execution flow |
-| `/memory` | Episodic viewer, semantic memory, reflection log |
-| `/operator` | Browser runtime, desktop telemetry, computer-use stream |
-| `/voice` | Voice orb, waveform, real-time transcript, wake-word |
-| `/governance-center` | Human approval queue, safety controls |
-| `/memory-explorer` | Memory Explorer — cross-store search, timeline, graph, heatmap |
-| `/replay` | Mission Replay — step-by-step execution playback |
-| `/analytics` | Performance analytics and telemetry |
-| `/costs` | Executive cost intelligence dashboard |
-| `/system-status` | Deployment diagnostics and component health |
-| `/showcase` | Recruiter / investor presentation mode — keyboard nav, auto-advance |
-
----
-
-## Backend API
-
-| Method | Path | Description |
+| Phase | Scope | State |
 |---|---|---|
-| `GET` | `/api/missions/active` | List active missions |
-| `GET` | `/api/missions/completed` | List completed missions |
-| `POST` | `/api/orchestrator/autonomous` | Launch autonomous mission |
-| `GET` | `/api/orchestrator/loops/active` | Active orchestration loops |
-| `GET` | `/health` | Backend health check |
-| `GET` | `/health/system` | Aggregated system health (all 12 subsystems) |
-| `GET` | `/metrics` | Prometheus metrics scrape endpoint |
-| `GET` | `/api/costs/summary` | Executive cost summary (today / month / trends) |
-| `GET` | `/api/costs/daily` | Daily cost totals |
-| `GET` | `/api/costs/providers` | Provider breakdown |
-| `GET` | `/api/memory/explorer/search` | Cross-store vector + text memory search |
-| `GET` | `/api/memory/explorer/timeline` | Memories grouped by date |
-| `GET` | `/api/memory/explorer/graph` | Memory concept graph (nodes + edges) |
-| `GET` | `/api/memory/explorer/stats` | Aggregate stats + heatmap |
-| `GET` | `/api/mission-replay/{id}` | Full mission replay data |
-| `WS`  | `/ws` | Real-time cognitive event stream |
-
-Full interactive docs: **http://localhost:8000/docs**
+| 1 | Platform foundations, audit, tenancy, Constitution-as-CI | Complete |
+| 2 | Mission Control Plane + authoritative workflow handoff | Complete |
+| 3.1 | Durable execution core | Complete |
+| 3.2 | Capability Fabric — identity → binding | Complete |
+| 3.3.1 | Worker execution contract | Complete |
+| 3.3.2 | Worker & connector implementations | Next |
+| 3.4 | Evidence plane, telemetry, root-cause analysis | Planned |
+| 4 | Durable persistence, production hardening | Planned |
 
 ---
 
-## Environment Variables
+## For reviewers and investors
 
-Copy `backend/.env.example` to `backend/.env` and fill in values. Never commit the real `.env` file.
+The fastest way to judge this codebase is not the feature list — it is `docs/adr/`. Each record states a decision, the failure mode it prevents, what it costs, and what it explicitly does not claim.
 
-| Variable | Required | Description |
-|---|---|---|
-| `OPENAI_API_KEY` | Yes* | OpenAI API key (`*` or Azure equivalent) |
-| `AZURE_OPENAI_API_KEY` | Yes* | Azure OpenAI key (alternative to direct OpenAI) |
-| `AZURE_OPENAI_ENDPOINT` | Yes* | Azure OpenAI endpoint URL |
-| `ANTHROPIC_API_KEY` | No | Anthropic Claude key |
-| `GOOGLE_API_KEY` | No | Google Gemini key |
-| `TAVILY_API_KEY` | No | Tavily search API key (web research) |
-| `POSTGRES_URL` | Yes | PostgreSQL connection string |
-| `REDIS_URL` | Yes | Redis connection string |
-| `DATABASE_URL` | Yes | Same as `POSTGRES_URL` (used by Alembic) |
-| `JWT_SECRET_KEY` | Yes | ≥32-char random secret for access tokens |
-| `JWT_REFRESH_SECRET` | Yes | ≥32-char random secret for refresh tokens |
-| `SENTRY_DSN` | No | Sentry backend error tracking DSN |
-| `NEXT_PUBLIC_SENTRY_DSN` | No | Sentry frontend DSN |
-| `ENVIRONMENT` | No | `development` \| `staging` \| `production` |
-| `STRUCTURED_LOGGING` | No | `true` = JSON logs (recommended in production) |
-| `RATE_LIMIT_ENABLED` | No | `true` to enable Redis-backed rate limiting |
-| `WS_AUTH_REQUIRED` | No | `true` to require JWT on WebSocket connections |
-| `NEXT_PUBLIC_API_URL` | No | Backend URL (default: `http://localhost:8000`) |
-| `NEXT_PUBLIC_WS_URL` | No | WebSocket URL (default: `ws://localhost:8000/ws`) |
+Three worth reading first:
 
-> **Production note:** Swagger UI (`/docs`) and ReDoc (`/redoc`) are disabled when `ENVIRONMENT=production`. API documentation is only accessible in development.
+- **[ADR-031 — Durable Execution Core](docs/adr/ADR-031-durable-execution-core.md)** — why "unknown" is a first-class outcome and why exactly-once is never claimed
+- **[ADR-034 — Capability Authorization](docs/adr/ADR-034-capability-authorization-and-admission.md)** — default deny, separation of duties, and closing the time-of-check/time-of-use gap
+- **[ADR-036 — Execution Worker Contract](docs/adr/ADR-036-execution-worker-contract.md)** — the seven refusals that gate anything touching a real system
 
 ---
 
-## Observability
-
-All HTTP responses include an `X-Request-ID` header for distributed tracing. Structured JSON logs are emitted to stdout when `STRUCTURED_LOGGING=true`. The `/health/system` endpoint reports the status of 12 subsystems including `request_tracing`, `exception_handler`, and `sentry`.
-
-Error responses always use the standard envelope:
-```json
-{"success": false, "error": {"code": "NOT_FOUND", "message": "...", "request_id": "..."}}
-```
-
----
-
-## CI/CD & Deployment
-
-Three GitHub Actions workflows run on every push:
-
-| Workflow | Trigger | What it does |
-|---|---|---|
-| `test.yml` | push/PR to `main`/`develop` | pytest (45% cov threshold) + Next.js build + Docker smoke test |
-| `security.yml` | push + weekly | pip-audit, npm audit, Trivy container scan, Semgrep OWASP |
-| `release.yml` | tag `v*.*.*` | Multi-arch Docker push to GHCR + GitHub Release creation |
-
-See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full deployment runbook and [docs/PRODUCTION_CHECKLIST.md](docs/PRODUCTION_CHECKLIST.md) for the pre-release checklist.
-
----
-
-## Key Features
-
-- **Multi-agent orchestration** — Planner, Researcher, Critic, and Optimizer agents collaborate under a central orchestrator to complete complex missions
-- **Real-time cognitive event stream** — WebSocket-driven live feed of every agent thought, action, and decision
-- **Persistent memory** — Episodic, semantic, short-term, and vector (Chroma) memory with reflection and consolidation
-- **Computer use** — Autonomous browser control via Playwright and desktop automation via pyautogui
-- **Voice interface** — Wake-word detection, speech-to-text input, and TTS responses
-- **Vision** — Screenshot capture and OCR for visual context
-- **Multi-LLM routing** — Dynamically routes tasks to OpenAI, Anthropic, Google Gemini, or local Ollama models
-- **Cinematic UI** — Dark glassmorphism design with animated neural grid, streaming responses, and real-time charts
+<sub>© CortexPrime. Private and proprietary. All rights reserved. This repository and its contents are confidential and may not be copied, distributed, or disclosed without written permission.</sub>
