@@ -39,6 +39,10 @@ from backend.platform.architecture.state_rules import (
     GRANDFATHERED_STORES,
     FileStateRule,
 )
+from backend.platform.architecture.tenancy_rules import (
+    GRANDFATHERED_REPOSITORIES,
+    RepositoryContextRule,
+)
 from backend.platform.architecture.rules import (
     ArchitectureRule,
     ModuleGraph,
@@ -171,7 +175,10 @@ def default_suite(probes: Optional[dict] = None) -> ArchitectureSuite:
         rules=(
             default_dependency_rules()
             + default_boundary_rules()
-            + (FileStateRule(grandfathered=GRANDFATHERED_STORES),)
+            + (
+                FileStateRule(grandfathered=GRANDFATHERED_STORES),
+                RepositoryContextRule(grandfathered=GRANDFATHERED_REPOSITORIES),
+            )
         ),
         invariants=constitutional_invariants(probes),
     )

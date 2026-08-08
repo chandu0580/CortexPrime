@@ -188,13 +188,34 @@ def _probe_i3_audit_append_only(_: ModuleGraph) -> Optional[str]:
 def _probe_i6_tenant_identity(_: ModuleGraph) -> Optional[str]:
     """I6 -- tenant identity travels with every scoped record.
 
-    Enforced at the contract layer: metadata and audit records cannot be
-    constructed without a tenant scope. Storage-layer enforcement is partial
-    until PR-09, which is why this invariant is PARTIAL.
+    Two layers are checked here, and a third cannot be.
+
+    *Contracts* refuse to construct a scoped record without a tenant.
+
+    *Storage boundary* (ADR-018) refuses an operation with no execution context,
+    refuses a record belonging to another tenant, and refuses to let a caller
+    supply a tenant instead of deriving one.
+
+    *Storage engines* -- the SQLAlchemy, Neo4j and Redis repositories -- are what
+    keep this invariant PARTIAL rather than ENFORCED. The guard below is real and
+    blocking, but no model carries a tenant column yet, so the repositories that
+    predate it cannot adopt it. ``RepositoryContextRule`` counts them and blocks
+    new ones. Promotion needs PR-11's schema; see ADR-018.
+
+    Deliberately does not import ``backend.database`` -- Constitution S10 forbids
+    ``platform/`` from doing so. The SQLAlchemy-level probe is injected from
+    ``tests/architecture/probes.py``, exactly as I2's is.
     """
     from backend.contracts import ContractViolation, TenantRef, TenantScope
+    from backend.contracts.storage import StorageBinding, StorageOperation
     from backend.platform.events import EventMetadata
+    from backend.platform.storage import (
+        CrossTenantAccess,
+        MissingExecutionContext,
+        RepositoryGuard,
+    )
 
+    # --- Contract layer -------------------------------------------------
     try:
         EventMetadata.create(aggregate_id="a", aggregate_type="mission")  # type: ignore[call-arg]
     except TypeError:
@@ -210,11 +231,51 @@ def _probe_i6_tenant_identity(_: ModuleGraph) -> Optional[str]:
         return "a blank tenant id was accepted"
 
     scope = TenantScope(tenant=TenantRef(tenant_id="probe"))
-    metadata = EventMetadata.create(
-        aggregate_id="a", aggregate_type="mission", scope=scope
-    )
+    metadata = EventMetadata.create(aggregate_id="a", aggregate_type="mission", scope=scope)
     if metadata.scope.tenant.tenant_id != "probe":
         return "tenant identity did not survive metadata construction"
+
+    # --- Storage boundary -----------------------------------------------
+    guard = RepositoryGuard(
+        StorageBinding(record_type="_I6Probe", scope_column="tenant_id")
+    )
+
+    class _Context:
+        """Minimal structural context. Not an ExecutionContext import -- the
+        probe must not depend on which context type a caller happens to use."""
+
+        def __init__(self, tenant_id: str) -> None:
+            self.tenant_id = tenant_id
+            self.is_platform_internal = False
+
+        def audit_detail(self) -> dict:
+            return {"tenant_id": self.tenant_id}
+
+    try:
+        guard.authorize(StorageOperation.READ, None)
+    except MissingExecutionContext:
+        pass
+    else:
+        return "storage boundary authorized a read with no execution context"
+
+    class _Row:
+        tenant_id = "tenant-b"
+
+    access = guard.authorize(StorageOperation.READ, _Context("tenant-a"))
+    if access.tenant_id != "tenant-a":
+        return "storage access did not derive its tenant from the context"
+
+    try:
+        guard.assert_in_scope(_Row(), access)
+    except CrossTenantAccess:
+        pass
+    else:
+        return "storage boundary allowed a read of another tenant's record"
+
+    column, value = guard.scope_filter(access)
+    if (column, value) != ("tenant_id", "tenant-a"):
+        return f"scope filter was {column}={value!r}, expected tenant_id='tenant-a'"
+
     return None
 
 
@@ -392,7 +453,13 @@ def constitutional_invariants(
             ),
             status=InvariantStatus.PARTIAL,
             probe=_probe_i6_tenant_identity,
-            tracking="PR-09 threads identity through storage; contracts enforce it today",
+            tracking=(
+                "PR-10 enforces the storage boundary (ADR-018): no operation without a "
+                "context, no cross-tenant access, no caller-supplied tenant. Still PARTIAL "
+                "because no model carries a tenant column, so the pre-existing repositories "
+                "cannot adopt the guard -- TENANT-REPOSITORY-CONTEXT counts them and blocks "
+                "new ones. ENFORCED needs PR-11's schema."
+            ),
         ),
         InvariantCheck(
             invariant_id="I7",

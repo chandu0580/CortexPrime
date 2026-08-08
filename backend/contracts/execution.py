@@ -29,6 +29,7 @@ from backend.contracts.errors import ContractViolation
 
 __all__ = [
     "SideEffectClass",
+    "EffectSemantics",
     "ExecutionStatus",
     "ExecutionScope",
     "ActionRef",
@@ -59,6 +60,44 @@ class SideEffectClass(str, Enum):
     @property
     def mutates(self) -> bool:
         return self is not SideEffectClass.READ
+
+
+class EffectSemantics(str, Enum):
+    """Whether repeating an operation is safe.
+
+    Owner: BC-5 Execution. Consumed by BC-8 Connectivity, which is why it lives
+    here rather than inside either context -- a capability declares it at
+    registration and the execution runtime acts on it, and neither may import
+    the other.
+
+    Distinct from ``SideEffectClass``, which says how *consequential* an action
+    is. The two are independent: a reversible write can be violently
+    non-idempotent, and a destructive delete can be perfectly idempotent if it
+    is keyed.
+
+    ``UNKNOWN`` must never be treated as safe. An undeclared repeat is the
+    assumption that turns one production change into two, so every decision in
+    the platform treats it as non-idempotent.
+    """
+
+    READ_ONLY = "read_only"
+    IDEMPOTENT_WRITE = "idempotent_write"
+    NON_IDEMPOTENT_WRITE = "non_idempotent_write"
+    UNKNOWN = "unknown"
+
+    @property
+    def is_repeatable(self) -> bool:
+        """Whether this may be run again without further authority."""
+        return self in {EffectSemantics.READ_ONLY, EffectSemantics.IDEMPOTENT_WRITE}
+
+    @property
+    def mutates(self) -> bool:
+        return self is not EffectSemantics.READ_ONLY
+
+    @property
+    def is_declared(self) -> bool:
+        """Whether somebody actually said what repeating this does."""
+        return self is not EffectSemantics.UNKNOWN
 
 
 class ExecutionStatus(str, Enum):

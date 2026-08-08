@@ -120,6 +120,11 @@ from backend.contracts.policy import (
     RiskFactors,
     RiskLevel,
 )
+from backend.contracts.storage import (
+    StorageAccess,
+    StorageBinding,
+    StorageOperation,
+)
 from backend.contracts.tenant import (
     OrganizationRef,
     ProjectRef,
@@ -154,6 +159,10 @@ __all__ = [
     "OrganizationRef",
     "ProjectRef",
     "TenantScope",
+    # storage boundary
+    "StorageOperation",
+    "StorageBinding",
+    "StorageAccess",
     # identity
     "PrincipalKind",
     "PrincipalRef",

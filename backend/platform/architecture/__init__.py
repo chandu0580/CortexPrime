@@ -77,6 +77,13 @@ from backend.platform.architecture.state_rules import (
     FileStateRule,
     scan_state_files,
 )
+from backend.platform.architecture.tenancy_rules import (
+    GRANDFATHERED_REPOSITORIES,
+    RepositoryContextRule,
+    RepositoryMethod,
+    scan_repository_methods,
+    stale_grandfather_entries,
+)
 from backend.platform.architecture.rules import (
     ArchitectureRule,
     ModuleGraph,
@@ -118,6 +125,12 @@ __all__ = [
     "GRANDFATHERED_STORES",
     "STATE_FILE_EXTENSIONS",
     "scan_state_files",
+    # storage boundary tenant guard
+    "RepositoryContextRule",
+    "RepositoryMethod",
+    "GRANDFATHERED_REPOSITORIES",
+    "scan_repository_methods",
+    "stale_grandfather_entries",
     # invariants
     "InvariantCheck",
     "InvariantStatus",

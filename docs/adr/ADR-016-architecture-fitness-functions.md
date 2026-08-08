@@ -103,7 +103,7 @@ of dependencies before any single rule fails.
 | ✅ | **I3** — audit append-only and verifiable | Enforced |
 | ⏳ | **I4** — findings cite evidence | Not enforced — no finding context yet |
 | ⏳ | **I5** — credentials expire with execution | Not enforced — brokering unbuilt |
-| ✅ | **I6** — tenant identity travels | Partial — contracts enforce; PR-09 for storage |
+| ✅ | **I6** — tenant identity travels | Partial — contracts + storage boundary (ADR-018); ENFORCED needs PR-11's tenant column |
 | ✅ | **I7** — memory may not authorize | Enforced |
 | ⏳ | **I8** — no duplicated authoritative state | Not enforced — PR-31; 12 Mission definitions |
 | ✅ | **SELF-AUTH** — platform never authorizes itself | Enforced |
@@ -271,3 +271,53 @@ file-state stores that were always there and are now counted.
 
 That number is the point. It is the size of the state-migration backlog, and it
 was previously invisible.
+
+---
+
+# Amendment 2 (PR-10) — Storage Boundary Tenant Guard
+
+- **Status:** Accepted
+- **Date:** 2026-08-05
+- **Adds:** rule `TENANT-REPOSITORY-CONTEXT`
+- **See:** [ADR-018](ADR-018-storage-boundary-tenant-guard.md)
+
+## Why this rule exists
+
+ADR-017 gave every operation an `ExecutionContext` carrying tenant identity.
+Nothing compelled a repository to ask for one, and none of the 42 that existed
+did. The identity travelled as far as the storage layer and stopped there.
+
+`backend/platform/storage/` is the runtime enforcement point. This rule is the
+static one: a guard only protects the repositories that use it, and nothing in
+the type system makes a *new* repository use it.
+
+## What it checks
+
+For every class ending in `Repository` under a persistence path, each public
+method must accept a parameter that could carry an execution context. A method
+that accepts `tenant_id` directly is a stronger violation — the caller is
+choosing the isolation boundary, which is the anti-pattern I6 names.
+
+Subclasses of `TenantScopedRepository` are exempt from method-level checking:
+the base threads the context through by construction.
+
+## The ratchet
+
+`GRANDFATHERED_REPOSITORIES` records the 42 repositories that predate the guard.
+They report as warnings so the gate stays green while they migrate; anything not
+on the list errors and blocks the merge.
+
+Same one-way ratchet as `STATE-NO-NEW-FILE-STORES`, same rule: **the list may
+only shrink.** An addition is a known cross-tenant hazard, and it must show up as
+a one-line diff to a frozenset.
+
+The gate went from 13 rules to 14 and from 119 warnings to 297. The 178 new
+warnings are the grandfathered repository methods — previously invisible, now
+counted. That number is the migration backlog.
+
+## I6 is still PARTIAL
+
+Deliberately. The guard is real, tested and blocking, but no model carries a
+tenant column, so the grandfathered repositories cannot adopt it. Marking the
+invariant ENFORCED while a cross-tenant read is one `MissionRepository.get()`
+away would put a false claim in a compliance artifact. Promotion needs PR-11.
