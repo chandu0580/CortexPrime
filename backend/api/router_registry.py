@@ -940,6 +940,167 @@ def register_all_routers(app: FastAPI) -> Dict[str, bool]:
         log.warning(f"Enterprise Cost Anomaly Monitoring routes unavailable: {_eca_err}")
 
     try:
+        from backend.api.engineering_work_order_routes import router as engineering_work_order_router
+        app.include_router(engineering_work_order_router)
+        log.info("Engineering WorkOrder routes registered at /api/v1/engineering")
+        availability["engineering_work_order"] = True
+    except Exception as _ewo_err:
+        availability["engineering_work_order"] = False
+        log.warning(f"Engineering WorkOrder routes unavailable: {_ewo_err}")
+
+    try:
+        from backend.api.engineering_runtime_routes import router as engineering_runtime_router
+        app.include_router(engineering_runtime_router)
+        log.info("Engineering Runtime routes registered at /api/v1/engineering/runtime")
+        availability["engineering_runtime"] = True
+    except Exception as _ert_err:
+        availability["engineering_runtime"] = False
+        log.warning(f"Engineering Runtime routes unavailable: {_ert_err}")
+
+    try:
+        from backend.api.engineering_verification_routes import router as engineering_verification_router
+        app.include_router(engineering_verification_router)
+        log.info("Engineering Verification routes registered at /api/v1/engineering/verification")
+        availability["engineering_verification"] = True
+    except Exception as _evf_err:
+        availability["engineering_verification"] = False
+        log.warning(f"Engineering Verification routes unavailable: {_evf_err}")
+
+    try:
+        from backend.api.context_bundle_routes import router as context_bundle_router
+        app.include_router(context_bundle_router)
+        log.info("Engineering ContextBundle routes registered at /api/v1/engineering/context")
+        availability["engineering_context_bundle"] = True
+    except Exception as _ecb_err:
+        availability["engineering_context_bundle"] = False
+        log.warning(f"Engineering ContextBundle routes unavailable: {_ecb_err}")
+
+    try:
+        from backend.api.implementation_record_routes import router as implementation_record_router
+        app.include_router(implementation_record_router)
+        log.info("Engineering ImplementationRecord routes registered at /api/v1/engineering/implementation")
+        availability["engineering_implementation_record"] = True
+    except Exception as _eir_err:
+        availability["engineering_implementation_record"] = False
+        log.warning(f"Engineering ImplementationRecord routes unavailable: {_eir_err}")
+
+    try:
+        from backend.api.capability_resolution_routes import (
+            router as capability_resolution_router,
+        )
+        app.include_router(capability_resolution_router)
+        log.info(
+            "Capability Resolution routes registered at /api/v1/capability-resolution"
+        )
+        availability["capability_resolution"] = True
+    except Exception as _capres_err:
+        availability["capability_resolution"] = False
+        log.warning(f"Capability Resolution routes unavailable: {_capres_err}")
+
+    try:
+        from backend.api.capability_authorization_routes import (
+            router as capability_authorization_router,
+        )
+        app.include_router(capability_authorization_router)
+        log.info(
+            "Capability Authorization routes registered at /api/v1/capability-authorization"
+        )
+        availability["capability_authorization"] = True
+
+        # Phase 3.2.3: registration is no longer open. The guard replaces
+        # OpenRegistration at startup so every lifecycle mutation -- including
+        # the ones discovery performs -- goes through policy.
+        from backend.api import capability_authorization_composition as _capauthz
+        from backend.api import capability_routes as _capreg
+
+        _capauthz.governed_registry(_capreg._service)
+        log.info("Capability registration is policy-governed")
+    except Exception as _capauthz_err:
+        availability["capability_authorization"] = False
+        log.warning(f"Capability Authorization routes unavailable: {_capauthz_err}")
+
+    try:
+        from backend.api.capability_discovery_routes import router as capability_discovery_router
+        app.include_router(capability_discovery_router)
+        log.info("Capability Discovery routes registered at /api/v1/capability-discovery")
+        availability["capability_discovery"] = True
+    except Exception as _capd_err:
+        availability["capability_discovery"] = False
+        log.warning(f"Capability Discovery routes unavailable: {_capd_err}")
+
+    try:
+        from backend.api.capability_routes import router as capability_router
+        app.include_router(capability_router)
+        log.info("Capability Registry routes registered at /api/v1/capabilities")
+        availability["capability_registry"] = True
+    except Exception as _cap_err:
+        availability["capability_registry"] = False
+        log.warning(f"Capability Registry routes unavailable: {_cap_err}")
+
+    try:
+        from backend.api.mission_control_routes import router as mission_control_router
+        app.include_router(mission_control_router)
+        log.info("Mission Control Plane routes registered at /api/v1/mission-control")
+        availability["mission_control"] = True
+    except Exception as _mc_err:
+        availability["mission_control"] = False
+        log.warning(f"Mission Control Plane routes unavailable: {_mc_err}")
+
+    try:
+        from backend.api.execution_routes import router as execution_router
+        app.include_router(execution_router)
+        log.info("Execution Runtime routes registered at /api/v1/executions")
+        availability["execution_runtime"] = True
+    except Exception as _exr_err:
+        availability["execution_runtime"] = False
+        log.warning(f"Execution Runtime routes unavailable: {_exr_err}")
+
+    try:
+        from backend.api.workflow_routes import router as workflow_router
+        app.include_router(workflow_router)
+        log.info("Workflow Runtime routes registered at /api/v1/workflows")
+        availability["workflow_runtime"] = True
+    except Exception as _wfr_err:
+        availability["workflow_runtime"] = False
+        log.warning(f"Workflow Runtime routes unavailable: {_wfr_err}")
+
+    try:
+        from backend.api.planner_routes import router as planner_router
+        app.include_router(planner_router)
+        log.info("Planner routes registered at /api/v1/plans")
+        availability["planner"] = True
+    except Exception as _pln_err:
+        availability["planner"] = False
+        log.warning(f"Planner routes unavailable: {_pln_err}")
+
+    try:
+        from backend.api.intent_routes import router as intent_router
+        app.include_router(intent_router)
+        log.info("Intent Runtime routes registered at /api/v1/intents")
+        availability["intent_runtime"] = True
+    except Exception as _irt_err:
+        availability["intent_runtime"] = False
+        log.warning(f"Intent Runtime routes unavailable: {_irt_err}")
+
+    try:
+        from backend.api.mission_runtime_routes import router as mission_runtime_router
+        app.include_router(mission_runtime_router)
+        log.info("Mission Runtime routes registered at /api/v1/missions")
+        availability["mission_runtime"] = True
+    except Exception as _mrt_err:
+        availability["mission_runtime"] = False
+        log.warning(f"Mission Runtime routes unavailable: {_mrt_err}")
+
+    try:
+        from backend.api.review_routes import router as review_router
+        app.include_router(review_router)
+        log.info("Engineering Review routes registered at /api/v1/engineering/review")
+        availability["engineering_review"] = True
+    except Exception as _erv_err:
+        availability["engineering_review"] = False
+        log.warning(f"Engineering Review routes unavailable: {_erv_err}")
+
+    try:
         from backend.api.enterprise_cicd_routes import router as enterprise_cicd_router
         app.include_router(enterprise_cicd_router)
         log.info("Enterprise CI/CD Intelligence routes registered at /api/cicd")
