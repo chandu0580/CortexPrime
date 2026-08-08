@@ -6,9 +6,16 @@ __pycache__/
 *.pyd
 *.db
 
-# Environment variables
+# Environment variables — never commit real values.
+# Covers every variant (.env.local, .env.production, nested service envs);
+# the *.example templates stay tracked because they hold only empty placeholders.
 .env
-backend/.env
+.env.*
+*.env
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
 
 # TLS certificates — never commit private keys
 *.pem
