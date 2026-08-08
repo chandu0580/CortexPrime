@@ -1,0 +1,191 @@
+"""The ImplementationRecord bounded context.
+
+Captures what an implementer actually produced for a WorkOrder: the files it
+changed, the claims it makes, the assumptions it checked, the risks it knows
+about, and the tests and builds it ran.
+
+This is the authoritative artifact Review and Verification consume. Until it
+existed, Verification received a placeholder claim from the runtime because
+nothing carried what the implementer asserted (ADR-021 remaining risk 2).
+
+Three rules the context exists to make unbreakable:
+
+* **Immutable after completion.** A record that changed after Review and
+  Verification read it would make every finding they produced a statement about a
+  document that no longer exists.
+* **Every claim cites evidence.** A claim with no reference gives a verifier
+  nothing to attack -- it can only be taken on trust.
+* **Changed files stay inside the blast radius.** Enforced here, with a drift
+  test against the WorkOrder context's matcher.
+
+    domain/          pure -- changes, claims, outcomes, the record
+    application/     commands, queries, the service
+    infrastructure/  repository, record mapping
+
+This context imports ``contracts/`` and ``platform/`` and nothing else.
+See ADR-023.
+"""
+
+from backend.contexts.implementation_record.application import (
+    AbandonImplementation,
+    AddClaim,
+    CommandResult,
+    CompleteImplementation,
+    DeclareRisk,
+    GetImplementation,
+    ImplementationRecordService,
+    ListImplementations,
+    NoteDeviation,
+    RecordBuild,
+    RecordCoverage,
+    RecordFile,
+    RecordTests,
+    ResolveAssumption,
+    StartImplementation,
+    SupersedeImplementation,
+)
+from backend.contexts.implementation_record.domain import (
+    ARTIFACT_KIND,
+    AssumptionAlreadyResolved,
+    AssumptionOutcome,
+    AssumptionResolution,
+    AssumptionResolved,
+    BlastRadiusScope,
+    BuildResult,
+    CANONICAL_FORM_VERSION,
+    ChangedFile,
+    ChangeKind,
+    Claim,
+    ClaimAdded,
+    ClaimId,
+    ClaimType,
+    ClaimWithoutEvidence,
+    CodeChangeSet,
+    CompletionPolicy,
+    CriterionCoverage,
+    DigestComputed,
+    DigestMismatch,
+    DigestNotComputed,
+    DuplicateClaim,
+    DuplicateRecord,
+    EvidenceRef,
+    ExecutionStatus,
+    GOVERNED_FIELDS,
+    IMPLEMENTATION_EVENT_TYPES,
+    ImplementationCompleted,
+    ImplementationError,
+    ImplementationId,
+    ImplementationRecord,
+    ImplementationStarted,
+    ImplementationStatus,
+    ImplementationSuperseded,
+    ImplementationUpdated,
+    IncompleteRecord,
+    OutsideBlastRadius,
+    PathPattern,
+    PolicyFinding,
+    PolicyReport,
+    RecordCompleted,
+    RecordNotFound,
+    RecordSuperseded,
+    RiskDeclaration,
+    RiskDeclared,
+    RiskId,
+    RiskLevel,
+    Severity,
+    TestExecution,
+    UnknownAssumption,
+    build,
+    changed,
+    claim,
+    coverage,
+    default_policy,
+    resolution,
+    risk,
+    start_implementation,
+    test_run,
+)
+from backend.contexts.implementation_record.infrastructure import (
+    ImplementationRepository,
+    InMemoryImplementationRepository,
+)
+
+__all__ = [
+    "ImplementationRecord",
+    "ImplementationStatus",
+    "ImplementationId",
+    "ClaimId",
+    "RiskId",
+    "CodeChangeSet",
+    "ChangedFile",
+    "ChangeKind",
+    "Claim",
+    "ClaimType",
+    "EvidenceRef",
+    "CriterionCoverage",
+    "AssumptionResolution",
+    "AssumptionOutcome",
+    "RiskDeclaration",
+    "RiskLevel",
+    "TestExecution",
+    "BuildResult",
+    "ExecutionStatus",
+    "BlastRadiusScope",
+    "PathPattern",
+    "CompletionPolicy",
+    "PolicyReport",
+    "PolicyFinding",
+    "Severity",
+    "default_policy",
+    "ARTIFACT_KIND",
+    "CANONICAL_FORM_VERSION",
+    "GOVERNED_FIELDS",
+    "start_implementation",
+    "changed",
+    "claim",
+    "resolution",
+    "risk",
+    "coverage",
+    "test_run",
+    "build",
+    "ImplementationRecordService",
+    "CommandResult",
+    "StartImplementation",
+    "RecordFile",
+    "AddClaim",
+    "ResolveAssumption",
+    "DeclareRisk",
+    "RecordTests",
+    "RecordBuild",
+    "RecordCoverage",
+    "NoteDeviation",
+    "CompleteImplementation",
+    "AbandonImplementation",
+    "SupersedeImplementation",
+    "GetImplementation",
+    "ListImplementations",
+    "ImplementationRepository",
+    "InMemoryImplementationRepository",
+    "ImplementationStarted",
+    "ImplementationUpdated",
+    "ImplementationCompleted",
+    "ClaimAdded",
+    "RiskDeclared",
+    "AssumptionResolved",
+    "DigestComputed",
+    "ImplementationSuperseded",
+    "IMPLEMENTATION_EVENT_TYPES",
+    "ImplementationError",
+    "OutsideBlastRadius",
+    "ClaimWithoutEvidence",
+    "RecordCompleted",
+    "RecordSuperseded",
+    "DuplicateClaim",
+    "AssumptionAlreadyResolved",
+    "UnknownAssumption",
+    "IncompleteRecord",
+    "DigestMismatch",
+    "DigestNotComputed",
+    "RecordNotFound",
+    "DuplicateRecord",
+]
