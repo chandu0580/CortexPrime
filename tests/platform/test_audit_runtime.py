@@ -275,7 +275,18 @@ class TestMissingRecordDetection:
         records = list(runtime.query())
 
         other = AuditRuntime(InMemoryAuditStore())
-        _fill(other, scope, 5)
+        # The foreign chain must genuinely differ (Phase 6.2 flake fix): with
+        # identical inputs and a coarse clock, both chains could produce
+        # byte-identical records — and an identical record is definitionally
+        # undetectable by any hash chain, so the splice was sometimes not a
+        # tamper at all. Distinct subjects make the substitution real.
+        for index in range(5):
+            other.record(
+                AuditEventKind.EXECUTION_REFUSED,
+                scope,
+                subject_reference=f"foreign-wf-{index}",
+                detail={"index": index, "chain": "foreign"},
+            )
         foreign = list(other.query())[2]
 
         records[2] = foreign
