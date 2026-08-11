@@ -117,6 +117,15 @@ NON_SENSITIVE_KEYS = frozenset(
         "credential_required",
         "credential_state",
         "signature_algorithm",
+        # LLM usage accounting — token COUNTS, not credential material. They
+        # match the "token" fragment but are integers describing consumption,
+        # and redacting them would blind cost/budget attribution (Phase 6.3).
+        "token_usage",
+        "total_tokens",
+        "prompt_tokens",
+        "completion_tokens",
+        "tokens_spent",
+        "tokens",
     }
 )
 
