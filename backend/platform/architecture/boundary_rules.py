@@ -38,6 +38,8 @@ __all__ = [
     "ProcessSpawnQuarantineRule",
     "ProviderSdkImportRule",
     "ConnectorEffectGateRule",
+    "HarnessCredentialIsolationRule",
+    "HarnessNoExecutionRule",
     "default_boundary_rules",
     "BOUNDED_CONTEXTS",
 ]
@@ -823,6 +825,132 @@ class ConnectorEffectGateRule:
         )
 
 
+@dataclass(frozen=True)
+class HarnessCredentialIsolationRule:
+    """The harness plane never handles credential material (Phase 6.2, Part F).
+
+    Credentials are minted at the last gateway stage and never enter a model
+    context, a model output, or a trace span. The structural guarantee behind
+    that is: no module under ``backend/harness/`` may import a credential
+    *carrier* — the broker, the vault adapter, credential material, the
+    credential request builder, or the credential composition root. It may
+    import ``credentials.redaction``, which holds no secret and exists to
+    *remove* them; that is the firewall's own tool, not a leak.
+
+    A future import of the broker into the harness is exactly how a credential
+    would acquire a path into a prompt. This rule makes that a red gate.
+    """
+
+    rule_id: str = "BND-HARNESS-CREDENTIALS"
+    description: str = (
+        "the harness plane imports no credential carrier — only the redactor"
+    )
+    harness_root: str = "backend.harness"
+    forbidden: tuple[str, ...] = (
+        "backend.platform.credentials.broker",
+        "backend.platform.credentials.vault",
+        "backend.platform.credentials.material",
+        "backend.platform.credentials.request",
+        "backend.platform.credentials.development",
+        "backend.api.credential_composition",
+    )
+    severity: Severity = Severity.ERROR
+
+    def evaluate(self, graph: ModuleGraph) -> RuleResult:
+        violations: list[Violation] = []
+        checked = 0
+        for module in graph.modules():
+            if not module.name.startswith(self.harness_root + "."):
+                continue
+            checked += 1
+            for imported, line in module.imports:
+                if imported in self.forbidden or any(
+                    imported.startswith(f + ".") for f in self.forbidden
+                ):
+                    violations.append(
+                        Violation(
+                            rule_id=self.rule_id,
+                            severity=self.severity,
+                            module=module.name,
+                            line=line,
+                            offender=imported,
+                            detail=(
+                                f"the harness imports credential carrier "
+                                f"{imported!r}; credentials are minted at the "
+                                "gateway and never enter the harness (Phase 6.2, "
+                                "Part F). Only credentials.redaction is allowed"
+                            ),
+                        )
+                    )
+        return RuleResult(
+            rule_id=self.rule_id,
+            description=self.description,
+            violations=tuple(violations),
+            modules_checked=checked,
+        )
+
+
+@dataclass(frozen=True)
+class HarnessNoExecutionRule:
+    """The harness proposes and records; it never itself reaches a provider
+    (Phase 6.2, BND-MODEL-NO-SIDE-EFFECT).
+
+    The model plane's whole safety rests on it having no side-effect path of
+    its own: it hands a proposal to a composed ``ActionPort`` that goes through
+    the governed invocation gateway. So no module under ``backend/harness/``
+    may import a connector, the invocation gateway, a provider adapter, or the
+    transport broker. Writing the trace store (``database.durable``) is not a
+    provider side effect and is allowed; reaching a provider is not.
+    """
+
+    rule_id: str = "BND-HARNESS-NO-EXECUTION"
+    description: str = (
+        "the harness plane imports no connector, gateway, adapter or transport"
+    )
+    harness_root: str = "backend.harness"
+    forbidden_roots: tuple[str, ...] = (
+        "backend.connectors",
+        "backend.contexts.execution.application.invocation_gateway",
+        "backend.contexts.execution.infrastructure.adapters",
+        "backend.platform.transport",
+    )
+    severity: Severity = Severity.ERROR
+
+    def evaluate(self, graph: ModuleGraph) -> RuleResult:
+        violations: list[Violation] = []
+        checked = 0
+        for module in graph.modules():
+            if not module.name.startswith(self.harness_root + "."):
+                continue
+            checked += 1
+            for imported, line in module.imports:
+                if any(
+                    imported == f or imported.startswith(f + ".")
+                    for f in self.forbidden_roots
+                ):
+                    violations.append(
+                        Violation(
+                            rule_id=self.rule_id,
+                            severity=self.severity,
+                            module=module.name,
+                            line=line,
+                            offender=imported,
+                            detail=(
+                                f"the harness imports {imported!r}; the harness "
+                                "proposes and records — the composed ActionPort "
+                                "reaches a provider through the governed gateway, "
+                                "never the harness itself (Phase 6.2)"
+                            ),
+                        )
+                    )
+        return RuleResult(
+            rule_id=self.rule_id,
+            description=self.description,
+            violations=tuple(violations),
+            modules_checked=checked,
+        )
+
+
 def default_boundary_rules() -> tuple:
     """The boundary rules the Constitution defines."""
     return (
@@ -836,4 +964,6 @@ def default_boundary_rules() -> tuple:
         ProcessSpawnQuarantineRule(),
         ProviderSdkImportRule(),
         ConnectorEffectGateRule(),
+        HarnessCredentialIsolationRule(),
+        HarnessNoExecutionRule(),
     )
