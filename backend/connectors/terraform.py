@@ -26,6 +26,8 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from backend.connectors.effects import assert_effect_permitted
+
 log = logging.getLogger(__name__)
 
 
@@ -145,6 +147,10 @@ class TerraformConnector:
         self, cmd_str: str, capture_output: bool = True, input_data: Optional[str] = None,
         env: Optional[Dict[str, str]] = None, cwd: Optional[str] = None,
     ) -> TerraformResult:
+        # Phase 6.1 (L1): every terraform invocation is a subprocess inheriting
+        # the process environment — a machine side effect regardless of verb.
+        # This connector does not extend BaseConnector, so the gate sits here.
+        assert_effect_permitted("terraform", cmd_str.split()[0] if cmd_str.strip() else "")
         full_cmd = f"{self._binary} {cmd_str}"
         import asyncio
         import time

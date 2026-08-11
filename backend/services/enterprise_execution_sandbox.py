@@ -653,6 +653,13 @@ class EnterpriseExecutionSandbox:
     ) -> ExecutionResult:
         exec_id = f"exec-{uuid.uuid4().hex[:12]}"
         start = time.monotonic()
+        # Phase 6.1 (L1): every sandbox subprocess (git clone, pip/npm install,
+        # test runs) is a machine side effect reached from ungated routes
+        # (POST .../prepare) and delivery-pipeline stages. Same flag, same
+        # refusal as every other quarantined V1 execution surface.
+        from backend.api.legacy_execution_boundary import guard_legacy_internal
+
+        guard_legacy_internal(f"sandbox:subprocess {cmd[0] if cmd else ''}")
         try:
             proc = await asyncio.create_subprocess_exec(
                 *cmd,

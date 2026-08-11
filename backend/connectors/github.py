@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import httpx
 
 from backend.connectors.base import BaseConnector
+from backend.connectors.effects import assert_effect_permitted
 
 log = logging.getLogger(__name__)
 
@@ -131,6 +132,9 @@ class GitHubConnector(BaseConnector):
     # ------------------------------------------------------------------
 
     async def graphql_request(self, query: str, variables: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        # Phase 6.1 (L1): an arbitrary GraphQL document can carry any mutation,
+        # and this method bypasses _execute — so it gates as a write here.
+        assert_effect_permitted("github", "graphql_request")
         if not self._client:
             raise RuntimeError("GitHub connector not initialized")
         payload: Dict[str, Any] = {"query": query}

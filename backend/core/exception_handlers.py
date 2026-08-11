@@ -131,6 +131,36 @@ def register_exception_handlers(app: FastAPI) -> None:
         )
         return http_error_response(request, exc.status_code)
 
+    # ── LegacyExecutionRefused — a quarantined V1 side effect was reached ──
+    # Phase 6.1: the connector effect gate and the internal legacy guards
+    # raise this when a write-classified V1 surface is used while
+    # CORTEXPRIME_ENABLE_LEGACY_EXECUTION is unset. The message is written
+    # for operators and contains no internal detail, so it is safe to return
+    # verbatim. 503 matches guard_legacy_execution's HTTP twin.
+    from backend.api.legacy_execution_boundary import LegacyExecutionRefused
+
+    @app.exception_handler(LegacyExecutionRefused)
+    async def legacy_execution_refused_handler(
+        request: Request, exc: LegacyExecutionRefused
+    ) -> JSONResponse:
+        request_id = getattr(request.state, "request_id", None) or get_request_id()
+        log.warning(
+            "Refused legacy execution surface: %s %s — %s",
+            request.method, request.url.path, exc,
+        )
+        return JSONResponse(
+            status_code=503,
+            content={
+                "success": False,
+                "error": {
+                    "code":       "LEGACY_EXECUTION_DISABLED",
+                    "message":    str(exc),
+                    "request_id": request_id,
+                },
+            },
+            headers={"X-Request-ID": request_id},
+        )
+
     # ── Exception — global catch-all for all unhandled exceptions ─────────
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(

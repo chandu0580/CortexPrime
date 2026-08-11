@@ -310,7 +310,9 @@ async def get_overview():
     # ── Emergency stop ────────────────────────────────────────────────
     try:
         from backend.safety.emergency_stop import emergency_stop
-        emergency_active = emergency_stop.is_active()
+        # Phase 6.1 defect fix: is_active() never existed; the swallowed
+        # AttributeError made this dashboard report "not stopped" always.
+        emergency_active = emergency_stop.is_globally_stopped
     except Exception as e:
         log.debug("emergency_stop unavailable: %s", e)
 

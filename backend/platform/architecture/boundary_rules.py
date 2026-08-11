@@ -35,6 +35,9 @@ __all__ = [
     "AmbientProviderCredentialRule",
     "DirectProviderHttpRule",
     "InterfacePurityRule",
+    "ProcessSpawnQuarantineRule",
+    "ProviderSdkImportRule",
+    "ConnectorEffectGateRule",
     "default_boundary_rules",
     "BOUNDED_CONTEXTS",
 ]
@@ -510,6 +513,316 @@ class InterfacePurityRule:
         )
 
 
+@dataclass(frozen=True)
+class ProcessSpawnQuarantineRule:
+    """Process creation happens in exactly four named modules (Phase 6.1, L1).
+
+    A spawned process is a machine side effect no gateway can see. Phase 6.1
+    discovery found exactly four spawn sites in the backend — the terraform
+    connector, the execution sandbox, the shell-sandbox interface, and the
+    (already-quarantined) computer task engine — and put each behind the
+    legacy-execution flag or its own refusal. This rule keeps the count at
+    four: a new ``subprocess.Popen`` / ``asyncio.create_subprocess_*`` /
+    ``os.system`` call site anywhere else is an ERROR, not a review comment.
+
+    AST-based over source, so a spawn in a comment or docstring does not trip
+    it — and an alias (``from subprocess import Popen; Popen(...)``) does,
+    because bare-name calls matching the spawn vocabulary are matched too.
+    """
+
+    rule_id: str = "BND-PROCESS-SPAWN"
+    description: str = (
+        "process-spawning calls are quarantined to the four audited modules"
+    )
+    allowed_modules: tuple[str, ...] = (
+        "backend.connectors.terraform",
+        "backend.services.enterprise_execution_sandbox",
+        "backend.execution.sandbox.interfaces",
+        "backend.computer.computer_task_engine",
+    )
+    severity: Severity = Severity.ERROR
+
+    #: Spawn vocabulary per owner. ``run`` is a spawn only on ``subprocess``;
+    #: ``asyncio.run`` is the event-loop runner and must not match.
+    SPAWN_BY_OWNER = {
+        "subprocess": {"Popen", "run", "call", "check_call", "check_output"},
+        "asyncio": {"create_subprocess_exec", "create_subprocess_shell"},
+        "os": {"system", "popen", "spawnl", "spawnle", "spawnlp", "spawnv",
+               "spawnve"},
+    }
+
+    def evaluate(self, graph: ModuleGraph) -> RuleResult:
+        import ast as _ast
+
+        bare_names = {"create_subprocess_exec", "create_subprocess_shell", "Popen"}
+        violations: list[Violation] = []
+        checked = 0
+        for module in graph.modules():
+            if module.name in self.allowed_modules:
+                continue
+            checked += 1
+            try:
+                tree = _ast.parse(module.path.read_text(encoding="utf-8"))
+            except (OSError, SyntaxError):
+                continue
+            for node in _ast.walk(tree):
+                if not isinstance(node, _ast.Call):
+                    continue
+                offender: Optional[str] = None
+                func = node.func
+                if (isinstance(func, _ast.Attribute)
+                        and isinstance(func.value, _ast.Name)
+                        and func.attr in self.SPAWN_BY_OWNER.get(func.value.id, ())):
+                    offender = f"{func.value.id}.{func.attr}"
+                elif isinstance(func, _ast.Name) and func.id in bare_names:
+                    offender = func.id
+                if offender is not None:
+                    violations.append(
+                        Violation(
+                            rule_id=self.rule_id,
+                            severity=self.severity,
+                            module=module.name,
+                            line=node.lineno,
+                            offender=offender,
+                            detail=(
+                                f"spawns a process via {offender}; process "
+                                "creation is quarantined to "
+                                f"{', '.join(self.allowed_modules)} (Phase 6.1, "
+                                "L1). Reach the machine through the governed "
+                                "execution path instead"
+                            ),
+                        )
+                    )
+        return RuleResult(
+            rule_id=self.rule_id,
+            description=self.description,
+            violations=tuple(violations),
+            modules_checked=checked,
+        )
+
+
+@dataclass(frozen=True)
+class ProviderSdkImportRule:
+    """Provider SDKs are imported only by their own connector modules (L1).
+
+    ``docker`` and ``kubernetes`` are direct channels to real infrastructure —
+    the local daemon socket and the cluster credential — with no HTTP boundary
+    a transport rule could see. Exactly two modules may import them: the two
+    V1 connectors that wrap them (both of whose writes sit behind the effect
+    gate). A third importer is a new ungoverned side-effect channel.
+
+    Also refuses the dynamic escape: ``importlib.import_module("docker")`` /
+    ``__import__("kubernetes")`` with a constant argument, anywhere. The
+    import graph cannot see those; this rule's AST pass can.
+    """
+
+    rule_id: str = "BND-PROVIDER-SDK"
+    description: str = (
+        "provider SDK imports (docker, kubernetes) are quarantined to their "
+        "connector modules"
+    )
+    sdk_roots: tuple[str, ...] = ("docker", "kubernetes")
+    allowed_modules: tuple[str, ...] = (
+        "backend.connectors.docker",
+        "backend.connectors.kubernetes",
+    )
+    severity: Severity = Severity.ERROR
+
+    def evaluate(self, graph: ModuleGraph) -> RuleResult:
+        import ast as _ast
+
+        violations: list[Violation] = []
+        checked = 0
+        for module in graph.modules():
+            if module.name in self.allowed_modules:
+                continue
+            checked += 1
+            for imported, line in module.imports:
+                root = imported.split(".")[0]
+                if root in self.sdk_roots:
+                    violations.append(
+                        Violation(
+                            rule_id=self.rule_id,
+                            severity=self.severity,
+                            module=module.name,
+                            line=line,
+                            offender=imported,
+                            detail=(
+                                f"imports provider SDK {imported!r}; only "
+                                f"{', '.join(self.allowed_modules)} may (Phase "
+                                "6.1, L1)"
+                            ),
+                        )
+                    )
+            try:
+                tree = _ast.parse(module.path.read_text(encoding="utf-8"))
+            except (OSError, SyntaxError):
+                continue
+            for node in _ast.walk(tree):
+                if not isinstance(node, _ast.Call):
+                    continue
+                target: Optional[str] = None
+                if (isinstance(node.func, _ast.Attribute)
+                        and node.func.attr == "import_module"
+                        and node.args
+                        and isinstance(node.args[0], _ast.Constant)
+                        and isinstance(node.args[0].value, str)):
+                    target = node.args[0].value
+                elif (isinstance(node.func, _ast.Name)
+                        and node.func.id == "__import__"
+                        and node.args
+                        and isinstance(node.args[0], _ast.Constant)
+                        and isinstance(node.args[0].value, str)):
+                    target = node.args[0].value
+                if target is not None and target.split(".")[0] in self.sdk_roots:
+                    violations.append(
+                        Violation(
+                            rule_id=self.rule_id,
+                            severity=self.severity,
+                            module=module.name,
+                            line=node.lineno,
+                            offender=target,
+                            detail=(
+                                f"dynamically imports provider SDK {target!r}; "
+                                "dynamic import does not exempt a module from "
+                                "the SDK quarantine (Phase 6.1, L1)"
+                            ),
+                        )
+                    )
+        return RuleResult(
+            rule_id=self.rule_id,
+            description=self.description,
+            violations=tuple(violations),
+            modules_checked=checked,
+        )
+
+
+@dataclass(frozen=True)
+class ConnectorEffectGateRule:
+    """The connector effect gate stays where Phase 6.1 put it (L1).
+
+    ``BaseConnector._execute`` must call ``assert_effect_permitted`` as its
+    first statement, and each of the three bypass seams discovery found —
+    ``ArgoCDConnector._post``, ``GitHubConnector.graphql_request``,
+    ``TerraformConnector._run`` — must call it somewhere in its body. Removing
+    or reordering the gate turns this gate red; that is the rule's whole job.
+    The gate being *first* in ``_execute`` matters: nothing (activity
+    recording included) may run for a refused write.
+    """
+
+    rule_id: str = "BND-EFFECT-GATE"
+    description: str = (
+        "the connector effect gate is present at all four enforcement points"
+    )
+    #: (module, function, must_be_first_statement)
+    gate_sites: tuple[tuple[str, str, bool], ...] = (
+        ("backend.connectors.base", "_execute", True),
+        ("backend.connectors.argocd", "_post", False),
+        ("backend.connectors.github", "graphql_request", False),
+        ("backend.connectors.terraform", "_run", False),
+    )
+    severity: Severity = Severity.ERROR
+
+    @staticmethod
+    def _calls_gate(node) -> bool:
+        import ast as _ast
+
+        for sub in _ast.walk(node):
+            if (isinstance(sub, _ast.Call)
+                    and isinstance(sub.func, _ast.Name)
+                    and sub.func.id == "assert_effect_permitted"):
+                return True
+        return False
+
+    def evaluate(self, graph: ModuleGraph) -> RuleResult:
+        import ast as _ast
+
+        by_name = {m.name: m for m in graph.modules()}
+        violations: list[Violation] = []
+        checked = 0
+        for module_name, function_name, must_be_first in self.gate_sites:
+            module = by_name.get(module_name)
+            if module is None:
+                violations.append(
+                    Violation(
+                        rule_id=self.rule_id,
+                        severity=self.severity,
+                        module=module_name,
+                        line=0,
+                        offender=function_name,
+                        detail=f"gated module {module_name!r} is missing",
+                    )
+                )
+                continue
+            checked += 1
+            try:
+                tree = _ast.parse(module.path.read_text(encoding="utf-8"))
+            except (OSError, SyntaxError):
+                violations.append(
+                    Violation(
+                        rule_id=self.rule_id,
+                        severity=self.severity,
+                        module=module_name,
+                        line=0,
+                        offender=function_name,
+                        detail="gated module is unparseable — the gate cannot "
+                        "be verified, which counts as absent",
+                    )
+                )
+                continue
+            found = None
+            for node in _ast.walk(tree):
+                if (isinstance(node, (_ast.AsyncFunctionDef, _ast.FunctionDef))
+                        and node.name == function_name):
+                    found = node
+                    break
+            if found is None or not self._calls_gate(found):
+                violations.append(
+                    Violation(
+                        rule_id=self.rule_id,
+                        severity=self.severity,
+                        module=module_name,
+                        line=getattr(found, "lineno", 0),
+                        offender=function_name,
+                        detail=(
+                            f"{function_name} no longer calls "
+                            "assert_effect_permitted — the effect gate has "
+                            "been removed (Phase 6.1, L1)"
+                        ),
+                    )
+                )
+                continue
+            if must_be_first:
+                body = list(found.body)
+                # A docstring is not a statement for gate-ordering purposes.
+                if (body and isinstance(body[0], _ast.Expr)
+                        and isinstance(body[0].value, _ast.Constant)
+                        and isinstance(body[0].value.value, str)):
+                    body = body[1:]
+                first_ok = bool(body) and self._calls_gate(body[0])
+                if not first_ok:
+                    violations.append(
+                        Violation(
+                            rule_id=self.rule_id,
+                            severity=self.severity,
+                            module=module_name,
+                            line=found.lineno,
+                            offender=function_name,
+                            detail=(
+                                "assert_effect_permitted is not the first "
+                                "statement of _execute; a refused write must "
+                                "run nothing, record nothing (Phase 6.1, L1)"
+                            ),
+                        )
+                    )
+        return RuleResult(
+            rule_id=self.rule_id,
+            description=self.description,
+            violations=tuple(violations),
+            modules_checked=checked,
+        )
+
+
 def default_boundary_rules() -> tuple:
     """The boundary rules the Constitution defines."""
     return (
@@ -520,4 +833,7 @@ def default_boundary_rules() -> tuple:
         AmbientProviderCredentialRule(),
         DirectProviderHttpRule(),
         InterfacePurityRule(),
+        ProcessSpawnQuarantineRule(),
+        ProviderSdkImportRule(),
+        ConnectorEffectGateRule(),
     )

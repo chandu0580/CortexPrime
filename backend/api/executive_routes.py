@@ -153,7 +153,9 @@ async def get_snapshot():
     # ── Emergency stop ────────────────────────────────────────────────────
     try:
         from backend.safety.emergency_stop import emergency_stop as _es
-        emergency_stop = _es.is_active()
+        # Phase 6.1 defect fix: is_active() never existed; the swallowed
+        # AttributeError made this dashboard report "not stopped" always.
+        emergency_stop = _es.is_globally_stopped
     except Exception:
         pass
 

@@ -1,8 +1,11 @@
 
 import asyncio
+import logging
 from datetime import datetime
 from typing import Any, Dict
 from uuid import uuid4
+
+log = logging.getLogger(__name__)
 
 from backend.computer.computer_task_engine import computer_task_engine
 from backend.computer.desktop_controller import desktop_controller
@@ -101,7 +104,15 @@ async def _computer_governance_check(
         return True
 
     except Exception:
-        return True  # Governance errors must not break execution
+        # Phase 6.1 (L13): a governance check that cannot run has NOT allowed
+        # the action. Failing open here meant any exception inside the
+        # emergency-stop / safety-guard / approval path authorized real
+        # mouse-and-keyboard control of the host. Fail closed, loudly.
+        log.exception(
+            "computer governance check failed for action %r — refusing (fail-closed)",
+            action,
+        )
+        return False
 
 
 # ==========================================

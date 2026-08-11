@@ -10,6 +10,7 @@ import httpx
 
 # Legacy — use base_connector.py for new connectors.
 from backend.connectors.activity_service import ConnectorActivityService
+from backend.connectors.effects import assert_effect_permitted
 from backend.connectors.base_connector import (
     CircuitBreaker,
     PaginatedResponse,
@@ -222,6 +223,10 @@ class BaseConnector(ABC):
         *args,
         **kwargs,
     ):
+        # Phase 6.1 (L1): write-classified operations refuse unless the legacy
+        # execution flag is set. First statement on purpose — nothing below it
+        # (activity recording included) runs for a refused write.
+        assert_effect_permitted(self.connector_type, operation)
         start = time.monotonic()
         status = "success"
         resource_id = None

@@ -21,6 +21,7 @@ from typing import Any, Dict, Optional
 import httpx
 
 from backend.connectors.base import BaseConnector
+from backend.connectors.effects import assert_effect_permitted
 
 log = logging.getLogger(__name__)
 
@@ -115,6 +116,10 @@ class ArgoCDConnector(BaseConnector):
             return {"status": "error", "error": str(exc)}
 
     async def _post(self, path: str, json_body: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        # Phase 6.1 (L1): every ArgoCD POST is a write (sync/refresh/rollback)
+        # and bypasses BaseConnector._execute, so the effect gate sits here.
+        # The path in the surface name makes the refusal self-explaining.
+        assert_effect_permitted("argocd", f"_post {path}")
         if not self._client:
             return {"status": "error", "error": "connector not initialized"}
         try:
