@@ -68,6 +68,33 @@ class InvalidModelOutput(RuntimeError):
         self.scrubbed_excerpt = scrubbed_excerpt
 
 
+class TraceEvidenceMissing(RuntimeError):
+    """The model-proposal span could not be persisted (Part E, L14).
+
+    Fail-closed: the constitution states a step without its evidence record is
+    a failed step. The model proposal's span is the *only* record of what the
+    model saw and proposed; if it cannot be written, the proposal must not
+    reach a governed action, because acting on it would produce an
+    unattributable side effect. Distinct from best-effort *post-action* spans,
+    whose authoritative outcome already lives in the fenced audit chain.
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+def schema_identity(schema: Type[BaseModel]) -> str:
+    """A deterministic identity for a proposal schema: name + a digest of its
+    JSON schema. A field added, a constraint changed, an enum widened — any of
+    which changes what the model may propose — changes this string, so a trace
+    records exactly which input contract validated the output (Part J)."""
+    from backend.platform.hashing import compute_digest
+
+    body = compute_digest(schema.model_json_schema()).value[:12]
+    return f"{schema.__name__}+{body}"
+
+
 @dataclass(frozen=True)
 class TokenUsage:
     """Provider-neutral token accounting."""
@@ -204,10 +231,27 @@ class GovernedModelBoundary:
         trace_span_id: str,
         context_recipe: Optional[Mapping[str, Any]] = None,
     ) -> tuple[ProposalT, HarnessSpan]:
-        """One validated proposal, or :class:`InvalidModelOutput`. Always a span."""
+        """One validated proposal, or :class:`InvalidModelOutput`. Always a span.
+
+        The span is persisted **before** the proposal is returned; a persistence
+        failure raises :class:`TraceEvidenceMissing` and no proposal is handed
+        back (Part E fail-closed rule for pre-action evidence).
+        """
         started_at = datetime.now(timezone.utc).isoformat()
         safe_system = scrub_text(system_prompt, max_length=SCRUB_MAX_CHARS)
         safe_prompt = scrub_text(prompt, max_length=SCRUB_MAX_CHARS)
+        # Deterministic context identity: the same mission/iteration/step under
+        # the same harness version names the same assembled context (Part J).
+        from backend.platform.hashing import compute_digest as _digest
+
+        context_id = _digest(
+            {
+                "mission_id": mission_id,
+                "iteration": iteration,
+                "step_id": step_id,
+                "harness_version": self._version.identity,
+            }
+        ).value[:16]
 
         invocation = await self._port.generate(
             system_prompt=safe_system, prompt=safe_prompt
@@ -250,9 +294,20 @@ class GovernedModelBoundary:
             output=invocation.content,
             token_usage=invocation.usage.as_mapping() if invocation.usage else None,
             latency_ms=invocation.latency_ms,
+            context_id=context_id,
+            schema_id=schema_identity(schema),
             stop_or_failure_reason=failure,
         )
-        self._recorder.record(span)
+        # Fail-closed: if the pre-action evidence cannot be persisted, the
+        # proposal never reaches a governed action (Part E, L14). The audit
+        # chain records authorized actions; this records what the model saw and
+        # proposed, and without it that action is unattributable.
+        try:
+            self._recorder.record(span)
+        except Exception as exc:
+            raise TraceEvidenceMissing(
+                f"model-proposal span could not be persisted: {type(exc).__name__}"
+            ) from exc
 
         if failure is not None:
             raise InvalidModelOutput(

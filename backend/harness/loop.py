@@ -33,6 +33,7 @@ from backend.harness.llm_boundary import (
     GovernedModelBoundary,
     InvalidModelOutput,
     TokenUsage,
+    TraceEvidenceMissing,
 )
 from backend.harness.trace import TraceRecorder, build_action_span
 from backend.harness.version import HarnessVersion
@@ -58,6 +59,7 @@ class StopReason(str, Enum):
     WALL_CLOCK_EXHAUSTED = "wall_clock_exhausted"
     TOKEN_BUDGET_EXHAUSTED = "token_budget_exhausted"
     INVALID_MODEL_OUTPUT = "invalid_model_output"
+    TRACE_WRITE_FAILED = "trace_write_failed"  # pre-action evidence unpersistable
     GOVERNANCE_REFUSED = "governance_refused"
     ACTION_FAILED = "action_failed"
     INTERRUPTED = "interrupted"
@@ -170,6 +172,19 @@ class HarnessLoop:
         tokens = 0
         iterations = 0
         last_observation: Optional[Observation] = None
+        trace_degraded: list = []
+
+        def _safe_record(span) -> None:
+            """Best-effort recording for POST-action and loop-state spans (Part
+            E). Their authoritative outcome already lives in the fenced audit
+            chain and the durable execution aggregate; a trace-store failure
+            after the fact must not roll back a side effect that already
+            happened, nor stop the loop from returning a deterministic result.
+            It is recorded loudly — never silently swallowed."""
+            try:
+                self._recorder.record(span)
+            except Exception as exc:
+                trace_degraded.append(f"{span.kind}:{type(exc).__name__}")
 
         def _result(reason: StopReason, *, completed: bool = False,
                     failure: Optional[str] = None) -> LoopResult:
@@ -186,7 +201,7 @@ class HarnessLoop:
             )
             # The loop-state span is the recovery hook: a fresh process reads
             # the last state span for the mission and knows where things stood.
-            self._recorder.record(
+            _safe_record(
                 build_action_span(
                     kind="loop_state",
                     mission_id=mission_id,
@@ -204,6 +219,7 @@ class HarnessLoop:
                         "iterations_run": iterations,
                         "tool_calls_made": tool_calls,
                         "tokens_spent": tokens,
+                        "trace_degraded": list(trace_degraded),
                     },
                 )
             )
@@ -236,6 +252,13 @@ class HarnessLoop:
                         trace_id=trace_id,
                         trace_span_id=span_id,
                     )
+                except TraceEvidenceMissing as exc:
+                    # Pre-action evidence could not be persisted; the boundary
+                    # returned no proposal, so nothing was acted on. Fail-closed
+                    # (Part E). This is deterministic, not a model failure.
+                    return _result(
+                        StopReason.TRACE_WRITE_FAILED, failure=exc.reason
+                    )
                 except InvalidModelOutput as exc:
                     return _result(
                         StopReason.INVALID_MODEL_OUTPUT, failure=exc.reason
@@ -253,7 +276,7 @@ class HarnessLoop:
                 tool_calls += 1
                 action_started = datetime.now(timezone.utc).isoformat()
                 outcome = await self._actions.execute(proposal)
-                self._recorder.record(
+                _safe_record(
                     build_action_span(
                         kind="governed_action",
                         mission_id=mission_id,
@@ -295,7 +318,7 @@ class HarnessLoop:
                     last_observation.observed
                     and self._completion.is_complete(last_observation)
                 )
-                self._recorder.record(
+                _safe_record(
                     build_action_span(
                         kind="observation",
                         mission_id=mission_id,

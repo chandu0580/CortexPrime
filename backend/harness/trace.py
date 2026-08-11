@@ -66,6 +66,12 @@ class HarnessSpan:
     trace_span_id: str
     started_at: str
     finished_at: str
+    # Part J context contract: a deterministic identity for the exact context
+    # this invocation was assembled from, and the identity of the schema the
+    # output was validated against. Both are derived, not free text, so "which
+    # context / which schema produced this action" is an answerable query.
+    context_id: Optional[str] = None
+    schema_id: Optional[str] = None
     latency_ms: Optional[float] = None
     model_provider: Optional[str] = None
     model_id: Optional[str] = None
@@ -94,6 +100,8 @@ class HarnessSpan:
             "trace_span_id": self.trace_span_id,
             "started_at": self.started_at,
             "finished_at": self.finished_at,
+            "context_id": self.context_id,
+            "schema_id": self.schema_id,
             "latency_ms": self.latency_ms,
             "model_provider": self.model_provider,
             "model_id": self.model_id,
@@ -168,6 +176,8 @@ def build_model_span(
     output: Optional[str],
     token_usage: Optional[Mapping[str, Any]],
     latency_ms: Optional[float],
+    context_id: Optional[str] = None,
+    schema_id: Optional[str] = None,
     stop_or_failure_reason: Optional[str] = None,
     gate_decisions: Sequence[str] = (),
 ) -> HarnessSpan:
@@ -184,6 +194,8 @@ def build_model_span(
         trace_span_id=trace_span_id,
         started_at=started_at,
         finished_at=_now(),
+        context_id=context_id,
+        schema_id=schema_id,
         latency_ms=latency_ms,
         model_provider=model_provider,
         model_id=model_id,
