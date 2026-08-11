@@ -39,6 +39,21 @@ from backend.harness.loop import (
     Observation,
     StopReason,
 )
+from backend.harness.llm_boundary import TraceEvidenceMissing, schema_identity
+from backend.harness.firewall import (
+    SecretFinding,
+    assert_no_secrets,
+    find_secrets,
+)
+from backend.harness.tool_exposure import (
+    ArgKind,
+    ArgSpec,
+    ExposedTool,
+    ResolvedTool,
+    ToolExposurePolicy,
+    ToolRefusalReason,
+    ToolRefused,
+)
 
 __all__ = [
     "CURRENT_HARNESS_VERSION",
@@ -49,6 +64,8 @@ __all__ = [
     "build_action_span",
     "GovernedModelBoundary",
     "InvalidModelOutput",
+    "TraceEvidenceMissing",
+    "schema_identity",
     "ModelInvocation",
     "TokenUsage",
     "ActionOutcome",
@@ -57,4 +74,14 @@ __all__ = [
     "LoopResult",
     "Observation",
     "StopReason",
+    "SecretFinding",
+    "find_secrets",
+    "assert_no_secrets",
+    "ArgKind",
+    "ArgSpec",
+    "ExposedTool",
+    "ResolvedTool",
+    "ToolExposurePolicy",
+    "ToolRefusalReason",
+    "ToolRefused",
 ]
