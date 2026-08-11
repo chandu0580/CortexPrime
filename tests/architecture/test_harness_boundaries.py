@@ -8,6 +8,7 @@ from pathlib import Path
 
 from backend.platform.architecture.boundary_rules import (
     HarnessCredentialIsolationRule,
+    HarnessNoDynamicDispatchRule,
     HarnessNoExecutionRule,
 )
 from backend.platform.architecture.rules import ModuleGraph
@@ -94,3 +95,52 @@ class TestHarnessNoExecution:
             "harness/trace_sql.py": "from backend.database.durable.tables import x\n",
         })
         assert HarnessNoExecutionRule().evaluate(graph).passed
+
+
+class TestHarnessNoDynamicDispatch:
+    def test_current_harness_passes(self) -> None:
+        graph = ModuleGraph.build(REPO_BACKEND)
+        assert HarnessNoDynamicDispatchRule().evaluate(graph).passed
+
+    def test_importlib_on_model_output_fails(self, tmp_path) -> None:
+        graph = write_tree(tmp_path / "backend", {
+            "harness/leak.py": """
+                import importlib
+
+                def dispatch(model_named):
+                    return importlib.import_module(model_named)
+            """,
+        })
+        result = HarnessNoDynamicDispatchRule().evaluate(graph)
+        assert not result.passed
+        assert any("import_module" in v.offender for v in result.violations)
+
+    def test_eval_fails(self, tmp_path) -> None:
+        graph = write_tree(tmp_path / "backend", {
+            "harness/leak.py": "def run(s):\n    return eval(s)\n",
+        })
+        assert not HarnessNoDynamicDispatchRule().evaluate(graph).passed
+
+    def test_exec_fails(self, tmp_path) -> None:
+        graph = write_tree(tmp_path / "backend", {
+            "harness/leak.py": "def run(s):\n    exec(s)\n",
+        })
+        assert not HarnessNoDynamicDispatchRule().evaluate(graph).passed
+
+    def test_dunder_import_fails(self, tmp_path) -> None:
+        graph = write_tree(tmp_path / "backend", {
+            "harness/leak.py": "def run(s):\n    return __import__(s)\n",
+        })
+        assert not HarnessNoDynamicDispatchRule().evaluate(graph).passed
+
+    def test_static_import_and_getattr_on_known_object_are_allowed(self, tmp_path) -> None:
+        """The legitimate patterns the real harness uses must not trip."""
+        graph = write_tree(tmp_path / "backend", {
+            "harness/ok.py": """
+                from backend.platform.hashing import compute_digest
+
+                def read(response):
+                    return getattr(response, "provider", "")
+            """,
+        })
+        assert HarnessNoDynamicDispatchRule().evaluate(graph).passed

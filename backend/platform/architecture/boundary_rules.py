@@ -40,6 +40,7 @@ __all__ = [
     "ConnectorEffectGateRule",
     "HarnessCredentialIsolationRule",
     "HarnessNoExecutionRule",
+    "HarnessNoDynamicDispatchRule",
     "default_boundary_rules",
     "BOUNDED_CONTEXTS",
 ]
@@ -951,6 +952,76 @@ class HarnessNoExecutionRule:
         )
 
 
+@dataclass(frozen=True)
+class HarnessNoDynamicDispatchRule:
+    """The harness never dynamically dispatches (Phase 6.3, Part M).
+
+    Tool exposure's whole premise is that a model-named tool is a KEY into a
+    frozen registry — never a value that reaches dynamic code execution. So no
+    module under ``backend/harness/`` may call ``eval``, ``exec``, ``compile``,
+    ``__import__``, or ``importlib.import_module``. A regression that let model
+    output reach any of these would turn "the model names a tool" back into
+    "the model names an arbitrary Python target", which is exactly what the
+    resolver exists to prevent. Static ``import`` / ``from ... import`` are
+    fine (they name no model-derived string); this bans the dynamic forms.
+    """
+
+    rule_id: str = "BND-HARNESS-NO-DYNAMIC-DISPATCH"
+    description: str = (
+        "the harness plane uses no eval/exec/compile/__import__/import_module"
+    )
+    harness_root: str = "backend.harness"
+    banned_names: tuple[str, ...] = ("eval", "exec", "compile", "__import__")
+    severity: Severity = Severity.ERROR
+
+    def evaluate(self, graph: ModuleGraph) -> RuleResult:
+        import ast as _ast
+
+        violations: list[Violation] = []
+        checked = 0
+        for module in graph.modules():
+            if not module.name.startswith(self.harness_root + "."):
+                continue
+            checked += 1
+            try:
+                tree = _ast.parse(module.path.read_text(encoding="utf-8"))
+            except (OSError, SyntaxError):
+                continue
+            for node in _ast.walk(tree):
+                if not isinstance(node, _ast.Call):
+                    continue
+                offender: Optional[str] = None
+                func = node.func
+                if isinstance(func, _ast.Name) and func.id in self.banned_names:
+                    offender = func.id
+                elif (isinstance(func, _ast.Attribute)
+                        and func.attr == "import_module"
+                        and isinstance(func.value, _ast.Name)
+                        and func.value.id == "importlib"):
+                    offender = "importlib.import_module"
+                if offender is not None:
+                    violations.append(
+                        Violation(
+                            rule_id=self.rule_id,
+                            severity=self.severity,
+                            module=module.name,
+                            line=node.lineno,
+                            offender=offender,
+                            detail=(
+                                f"the harness calls {offender}; model output "
+                                "must never reach dynamic dispatch — a tool is "
+                                "a registry key, not a Python target (Phase 6.3)"
+                            ),
+                        )
+                    )
+        return RuleResult(
+            rule_id=self.rule_id,
+            description=self.description,
+            violations=tuple(violations),
+            modules_checked=checked,
+        )
+
+
 def default_boundary_rules() -> tuple:
     """The boundary rules the Constitution defines."""
     return (
@@ -966,4 +1037,5 @@ def default_boundary_rules() -> tuple:
         ConnectorEffectGateRule(),
         HarnessCredentialIsolationRule(),
         HarnessNoExecutionRule(),
+        HarnessNoDynamicDispatchRule(),
     )
