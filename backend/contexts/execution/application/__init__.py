@@ -4,11 +4,47 @@ from backend.contexts.execution.application.worker_runtime import (
     BindingValidator,
     CredentialProvider,
     InputValidator,
+    WorkerAdmission,
     WorkerDirectory,
     WorkerInvocationRefused,
     WorkerKindPort,
     WorkerRuntime,
     classify_exception,
+)
+from backend.contexts.execution.application.invocation_gateway import (
+    AuthorityFacts,
+    CapabilityAuthority,
+    InvocationAdmission,
+    InvocationOutcome,
+    InvocationRecorder,
+    LeaseAuthority,
+    LeaseFacts,
+    RateLimiter,
+    SecureCapabilityInvocationGateway,
+)
+from backend.contexts.execution.application.dispatcher import (
+    BindingSource,
+    CycleReport,
+    DispatchResult,
+    ExecutionDispatcher,
+    InvocationRequestFactory,
+)
+from backend.contexts.execution.application.recovery_coordinator import (
+    RecoveryCoordinator,
+    RecoveryPlan,
+    StartupReport,
+)
+from backend.contexts.execution.application.scheduler import (
+    ExecutionScheduler,
+    SchedulerState,
+    TickReport,
+)
+from backend.contexts.execution.application.metrics import (
+    METRIC_NAMES,
+    ExecutionMetrics,
+    NullMetrics,
+    RecordingMetrics,
+    SafeMetrics,
 )
 from backend.contexts.execution.application.instrumentation import (
     CompositeObserver,
@@ -58,9 +94,37 @@ __all__ = [
     "BindingValidator",
     "WorkerKindPort",
     "WorkerDirectory",
+    "WorkerAdmission",
     "InputValidator",
     "CredentialProvider",
     "classify_exception",
+
+    "SecureCapabilityInvocationGateway",
+    "InvocationAdmission",
+    "InvocationOutcome",
+    "AuthorityFacts",
+    "LeaseFacts",
+    "CapabilityAuthority",
+    "LeaseAuthority",
+    "InvocationRecorder",
+    "RateLimiter",
+
+    "ExecutionDispatcher",
+    "CycleReport",
+    "DispatchResult",
+    "BindingSource",
+    "InvocationRequestFactory",
+    "RecoveryCoordinator",
+    "RecoveryPlan",
+    "StartupReport",
+    "ExecutionScheduler",
+    "SchedulerState",
+    "TickReport",
+    "ExecutionMetrics",
+    "NullMetrics",
+    "SafeMetrics",
+    "RecordingMetrics",
+    "METRIC_NAMES",
 
     "ExecutionObserver",
     "NullObserver",

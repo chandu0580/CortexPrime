@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from backend.api.legacy_execution_boundary import guard_legacy_execution
 from pydantic import BaseModel
 
 from backend.services.enterprise_execution_sandbox import (
@@ -93,7 +95,12 @@ async def prepare_repository(sandbox_id: str):
     return sbx.to_dict()
 
 
-@router.post("/{sandbox_id}/execute")
+@router.post(
+    "/{sandbox_id}/execute",
+    # V1 strangler boundary (ADR-039). Privileged, and bypasses the
+    # invocation gateway entirely. Disabled unless the migration flag is set.
+    dependencies=[Depends(guard_legacy_execution("POST /api/engineering/sandbox/{sandbox_id}/execute"))],
+)
 async def execute_command(sandbox_id: str, req: ExecuteRequest):
     """Execute a command inside the sandbox."""
     result = await execution_sandbox.execute(

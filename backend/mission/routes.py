@@ -4,6 +4,7 @@ import uuid
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from backend.api.legacy_execution_boundary import guard_legacy_execution
 from pydantic import BaseModel, Field
 
 from backend.mission.models import MissionPriority, MissionType
@@ -247,7 +248,12 @@ async def queue_mission(
     return _entity_to_response(entity)
 
 
-@router.post("/{mission_id}/execute", response_model=MissionResponse)
+@router.post(
+    "/{mission_id}/execute",
+    response_model=MissionResponse,
+    dependencies=[Depends(guard_legacy_execution(
+        "POST /api/missions/{mission_id}/execute"))],
+)
 async def execute_mission(
     mission_id: uuid.UUID,
     actor: Optional[str] = Query(None),

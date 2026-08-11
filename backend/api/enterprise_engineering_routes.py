@@ -15,7 +15,9 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from backend.api.legacy_execution_boundary import guard_legacy_execution
 from pydantic import BaseModel
 
 from backend.services.enterprise_build_engine import BuildEngine
@@ -207,7 +209,12 @@ async def approve_deployment(deploy_id: str, body: ApproveDeploymentRequest):
 # ORIGINAL ENGINEERING ENDPOINTS
 # ═════════════════════════════════════════════════════════════════════════
 
-@router.post("/execute")
+@router.post(
+    "/execute",
+    # V1 strangler boundary (ADR-039). Privileged, and bypasses the
+    # invocation gateway entirely. Disabled unless the migration flag is set.
+    dependencies=[Depends(guard_legacy_execution("POST /api/engineering/execute"))],
+)
 async def execute_engineering_task(body: ExecuteRequest):
     """Execute a full engineering department workflow."""
     result = await engineering_executive.execute_engineering_task(

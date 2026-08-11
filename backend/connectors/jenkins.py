@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
-import os
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -39,9 +38,10 @@ class JenkinsConnector(BaseConnector):
         self._pass = credentials.get("pass", self._pass)
 
     async def initialize(self) -> bool:
-        self._url = self._url or os.getenv(JENKINS_URL_ENV, "")
-        self._user = self._user or os.getenv(JENKINS_USER_ENV, "")
-        self._pass = self._pass or os.getenv(JENKINS_PASS_ENV, "")
+        creds = self._load_credentials()
+        self._url = self._url or creds.get("url", "")
+        self._user = self._user or creds.get("user", "")
+        self._pass = self._pass or creds.get("pass", "")
         if not self._url or not self._pass:
             log.warning("JENKINS_URL or JENKINS_PASS not set — Jenkins connector in degraded mode")
             self._available = False

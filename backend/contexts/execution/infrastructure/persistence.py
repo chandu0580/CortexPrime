@@ -108,6 +108,9 @@ def to_record(execution: Execution, *, tenant_id: str) -> dict[str, Any]:
                     "compensates": r.spec.compensates,
                     "cancellable": r.spec.cancellable,
                     "execution_key": r.spec.execution_key,
+                    # ``dict`` because the in-memory form is a read-only proxy,
+                    # which is not JSON-serialisable.
+                    "input": dict(r.spec.input),
                 },
                 "state": r.state.value,
                 "skipped_reason": r.skipped_reason,
@@ -202,6 +205,10 @@ def from_record(data: Mapping[str, Any]) -> Execution:
                     compensates=r["spec"].get("compensates"),
                     cancellable=r["spec"]["cancellable"],
                     execution_key=r["spec"].get("execution_key"),
+                    # ``get`` with a default: an execution stored before this
+                    # field existed has no key, and restores with an empty
+                    # input -- which is what it actually had.
+                    input=r["spec"].get("input") or {},
                 ),
                 state=NodeState(r["state"]),
                 skipped_reason=r.get("skipped_reason"),

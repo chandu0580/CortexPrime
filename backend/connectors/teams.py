@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -35,7 +34,7 @@ class TeamsConnector(BaseConnector):
         self._token = credentials.get("accessToken", self._token)
 
     async def initialize(self) -> bool:
-        self._token = self._token or os.getenv(TEAMS_TOKEN_ENV, "")
+        self._token = self._token or self._load_credentials().get("accessToken", "")
         if not self._token:
             log.warning("TEAMS_ACCESS_TOKEN not set — Teams connector in degraded mode")
             self._available = False

@@ -566,6 +566,13 @@ class MissionRuntimeService:
                       response prompts so the LLM has conversational continuity.
         Returns a summary dict after completion.
         """
+        # Quarantined (Phase 5.15, ADR-058): drives the LLM router and
+        # autonomous browser/computer agents with no capability
+        # authorization. Refuses unless the legacy execution flag is set.
+        from backend.api.legacy_execution_boundary import guard_legacy_internal
+
+        guard_legacy_internal("mission_runtime.execute_mission")
+
         execution_id = str(uuid.uuid4())
         datetime.utcnow().isoformat()
 

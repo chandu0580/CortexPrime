@@ -9,14 +9,30 @@ What this does, in order
    refuse**, not proceed.
 3. Resolve the worker kind through the ``WorkerKindResolver`` seam. Unresolvable
    means refuse.
-4. Find an adapter for that kind. Missing means refuse — never a default worker.
-5. Confirm the caller holds the lease. Execution owns leases; a worker never
+4. Select an implementation of that kind from the worker directory —
+   deterministically, from declared fields. Zero eligible workers is a refusal;
+   two is an *ambiguity* refusal, never a preference.
+5. Re-read the selected worker's authoritative state and re-check the selection
+   against it. A worker disabled, quarantined or rebuilt since selection is a
+   refusal — never a substitution (Phase 3.3.2).
+6. Confirm the caller holds the lease. Execution owns leases; a worker never
    takes one.
-6. Invoke, once.
-7. Classify whatever comes back, including whatever is raised.
+7. Validate the payload against the bound capability's contract. **No validator
+   and a non-empty payload means refuse** — unvalidated input is not accepted
+   because validation happens to be unavailable.
+8. Invoke, once.
+9. Classify whatever comes back, including whatever is raised.
 
 Every one of those failures is a refusal. There is no branch that proceeds
 because something was unavailable.
+
+Why the worker is re-read between selecting it and calling it
+---------------------------------------------------------------
+The gap between "this worker is enabled and trusted" and "this worker is now
+performing a production change" is the window an operator uses to stop something.
+If the cached selection were trusted, disabling a compromised adapter would not
+stop the invocation already on its way to it. So the authoritative entry is read
+again, its implementation digest compared, and a mismatch refuses.
 
 Why refusal never becomes re-resolution
 -----------------------------------------
@@ -60,6 +76,15 @@ from backend.contexts.execution.domain.worker_contract import (
     WorkerExecutionResult,
     WorkerOutcome,
 )
+from backend.contexts.execution.domain.worker_directory import WorkerEntry
+from backend.contexts.execution.domain.worker_selection import (
+    DEFAULT_SELECTION_TTL_SECONDS,
+    WorkerSelection,
+    WorkerSelectionRefused,
+    WorkerSelectionRequest,
+    select_worker,
+)
+from backend.platform.identity import monotonic_ulid
 
 __all__ = [
     "BindingValidator",
@@ -67,6 +92,7 @@ __all__ = [
     "WorkerDirectory",
     "InputValidator",
     "CredentialProvider",
+    "WorkerAdmission",
     "WorkerInvocationRefused",
     "WorkerRuntime",
     "classify_exception",
@@ -116,14 +142,38 @@ class WorkerKindPort(Protocol):
 
 @runtime_checkable
 class WorkerDirectory(Protocol):
-    """Finds the adapter for a kind. Not a registry, and not discovery.
+    """The authoritative record of which implementations exist and their state.
 
-    Deliberately minimal: one lookup, no health, no ranking, no fallback. A
-    missing adapter is a refusal, because a default worker is how work runs
-    somewhere nobody chose.
+    **Evolved in Phase 3.3.2.** ADR-036 defined this as a single
+    ``adapter_for(kind)`` lookup — deliberately minimal, and insufficient once
+    workers are real: it could not express a worker being disabled rather than
+    absent, could not confine a tenant's registration to that tenant, and offered
+    no way to re-read a worker's state between selecting it and calling it. Three
+    methods replace it, and the narrow directory is gone rather than kept
+    alongside, because two lookup paths is how one of them stops being checked.
+
+    This is **not** a capability registry. It answers "what implementation can
+    perform this?", never "what ability exists?" or "who may use it?" — those are
+    Connectivity's, and nothing here is consulted about either.
+
+    ``candidates`` returns entries; it does not rank them. ``entry`` is the
+    authoritative re-read that closes the TOCTOU window. ``adapter_for`` returns
+    the live object by worker id, never by kind — a kind can have several
+    implementations and picking one from a kind is exactly the substitution this
+    layer refuses.
     """
 
-    def adapter_for(self, kind: WorkerKind) -> Optional[Any]: ...
+    def candidates(
+        self, context: Any, *, worker_kind: WorkerKind, tenant_id: str
+    ) -> tuple: ...
+
+    def entry(
+        self, context: Any, *, worker_id: str, tenant_id: str
+    ) -> Optional[WorkerEntry]: ...
+
+    def adapter_for(
+        self, context: Any, *, worker_id: str, tenant_id: str
+    ) -> Optional[Any]: ...
 
 
 @runtime_checkable
@@ -131,8 +181,14 @@ class InputValidator(Protocol):
     """Validates a payload against the bound capability's input contract.
 
     A seam, not an engine — the platform's schema validation belongs elsewhere
-    and this context does not add a second one. Absent, payloads are passed
-    through unvalidated, and that is stated rather than silently assumed safe.
+    and this context does not add a second one. Every worker must reach it
+    through here: an adapter that validated its own input would be deciding what
+    the capability's contract meant, one provider at a time.
+
+    **Absence fails closed.** A request carrying a payload with no validator
+    wired is refused. Passing arbitrary caller data to a real provider because
+    the checker has not been built yet is exactly the accident this seam exists
+    to prevent. An empty payload has nothing to validate and proceeds.
     """
 
     def validate(
@@ -142,17 +198,28 @@ class InputValidator(Protocol):
 
 @runtime_checkable
 class CredentialProvider(Protocol):
-    """The seam a future credential architecture will occupy.
-
-    **Nothing implements this in Phase 3.3.1 and nothing calls it.** It exists so
-    that when credentials arrive they attach here rather than inside a worker,
-    and so that ``BoundCapability`` is never the place somebody puts a token.
+    """The one seam credentials attach through. Implemented in Phase 4.1.
 
     A capability binding carries authority to *act*; it must never carry the
-    secret that proves who is acting.
+    secret that proves who is acting. This is where the second thing arrives, and
+    it stays outside the worker so no adapter can acquire its own.
+
+    **Widened in Phase 4.1.** It previously took ``(context, binding)``, which was
+    not enough to prevent a confused deputy: a binding says which capability was
+    chosen, not which *action* was authorized, so a provider given only that could
+    return a credential for a different resource within the same capability. It
+    now takes the invocation's full authority — the action digest, the
+    authorization, the approval, the environment, the deadline — carried by
+    ``CredentialRequest``.
+
+    Nothing implemented the old shape, so widening it broke no caller.
+
+    Returns ``IssuedCredential`` (grant + runtime material) or raises
+    ``CredentialRefused``. Returning ``None`` is a refusal. There is no answer
+    that means "I could not tell, proceed anyway".
     """
 
-    def scoped_credential(self, context: Any, binding: BoundCapability) -> Any: ...
+    def scoped_credential(self, context: Any, request: Any) -> Any: ...
 
 
 # ----------------------------------------------------------------------
@@ -201,6 +268,53 @@ def classify_exception(exc: BaseException, *, source: str = "worker") -> Failure
 
 
 # ----------------------------------------------------------------------
+# Admission
+# ----------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class WorkerAdmission:
+    """What passed the gate: one selection, and the adapter it names.
+
+    Returned rather than the bare adapter so the caller records *which
+    implementation* ran alongside the result. An audit trail that names only the
+    binding cannot answer which build performed it, and that is the question
+    asked first when two runs of the same capability behaved differently.
+    """
+
+    selection: WorkerSelection
+    adapter: Any
+    entry: WorkerEntry
+
+    @property
+    def worker_id(self) -> str:
+        return self.selection.worker_id
+
+    def audit_detail(self) -> dict:
+        """Attribution for one invocation. No payload, no credential, no secret."""
+        return {
+            "selection_id": self.selection.selection_id,
+            "selection_digest": self.selection.digest,
+            "selection_policy_version": self.selection.policy_version,
+            "worker_id": self.selection.worker_id,
+            "worker_kind": self.selection.worker_kind.value,
+            "worker_version": self.selection.worker_version,
+            "worker_digest": self.selection.worker_digest,
+            "binding_id": self.selection.binding_id,
+            "binding_digest": self.selection.binding_digest,
+            "capability_ref": self.selection.capability_ref,
+            "capability_digest": self.selection.capability_digest,
+            "provider": self.selection.provider,
+            "operation": self.selection.operation,
+            "environment": self.selection.environment.value,
+            "tenant_id": self.selection.tenant_id,
+            "principal_id": self.selection.principal_id,
+            "execution_id": self.selection.execution_id,
+            "node_id": self.selection.node_id,
+        }
+
+
+# ----------------------------------------------------------------------
 # The runtime
 # ----------------------------------------------------------------------
 
@@ -222,12 +336,14 @@ class WorkerRuntime:
         directory: Optional[WorkerDirectory] = None,
         input_validator: Optional[InputValidator] = None,
         observer: Optional[Any] = None,
+        selection_ttl_seconds: int = DEFAULT_SELECTION_TTL_SECONDS,
     ) -> None:
         self._binding_validator = binding_validator
         self._worker_kinds = worker_kinds
         self._directory = directory
         self._input_validator = input_validator
         self._observer = SafeObserver(observer or NullObserver())
+        self._selection_ttl_seconds = selection_ttl_seconds
 
     # ------------------------------------------------------------------
     # The gate
@@ -239,9 +355,15 @@ class WorkerRuntime:
         request: WorkerExecutionRequest,
         *,
         held_by: Optional[str] = None,
+        selection: Optional[WorkerSelection] = None,
         now: Optional[datetime] = None,
-    ) -> Any:
-        """Every check that must pass before anything runs. Returns the adapter."""
+    ) -> WorkerAdmission:
+        """Every check that must pass before anything runs.
+
+        ``selection`` may be supplied by a dispatcher that selected earlier. It
+        is re-checked against the authoritative record either way — a selection
+        handed in is a claim about the past, not a permission.
+        """
         moment = now or datetime.now(timezone.utc)
         binding = request.binding
 
@@ -308,35 +430,149 @@ class WorkerRuntime:
                 f"resolves to {kind.value}",
             )
 
-        # 4. An adapter, or nothing.
+        # 4. One implementation, chosen deterministically -- or a refusal.
         if self._directory is None:
             raise WorkerInvocationRefused(
                 "worker_unavailable", "no worker directory is wired"
             )
-        adapter = self._directory.adapter_for(kind)
-        if adapter is None:
+        chosen = selection or self._select(context, kind, binding, now=moment)
+        if chosen.worker_kind is not kind:
             raise WorkerInvocationRefused(
-                "worker_unavailable",
-                f"no adapter is registered for {kind.value}; there is no default "
-                "worker and no substitution",
+                "worker_selection_mismatch",
+                f"the supplied selection names a {chosen.worker_kind.value} worker "
+                f"but this binding resolves to {kind.value}",
             )
 
-        # 5. The lease belongs to Execution. A worker never holds one of its own.
+        # 5. TOCTOU. Re-read the authoritative entry; a worker disabled,
+        #    quarantined, revoked or rebuilt since selection is a refusal.
+        entry = self._directory.entry(
+            context, worker_id=chosen.worker_id, tenant_id=request.tenant_id
+        )
+        stale = chosen.revalidate(entry, binding=binding, now=moment)
+        if stale:
+            raise WorkerInvocationRefused(
+                "worker_selection_invalid",
+                f"{chosen.worker_id}: {', '.join(r.value for r in stale)}; execution "
+                "refuses rather than selecting another implementation",
+            )
+        assert entry is not None  # revalidate refuses a missing entry
+
+        adapter = self._directory.adapter_for(
+            context, worker_id=chosen.worker_id, tenant_id=request.tenant_id
+        )
+        if adapter is None:
+            # Registered and governed, but nothing is actually wired behind it.
+            raise WorkerInvocationRefused(
+                "worker_adapter_unavailable",
+                f"worker {chosen.worker_id} is enabled but no adapter is attached; "
+                "there is no default worker and no substitution",
+            )
+
+        # 6. The lease belongs to Execution. A worker never holds one of its own.
         if held_by is not None and held_by != request.principal.principal_id:
             # Advisory identity check; the authoritative lease check lives on the
             # aggregate (Phase 3.1) and runs when the result is recorded.
             log.debug("worker invocation by %s under lease %s", request.principal, held_by)
 
-        # 6. Input validation, if a validator exists. Absent, the payload passes
-        #    through unvalidated -- stated, not assumed safe.
-        if self._input_validator is not None:
+        # 7. Input validation. Absence fails closed for anything carrying a
+        #    payload -- see ``InputValidator``.
+        if self._input_validator is None:
+            if request.payload:
+                raise WorkerInvocationRefused(
+                    "input_unvalidatable",
+                    "no input validator is wired and the request carries a payload; "
+                    "Execution will not hand unchecked caller data to a provider "
+                    "because the checker has not been built yet",
+                )
+        else:
             problems = self._input_validator.validate(binding, request.payload)
             if problems:
                 raise WorkerInvocationRefused(
                     "input_invalid", "; ".join(str(p) for p in problems)
                 )
 
-        return adapter
+        return WorkerAdmission(selection=chosen, adapter=adapter, entry=entry)
+
+    # ------------------------------------------------------------------
+    # Selection
+    # ------------------------------------------------------------------
+
+    def kind_for(self, binding: BoundCapability) -> WorkerKind:
+        """The authoritative worker kind for a binding, or a refusal.
+
+        Public so a caller that must build a ``WorkerExecutionRequest`` can ask
+        rather than guess. A guessed kind would be checked against this answer
+        and refused, so guessing turns every capability of another kind into an
+        unexplained refusal — and the caller that guesses is invariably the one
+        least able to explain it.
+
+        Resolution stays where ADR-030 put it. This only reaches the existing
+        seam and converts what it says.
+        """
+        if self._worker_kinds is None:
+            raise WorkerInvocationRefused(
+                "worker_kind_unresolved", "no worker-kind resolver is wired"
+            )
+        kind_name = self._worker_kinds.kind_for(binding)
+        if not kind_name:
+            raise WorkerInvocationRefused(
+                "worker_kind_unresolved",
+                f"nothing resolves a worker kind for {binding.capability_ref}; "
+                "defaulting one would run real work on whatever came first",
+            )
+        try:
+            return WorkerKind(kind_name)
+        except ValueError as exc:
+            raise WorkerInvocationRefused(
+                "worker_kind_unresolved", f"{kind_name!r} is not a worker kind"
+            ) from exc
+
+    def select(
+        self,
+        context: Any,
+        binding: BoundCapability,
+        *,
+        now: Optional[datetime] = None,
+    ) -> WorkerSelection:
+        """Choose an implementation for a binding, without invoking anything.
+
+        Public so a dispatcher can select before it leases, and so selection can
+        be recorded as its own fact. Selecting does not entitle: the selection is
+        re-checked against the authoritative record at invocation.
+        """
+        return self._select(context, self.kind_for(binding), binding, now=now)
+
+    def _select(
+        self,
+        context: Any,
+        kind: WorkerKind,
+        binding: BoundCapability,
+        *,
+        now: Optional[datetime] = None,
+    ) -> WorkerSelection:
+        if self._directory is None:
+            raise WorkerInvocationRefused(
+                "worker_unavailable", "no worker directory is wired"
+            )
+        candidates = self._directory.candidates(
+            context, worker_kind=kind, tenant_id=binding.tenant_id
+        )
+        request = WorkerSelectionRequest.for_binding(worker_kind=kind, binding=binding)
+        try:
+            return select_worker(
+                candidates,
+                request,
+                selection_id=monotonic_ulid(),
+                ttl_seconds=self._selection_ttl_seconds,
+                now=now,
+            )
+        except WorkerSelectionRefused as refused:
+            # Translated, never softened. An ambiguity keeps its own reason code
+            # because "two workers matched" and "none did" need different fixes.
+            raise WorkerInvocationRefused(
+                "worker_ambiguous" if refused.is_ambiguous else "worker_unavailable",
+                str(refused),
+            ) from refused
 
     # ------------------------------------------------------------------
     # Invocation
@@ -348,21 +584,45 @@ class WorkerRuntime:
         request: WorkerExecutionRequest,
         *,
         held_by: Optional[str] = None,
+        selection: Optional[WorkerSelection] = None,
         now: Optional[datetime] = None,
+        authority: Optional[Any] = None,
     ) -> WorkerExecutionResult:
-        """Gate, then invoke exactly once. Never retries, never substitutes."""
+        """Gate, then invoke exactly once. Never retries, never substitutes.
+
+        ``authority`` is the Phase 4.3 ``ProviderAuthority`` the invocation
+        gateway built. It is threaded through rather than reconstructed here:
+        this runtime cannot mint an action digest or acquire a credential, and
+        an authority assembled at this layer would be one no downstream check
+        accepts.
+
+        Passing ``None`` is permitted and is **not** a bypass — a provider
+        adapter refuses without one. That is the shape of ADR-042 §4: a caller
+        that reaches this method directly, without the gateway, gets a refusal
+        from the adapter rather than a provider call.
+        """
         started = now or datetime.now(timezone.utc)
-        adapter = self.assert_invocable(context, request, held_by=held_by, now=started)
+        admission = self.assert_invocable(
+            context, request, held_by=held_by, selection=selection, now=started
+        )
+        adapter = admission.adapter
 
         self._observer.node_assigned(
             str(request.execution_id),
             request.node_id,
-            request.principal.principal_id,
+            admission.worker_id,
             request.attempt_number,
         )
 
         try:
-            result = adapter.run(context, request)
+            # A declared marker rather than signature probing: exception-driven
+            # feature detection would turn a wiring mistake into an ambiguous
+            # outcome, and an ambiguous outcome blocks retry on a node that
+            # never left this process.
+            if getattr(adapter, "CONSUMES_PROVIDER_AUTHORITY", False):
+                result = adapter.run(context, request, authority=authority)
+            else:
+                result = adapter.run(context, request)
         except Exception as exc:  # noqa: BLE001 - classified, never leaked
             failure = classify_exception(exc)
             result = WorkerExecutionResult(
@@ -407,7 +667,11 @@ class WorkerRuntime:
             str(request.execution_id),
             request.node_id,
             result.outcome.value,
-            {"binding_id": result.binding_id, "known": result.outcome_is_known},
+            {
+                **admission.audit_detail(),
+                "known": result.outcome_is_known,
+                "result_digest": result.result_digest,
+            },
         )
         if not result.outcome_is_known:
             self._observer.outcome_unknown(

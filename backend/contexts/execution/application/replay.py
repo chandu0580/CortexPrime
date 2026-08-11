@@ -54,6 +54,14 @@ _STATE_AFTER = {
 
 _TERMINAL = {"completed", "failed", "cancelled", "timed_out"}
 
+#: Worker selection is fabric history, not run state, so it moves the run's state
+#: nowhere. It is extracted separately because "which implementation performed
+#: this, and why was it eligible" is the first question asked when two runs of the
+#: same capability behaved differently -- and reconstructing it must never mean
+#: re-running selection, which would read today's directory and answer about a
+#: worker that may since have been disabled, rebuilt, or revoked.
+_SELECTION_EVENT = "execution.worker.selected"
+
 
 @dataclass(frozen=True)
 class ReplayFrame:
@@ -93,6 +101,13 @@ class ReplayedExecution:
     frames: tuple = ()
     checkpoints: tuple = ()
     retries: tuple = ()
+    selections: tuple = ()
+    """Which worker was selected for which binding, and why it was eligible.
+    Read from recorded facts. Nothing here invokes a worker, reconnects an MCP
+    server, calls a connector, acquires a credential, retries, or rebinds --
+    there is no repository, no directory and no adapter in this module to do it
+    with."""
+
     unresolved: bool = False
     causal_gaps: tuple = ()
 
@@ -126,6 +141,7 @@ class ReplayedExecution:
             "causal_gaps": list(self.causal_gaps),
             "checkpoints": list(self.checkpoints),
             "retries": [dict(r) for r in self.retries],
+            "selections": [dict(s) for s in self.selections],
             "frames": [f.to_dict() for f in self.frames],
         }
 
@@ -157,6 +173,7 @@ class ExecutionReplayer:
         frames: list = []
         checkpoints: list = []
         retries: list = []
+        selections: list = []
         seen_ids: set = set()
         gaps: list = []
         execution_id = ""
@@ -202,6 +219,28 @@ class ExecutionReplayer:
                 )
             elif event_type == "execution.runtime.retried":
                 retries.append({"sequence": index, **payload})
+            elif event_type == _SELECTION_EVENT:
+                # Folded from the record, never recomputed. Re-running selection
+                # would answer about the directory as it is now.
+                selections.append(
+                    {
+                        "sequence": index,
+                        "worker_id": payload.get("worker_id"),
+                        "worker_kind": payload.get("worker_kind"),
+                        "worker_version": payload.get("worker_version"),
+                        "worker_digest": payload.get("worker_digest"),
+                        "binding_id": payload.get("binding_id"),
+                        "binding_digest": payload.get("binding_digest"),
+                        "capability_ref": payload.get("capability_ref"),
+                        "capability_digest": payload.get("capability_digest"),
+                        "selection_id": payload.get("selection_id"),
+                        "selection_digest": payload.get("selection_digest"),
+                        "policy_version": payload.get("policy_version"),
+                        "environment": payload.get("environment"),
+                        "node_id": payload.get("node_id"),
+                        "reasons": list(payload.get("reasons") or ()),
+                    }
+                )
 
             frames.append(
                 ReplayFrame(
@@ -225,6 +264,7 @@ class ExecutionReplayer:
             frames=tuple(frames),
             checkpoints=tuple(checkpoints),
             retries=tuple(retries),
+            selections=tuple(selections),
             # A history that never reaches a terminal state is a run that was
             # interrupted. Saying so is the point: it is the flag that a
             # recovery decision is owed.

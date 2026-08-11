@@ -122,7 +122,21 @@ class EnterpriseMissionOrchestrator:
         params: Dict[str, Any],
         launched_by: str = "system",
     ) -> Dict[str, Any]:
-        """Launch an enterprise mission from a template."""
+        """Launch an enterprise mission from a template.
+
+        Quarantined (Phase 5.15, ADR-058): this path invokes connector
+        operations by ``getattr`` with caller-supplied params — real provider
+        writes with no tenant, no capability authorization, and no durable
+        audit — and it is reachable from an always-on watcher timer with no
+        HTTP request in the stack. It refuses unless the legacy execution
+        flag is set, exactly like every other V1 execution surface. The
+        governed replacement is a capability-declared operation through the
+        invocation gateway; until those declarations exist this stays a
+        deliberate, logged bypass, never a default.
+        """
+        from backend.api.legacy_execution_boundary import guard_legacy_internal
+
+        guard_legacy_internal("enterprise_mission_orchestrator.launch")
         execution_id = str(uuid.uuid4())
         merged_params = {**template.default_params, **params}
 

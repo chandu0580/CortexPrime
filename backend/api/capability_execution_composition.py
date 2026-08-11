@@ -19,14 +19,57 @@ Three adapters, three ports
                          unchanged and remains the single execution attachment
                          seam.
 
+Phase 3.3.2 — the adapter fabric attaches here, and only here
+---------------------------------------------------------------
+``build_worker_directory`` assembles the governed directory and the three adapter
+seams. It is the only place where a worker implementation, a capability binding
+and an execution runtime are in the same room, which is what keeps the two
+contexts from learning about each other.
+
+Environment and interface cross here too. ``CapabilityBinding`` carries neither —
+they belong to the resolution request and to the capability definition — so
+``project_binding`` takes them explicitly from a caller that still has the
+Connectivity picture. Where a caller cannot supply the environment, every worker
+selection refuses, because an unstated environment is not a wildcard.
+
+Phase 4.3 — providers attach here, and only here
+--------------------------------------------------
+``build_github_connector`` is the first real provider wiring: a worker
+registration, an operation catalog, a channel over the Phase 4.2 transport
+broker, and a translator. It is a *function a deployment calls*, not something
+that happens at import — a provider that attached itself on import would be a
+provider nobody decided to enable.
+
+``build_adapter_preflight`` implements the adapter's final TOCTOU re-read over
+the worker directory, so an adapter about to open a socket asks the
+authoritative record one more time (ADR-042 §37).
+
+``build_operation_input_validator`` fills the Phase 3.3.3 ``InputValidator`` seam
+from the same catalogs the adapters build requests from — one declaration, used
+for both, so "what is checked" and "what may be sent" cannot diverge.
+
 Deliberately absent
 ---------------------
-No worker. ``StaticWorkerDirectory`` maps kinds to adapters and starts empty, so
-every invocation refuses with ``worker_unavailable`` until Phase 3.3.2 registers
-something real. That is the correct behaviour for a platform with no workers: it
+No worker registers itself. The directory starts empty, so every invocation
+refuses. That is the correct behaviour for a platform with no workers: it
 refuses rather than inventing a default.
 
-No credential provider. The seam exists in Execution; nothing implements it here.
+No transport adapter. ``build_github_connector`` takes a ``TransportBroker``;
+with no HTTP adapter registered on it, every dial refuses
+``transport_unavailable`` and the connector reports a definite failure having
+sent nothing. Phase 4.4 is where a production transport is attached.
+
+No credential adapter. The gateway acquires through ``CredentialProvider``;
+with no vendor adapter registered, acquisition refuses ``credential_no_provider``
+and the invocation never reaches an adapter.
+
+No bridge to the V1 registries. ``backend.tools.tool_registry``,
+``backend.connectors.registry``, ``backend.agents.registry``,
+``backend.mcp.registry`` and ``backend.runtime.agent_registry`` are all mutable
+module-level singletons and all **strangler targets**. Nothing in this module
+imports any of them, and the new fabric depends on none of their state. When one
+must be bridged, it goes behind an invoker port *here*, explicitly marked
+migration infrastructure — never imported into a context.
 """
 
 from __future__ import annotations
@@ -34,9 +77,22 @@ from __future__ import annotations
 import logging
 from typing import Any, Mapping, Optional
 
+from backend.contracts.execution import ExecutionEnvironment
+from backend.contracts.policy import PolicyEffect
 from backend.contexts.connectivity import CapabilityBinding
 from backend.contexts.execution import (
+    AgentAdapter,
+    AuthorityFacts,
     BoundCapability,
+    ConnectorAdapter,
+    InMemoryWorkerDirectory,
+    InvocationRequest,
+    LeaseFacts,
+    ExecutionDispatcher,
+    McpToolAdapter,
+    RecoveryCoordinator,
+    SecureCapabilityInvocationGateway,
+    WorkerImplementation,
     WorkerKind,
     WorkerRuntime,
 )
@@ -45,18 +101,53 @@ __all__ = [
     "project_binding",
     "BindingValidatorAdapter",
     "WorkerKindAdapter",
-    "StaticWorkerDirectory",
+    "AuthorizationAuthorityAdapter",
+    "DelegationGrant",
+    "ExecutionLeaseAdapter",
+    "ExecutionResultRecorder",
+    "build_worker_directory",
+    "build_adapter",
+    "build_adapter_preflight",
+    "build_operation_input_validator",
+    "build_github_connector",
+    "DirectoryAdapterPreflight",
     "build_worker_runtime",
+    "build_invocation_gateway",
+    "build_execution_lifecycle",
+    "StoredBindingSource",
+    "SelectingRequestFactory",
+    "ADAPTER_SEAMS",
 ]
 
 log = logging.getLogger(__name__)
 
+#: Which seam drives which kind. The whole mapping, and it is exhaustive: a kind
+#: with no seam has no adapter, and a binding that resolves to it refuses. Adding
+#: a provider does not add an entry here — providers attach behind an invoker.
+ADAPTER_SEAMS: Mapping[WorkerKind, type] = {
+    WorkerKind.MCP: McpToolAdapter,
+    WorkerKind.CONNECTOR: ConnectorAdapter,
+    WorkerKind.AGENT: AgentAdapter,
+}
 
-def project_binding(binding: CapabilityBinding) -> BoundCapability:
+
+def project_binding(
+    binding: CapabilityBinding,
+    *,
+    environment: Optional[ExecutionEnvironment] = None,
+    interface: Optional[str] = None,
+) -> BoundCapability:
     """Project a Connectivity binding into the primitives Execution may hold.
 
     One-way on purpose. There is no inverse: Execution cannot reconstruct a
     ``CapabilityBinding``, so it can never produce authority — only carry it.
+
+    ``environment`` and ``interface`` are supplied rather than read off the
+    binding, which carries neither. They are **not defaulted**: a projection that
+    guessed ``PRODUCTION`` would authorize the worst case, and one that guessed
+    ``DEVELOPMENT`` would let a development-only worker perform production work.
+    Omitting the environment makes every selection refuse, which is the only safe
+    third option.
     """
     if binding.digest is None:
         raise ValueError(
@@ -68,13 +159,25 @@ def project_binding(binding: CapabilityBinding) -> BoundCapability:
             f"binding {binding.binding_id} does not declare its effect; Execution "
             "decides retry safety from that declaration and will not infer one"
         )
+    if environment is not None and not isinstance(environment, ExecutionEnvironment):
+        raise ValueError("environment must be an ExecutionEnvironment")
     return BoundCapability(
+        environment=environment,
+        interface=interface,
         binding_id=binding.binding_id,
         binding_digest=binding.digest,
         capability_ref=binding.reference.value,
         capability_digest=binding.capability_digest,
         provider=binding.provider,
-        operation=binding.operation.value,
+        # The **provider** operation when the capability declares one, and the
+        # governance verb only as a fallback. Execution's two consumers of this
+        # field -- worker selection and input validation -- both look it up in a
+        # provider catalog, so handing them 'invoke' means no worker with a
+        # declared catalog can ever be selected. Falling back keeps the previous
+        # behaviour for capabilities that declare nothing, and that fallback is
+        # still a refusal rather than a wildcard.
+        operation=binding.provider_operation or binding.operation.value,
+        governance_operation=binding.operation.value,
         authorization_digest=binding.authorization_digest,
         tenant_id=binding.tenant_id,
         principal_id=binding.principal.principal_id,
@@ -165,49 +268,788 @@ class _CapabilityAsNode:
         self.binding = binding
 
 
-class StaticWorkerDirectory:
-    """Maps a worker kind to an adapter. Starts empty, and stays empty here.
+def build_worker_directory() -> InMemoryWorkerDirectory:
+    """The governed directory. Empty, and it stays empty until somebody registers.
 
-    Not a registry, not discovery, no health, no ranking, and no fallback. One
-    lookup that can answer ``None``, because a missing adapter must be a refusal
-    rather than a substitution.
+    **Supersedes ``StaticWorkerDirectory`` (ADR-036).** That was one lookup from
+    kind to adapter — deliberately minimal, and insufficient once workers are
+    real: it could not express a worker being disabled rather than absent, could
+    not confine a tenant's registration to that tenant, and offered nothing to
+    re-read between selecting a worker and calling it. It is removed rather than
+    kept alongside, because two lookup paths is how one of them stops being
+    checked. It had no callers.
+    """
+    return InMemoryWorkerDirectory()
 
-    Phase 3.3.2 populates this with real adapters. Until then every invocation
-    refuses with ``worker_unavailable``, which is the correct behaviour for a
-    platform that has no workers.
+
+def build_adapter(
+    implementation: WorkerImplementation,
+    *,
+    provider: Any,
+    catalog: Optional[Any] = None,
+    channel: Optional[Any] = None,
+    invoker: Optional[Any] = None,
+    translator: Optional[Any] = None,
+    preflight: Optional[Any] = None,
+    metrics: Optional[Any] = None,
+) -> Any:
+    """Construct the seam for an implementation's kind, wired to one provider.
+
+    ``provider`` is required and not derived: an adapter that inferred which
+    provider it served — from the registration, from the first binding it saw —
+    would be an adapter that could serve a different one tomorrow. It is stated,
+    checked against the registration, and checked again against every binding.
+
+    A ``channel`` is the transport for MCP and connector adapters; an ``invoker``
+    is the runtime for agent adapters. With neither attached the adapter reports
+    a definite failure having sent nothing, which is honest: a call that could
+    not be made did not happen, and calling it ambiguous would block a retry on
+    a node that never left this process.
+    """
+    from backend.contracts.provider import ProviderRef
+
+    if not isinstance(provider, ProviderRef):
+        raise ValueError("an adapter must be built for an explicit ProviderRef")
+    kind = implementation.worker_kind
+    seam = ADAPTER_SEAMS.get(kind)
+    if seam is None:
+        raise ValueError(
+            f"no adapter seam drives {kind.value} work; a kind with no seam has "
+            "no adapter, and inventing one here would run real work through "
+            "something nobody wrote for it"
+        )
+    common = {
+        "implementation": implementation,
+        "provider": provider,
+        "preflight": preflight,
+        "metrics": metrics,
+    }
+    if kind is WorkerKind.AGENT:
+        return seam(invoker=invoker, **common)
+    if kind is WorkerKind.MCP:
+        return seam(catalog=catalog, channel=channel, **common)
+    return seam(catalog=catalog, channel=channel, translator=translator, **common)
+
+
+class DirectoryAdapterPreflight:
+    """The adapter's last authoritative re-read. Implements ``AdapterPreflight``.
+
+    ADR-042 §37. The worker runtime already re-read the directory entry when it
+    admitted the invocation; this runs *inside* the adapter, immediately before
+    a socket exists, because the gap between those two moments is exactly the
+    window an operator uses to disable a compromised adapter.
+
+    Fails closed in every direction: no directory, no context, a lookup that
+    raises, a missing entry or an entry whose digest moved all produce refusal
+    reasons rather than an empty tuple.
     """
 
-    def __init__(self, adapters: Optional[Mapping[WorkerKind, Any]] = None) -> None:
-        self._adapters = dict(adapters or {})
+    def __init__(
+        self,
+        directory: Any,
+        *,
+        context_factory: Optional[Any] = None,
+    ) -> None:
+        self._directory = directory
+        self._context_factory = context_factory
 
-    def register(self, kind: WorkerKind, adapter: Any) -> None:
-        if kind in self._adapters:
-            raise ValueError(
-                f"an adapter for {kind.value} is already registered; silently "
-                "replacing one would change what runs without anybody deciding"
+    def refusals(self, authority: Any, *, now: Any) -> tuple:
+        if self._directory is None or self._context_factory is None:
+            return ("adapter_state_unverifiable",)
+        try:
+            context = self._context_factory()
+            entry = self._directory.entry(
+                context,
+                worker_id=authority.worker_id,
+                tenant_id=authority.tenant_id,
             )
-        self._adapters[kind] = adapter
+        except Exception:  # noqa: BLE001 - unverifiable is unusable
+            log.warning("adapter preflight lookup failed", exc_info=False)
+            return ("adapter_state_unverifiable",)
 
-    def adapter_for(self, kind: WorkerKind) -> Optional[Any]:
-        return self._adapters.get(kind)
+        if entry is None:
+            return ("adapter_not_registered",)
+        problems: list = []
+        if not entry.lifecycle.permits_execution:
+            # A disabled adapter must never execute, and a revoked one is
+            # terminal. Both arrive here as the same refusal shape and keep
+            # their own reason so an operator can tell which.
+            problems.append(f"adapter_lifecycle_{entry.lifecycle.value}")
+        if not entry.trust.permits_execution:
+            # Adapter trust, separate from capability trust. A trusted
+            # capability reached through an unverified adapter is not a trusted
+            # execution.
+            problems.append(f"adapter_trust_{entry.trust.value}")
+        if not entry.availability.accepts_work:
+            problems.append(f"adapter_availability_{entry.availability.value}")
+        if entry.worker_digest != authority.worker_digest:
+            # Same id, different build. The audit trail would name the
+            # implementation that was selected while different code ran.
+            problems.append("adapter_digest_changed")
+        return tuple(problems)
 
-    def __len__(self) -> int:
-        return len(self._adapters)
+
+def build_adapter_preflight(
+    directory: Any, *, context_factory: Optional[Any] = None
+) -> DirectoryAdapterPreflight:
+    return DirectoryAdapterPreflight(directory, context_factory=context_factory)
+
+
+def build_operation_input_validator(*catalogs: Any) -> Any:
+    """Fill the Phase 3.3.3 ``InputValidator`` seam from the adapter catalogs.
+
+    One declaration, used by the validator and by the adapter that builds the
+    request. A separate schema copy would diverge on the first change, after
+    which one of the two is wrong and nobody knows which.
+
+    With no catalogs, every payload-carrying invocation refuses — the same
+    fail-closed behaviour the seam has had since it was empty.
+    """
+    from backend.contexts.execution import OperationInputValidator
+
+    return OperationInputValidator(catalogs)
+
+
+def build_github_connector(
+    *,
+    transport_broker: Any,
+    connection_policy: Any,
+    environment: ExecutionEnvironment,
+    worker_id: str = "github-connector",
+    base_url: Optional[str] = None,
+    preflight: Optional[Any] = None,
+    metrics: Optional[Any] = None,
+    isolation: Optional[Any] = None,
+) -> tuple:
+    """The first production connector. Returns ``(entry, adapter, catalog)``.
+
+    Returns the ``WorkerEntry`` at ``REGISTERED``/``UNVERIFIED``/``UNAVAILABLE``
+    rather than enabling it. Three separate deliberate acts stand between
+    recording an implementation and it being handed real work, and none of them
+    happens as a side effect of construction (ADR-036). A deployment that wants
+    this connector live has to validate it, enable it, trust it and mark it
+    available — four decisions with four records.
+
+    Nothing here contacts GitHub. Construction is side-effect-free (§52): no
+    resource is created, no capability is registered, no provider state is
+    touched, and no health probe is fired.
+    """
+    from backend.contracts.connector import IsolationTier
+    from backend.contexts.execution import (
+        WorkerEntry,
+        WorkerInterface,
+        WorkerScope,
+    )
+    from backend.contexts.execution.infrastructure.adapters.connectors.github import (
+        GITHUB_PROVIDER,
+        GITHUB_PROVIDER_ID,
+        GITHUB_API_BASE,
+        GitHubResponseTranslator,
+        build_github_channel,
+        github_catalog,
+    )
+
+    catalog = github_catalog()
+    channel = build_github_channel(
+        broker=transport_broker,
+        policy=connection_policy,
+        environment=environment,
+        base_url=base_url or GITHUB_API_BASE,
+    )
+    implementation = WorkerImplementation(
+        worker_id=worker_id,
+        worker_kind=WorkerKind.CONNECTOR,
+        interface=WorkerInterface.CONNECTOR,
+        implementation=(
+            "backend.contexts.execution.infrastructure.adapters.connector."
+            "ConnectorAdapter+connectors.github"
+        ),
+        implementation_version="1.0.0",
+        # What this implementation *actually* provides, and the default is the
+        # weakest tier on purpose.
+        #
+        # ``AMBIENT`` is ADR-005's "read-only calls to declared APIs, with
+        # process-level scoped credentials", which is exactly what an in-process
+        # HTTPS adapter is. The consequence is deliberate and worth stating: the
+        # two mutating operations in the GitHub catalog are
+        # ``IRREVERSIBLE_WRITE``, ``IsolationTier.AMBIENT`` is sufficient only
+        # for ``READ``, and so **worker selection refuses them with
+        # ``isolation_insufficient``** until a deployment runs this adapter
+        # somewhere that genuinely provides more and says so here.
+        #
+        # That refusal is the fabric working. Declaring ``SEALED`` to make the
+        # write selectable would be claiming hardware isolation this process
+        # does not have, and the gate would then be waved through for every
+        # later capability that needs it.
+        isolation=isolation or IsolationTier.AMBIENT,
+        scope=WorkerScope.PLATFORM,
+        supported_environments=frozenset({environment}),
+        supported_effects=frozenset(
+            {spec.effect_semantics for spec in _catalog_specs(catalog)}
+        ),
+        supported_providers=frozenset({GITHUB_PROVIDER_ID}),
+        supported_operations=frozenset(catalog.operations),
+        # GitHub has no idempotency mechanism. Declared honestly so Execution's
+        # retry rules know which kind of provider they are dealing with.
+        supports_provider_idempotency=False,
+    )
+    adapter = build_adapter(
+        implementation,
+        provider=GITHUB_PROVIDER,
+        catalog=catalog,
+        channel=channel,
+        translator=GitHubResponseTranslator(),
+        preflight=preflight,
+        metrics=metrics,
+    )
+    return WorkerEntry(implementation=implementation), adapter, catalog
+
+
+def _catalog_specs(catalog: Any) -> tuple:
+    return tuple(catalog.require(name) for name in catalog.operations)
 
 
 def build_worker_runtime(
     *,
     resolution_service: Any,
     worker_kind_resolver: Any,
-    directory: Optional[StaticWorkerDirectory] = None,
+    directory: Optional[InMemoryWorkerDirectory] = None,
     input_validator: Optional[Any] = None,
     observer: Optional[Any] = None,
 ) -> WorkerRuntime:
-    """Assemble the runtime. Refuses everything until workers exist."""
+    """Assemble the runtime. Refuses everything until workers exist.
+
+    With an empty directory every invocation refuses at selection. With a
+    registered-but-not-enabled worker it refuses at compatibility. With no input
+    validator it refuses any request carrying a payload. None of those is a gap
+    waiting to be filled with a default.
+    """
     return WorkerRuntime(
         binding_validator=BindingValidatorAdapter(resolution_service),
         worker_kinds=WorkerKindAdapter(worker_kind_resolver),
-        directory=directory if directory is not None else StaticWorkerDirectory(),
+        directory=directory if directory is not None else build_worker_directory(),
         input_validator=input_validator,
         observer=observer,
     )
+
+
+# ----------------------------------------------------------------------
+# Phase 3.3.3 — the gateway's ports, answered by the real services
+# ----------------------------------------------------------------------
+
+
+class AuthorizationAuthorityAdapter:
+    """Execution's ``CapabilityAuthority``, answered by Connectivity.
+
+    Re-asks ``CapabilityAuthorizationService.authorize`` at invocation time. Not
+    a cache read and not a second policy engine: the same service, the same
+    policy, asked again at the moment it matters. A binding being valid says the
+    *target* is still the one chosen; it does not say the principal may still
+    invoke it, and between binding and invocation a grant can be withdrawn.
+
+    Everything crosses as primitives. Execution never sees an
+    ``AuthorizationDecision``; it receives what the decision said.
+    """
+
+    def __init__(
+        self,
+        authorization_service: Any,
+        *,
+        delegation: Optional[Any] = None,
+    ) -> None:
+        self._authorization = authorization_service
+        self._delegation = delegation
+        """The ``DelegationAuthority`` port, and **normally absent**.
+
+        Phase 4.4 finding, recorded rather than engineered around:
+        ``AuthorizationRequest`` has no delegation concept. Connectivity answers
+        "may this principal invoke this capability" and has never been asked
+        "may this principal act for another". So there is nothing in an
+        ``AuthorizationDecision`` to project into ``delegated_principal_id``.
+
+        Inventing one here would be building a second authorization engine at
+        the composition root, which is the thing this phase must not do. So the
+        seam is explicit and its absence is a refusal: with no delegation
+        authority wired, ``delegation_permitted`` stays ``False`` and every
+        on-behalf-of invocation is refused by ``_check_delegation``.
+
+        That is the correct fail-closed answer to a capability the platform does
+        not yet have, and it is a *stricter* position than before this phase —
+        delegation previously travelled unchecked.
+        """
+
+    def facts_for(
+        self, context: Any, request: InvocationRequest, binding: BoundCapability
+    ) -> Optional[AuthorityFacts]:
+        from backend.contexts.connectivity import (
+            AuthorizationRequest,
+            CapabilityOperation,
+            CapabilityRef,
+        )
+
+        # Parsing the rendered reference happens *here*, at the translation
+        # layer, and nowhere else. ADR-036 established that Execution never
+        # parses it — it carries the token and hands it back — so reconstituting
+        # the structured form is the composition root's job by construction.
+        decision = self._authorization.authorize(
+            context,
+            AuthorizationRequest(
+                tenant_id=request.tenant_id,
+                principal=request.principal,
+                capability_ref=CapabilityRef.parse(binding.capability_ref),
+                # The governance verb, taken from the binding. ``request.operation``
+                # is the provider operation and is not a member of this enum.
+                operation=CapabilityOperation(
+                    getattr(binding, "governance_operation", None) or request.operation
+                ),
+                # The contract the binding was made against. Without it the
+                # policy denies with ``digest_missing`` -- so the gateway's
+                # re-authorization refused *every* invocation, which is only
+                # visible once a real binding reaches a real gateway.
+                expected_digest=binding.capability_digest,
+                environment=binding.environment,
+                execution_id=str(request.execution_id),
+                node_id=request.node_id,
+            ),
+        )
+        if decision is None:
+            return None
+        permitted, delegated_to = self._delegation_facts(context, request, decision)
+        return AuthorityFacts(
+            effect=decision.effect,
+            policy_version=decision.policy_version,
+            decision_digest=decision.digest or "",
+            capability_digest=decision.capability_digest or "",
+            tenant_id=decision.request.tenant_id,
+            principal_id=decision.request.principal.principal_id,
+            # The governance verb the decision was actually about, read
+            # back off the decision rather than off the request -- a fact
+            # is what authorization concluded, never what a caller asked.
+            governance_operation=decision.request.operation.value,
+            # The concrete action, copied from the binding. Copied, not
+            # invented: the projection may carry authoritative values and
+            # may not manufacture them.
+            provider_operation=binding.operation,
+            expires_at=decision.expires_at,
+            binding_key=decision.binding_key,
+            risk=decision.risk,
+            side_effect_class=binding.side_effect_class,
+            effect_semantics=binding.effect_semantics,
+            environment=binding.environment,
+            delegation_permitted=permitted,
+            delegated_principal_id=delegated_to,
+            approval_required=decision.effect is PolicyEffect.REQUIRE_APPROVAL,
+            approval_artifact_id=decision.approval_artifact_id,
+            obligations=tuple(decision.obligations),
+            reasons=decision.reason_codes,
+        )
+
+    def _delegation_facts(
+        self, context: Any, request: InvocationRequest, decision: Any
+    ) -> tuple:
+        """``(permitted, delegated_principal_id)``. Fails closed in every branch.
+
+        No port wired, a port that raises, a port that answers with something
+        uninterpretable, or a port that names a principal the request did not —
+        all of them produce ``(False, None)`` or a mismatch the gateway refuses.
+        There is no path here that returns permission by accident.
+        """
+        if self._delegation is None:
+            return False, None
+        try:
+            answer = self._delegation.delegation_for(context, request)
+        except Exception:  # noqa: BLE001 - unverifiable delegation is no delegation
+            log.warning("delegation authority failed", exc_info=False)
+            return False, None
+        if answer is None:
+            return False, None
+        permitted = bool(getattr(answer, "permitted", False))
+        delegated_to = getattr(answer, "delegated_principal_id", None)
+        if not permitted or not isinstance(delegated_to, str) or not delegated_to.strip():
+            # "Permitted, but for nobody in particular" is an unbound delegation
+            # and would authorize acting for anybody.
+            return False, None
+        return True, delegated_to.strip()
+
+
+class ExecutionLeaseAdapter:
+    """Execution's ``LeaseAuthority``, answered by the execution service.
+
+    Reads only. The gateway may not grant, renew or reclaim a lease — reclaiming
+    one would take a node away from a worker that may still be writing to a
+    production system, and that decision belongs to recovery with the facts in
+    front of it.
+    """
+
+    def __init__(self, execution_service: Any) -> None:
+        self._executions = execution_service
+
+    def lease_for(
+        self, context: Any, execution_id: str, node_id: str
+    ) -> Optional[LeaseFacts]:
+        from backend.contexts.execution import GetExecution
+
+        execution = self._executions.get(context, GetExecution(execution_id=execution_id))
+        for run in getattr(execution, "runs", ()):
+            if run.node_id != node_id:
+                continue
+            lease = getattr(run, "lease", None)
+            if lease is None:
+                return LeaseFacts(held=False, node_id=node_id)
+            attempt = getattr(run, "current_attempt", None)
+            return LeaseFacts(
+                held=not lease.is_released,
+                node_id=node_id,
+                worker_id=lease.worker_id,
+                attempt_id=str(attempt.attempt_id) if attempt else None,
+                expires_at=lease.expires_at,
+                node_state=getattr(run, "state", None)
+                and getattr(run.state, "value", None),
+            )
+        return None
+
+
+class ExecutionResultRecorder:
+    """Execution's ``InvocationRecorder``. The aggregate is written here, not there.
+
+    The gateway holds no repository and mutates no run. It decides admission and
+    reports what happened; recording is the execution service's, under the lease
+    check that has always governed it.
+    """
+
+    def __init__(self, execution_service: Any) -> None:
+        self._executions = execution_service
+
+    def record(self, context: Any, request: InvocationRequest, result: Any) -> Any:
+        from backend.contexts.execution import RecordFailure, RecordSuccess
+        from backend.contexts.execution.domain.failure import FailureClass
+        from backend.contexts.execution.application.worker_runtime import WorkerRuntime
+
+        published = WorkerRuntime.to_execution_result(
+            _as_worker_request(request), result
+        )
+        # ``worker_id`` here is the **lease holder**, not the implementation.
+        #
+        # ``NodeRun.concluded`` calls ``assert_held_by(worker_id)`` -- the
+        # authoritative, fenced lease check ADR-036 §16 points at, the one that
+        # can actually refuse a write. It asks "does the participant recording
+        # this result hold the lease", and the holder is the dispatcher. Passing
+        # the selected worker here would fail that check for every result.
+        holder = request.lease_holder_id or request.worker_id
+        if result.succeeded:
+            return self._executions.record_success(
+                context,
+                RecordSuccess(
+                    execution_id=str(request.execution_id),
+                    node_id=request.node_id,
+                    worker_id=holder,
+                    execution_key=published.execution_key,
+                    detail=dict(published.detail or {}),
+                ),
+            )
+        failure = result.failure
+        return self._executions.record_failure(
+            context,
+            RecordFailure(
+                execution_id=str(request.execution_id),
+                node_id=request.node_id,
+                worker_id=holder,
+                reason=(failure.reason if failure else "unknown outcome"),
+                execution_key=published.execution_key,
+                # Restored from the worker's classification, never re-derived
+                # here: this layer cannot tell a timeout from a refusal, and
+                # guessing would put a wrong class into the retry rules.
+                failure_class=(
+                    failure.failure_class.value
+                    if failure is not None and hasattr(failure, "failure_class")
+                    else FailureClass.UNKNOWN_OUTCOME.value
+                ),
+                failure_source=(
+                    getattr(failure, "source", None) or "worker"
+                ),
+            ),
+        )
+
+
+def _as_worker_request(request: InvocationRequest) -> Any:
+    """A minimal shim so the published projection can read the execution key.
+
+    ``to_execution_result`` needs only ``execution_key`` and ``node_id``. Building
+    a whole ``WorkerExecutionRequest`` here would require the binding again, and
+    passing the binding to a *recorder* is how a recorder ends up in a position
+    to make an authorization-shaped decision.
+    """
+
+    class _Shim:
+        execution_key = request.execution_key
+        node_id = request.node_id
+
+    return _Shim()
+
+
+class DelegationGrant:
+    """What a delegation authority answers with. Two fields, both required.
+
+    A tiny type rather than a tuple so that "permitted" and "for whom" cannot be
+    supplied independently by accident — the pair is the answer, and half of it
+    is not a weaker answer, it is none.
+    """
+
+    __slots__ = ("permitted", "delegated_principal_id")
+
+    def __init__(self, *, permitted: bool, delegated_principal_id: Optional[str]) -> None:
+        self.permitted = bool(permitted)
+        self.delegated_principal_id = delegated_principal_id
+
+    def __repr__(self) -> str:
+        return (
+            f"<DelegationGrant permitted={self.permitted} "
+            f"for={self.delegated_principal_id!r}>"
+        )
+
+
+def build_invocation_gateway(
+    *,
+    worker_runtime: WorkerRuntime,
+    authorization_service: Any,
+    execution_service: Any,
+    input_validator: Optional[Any] = None,
+    credentials: Optional[Any] = None,
+    rate_limiter: Optional[Any] = None,
+    delegation: Optional[Any] = None,
+    audit: Optional[Any] = None,
+    observer: Optional[Any] = None,
+    clock: Optional[Any] = None,
+) -> SecureCapabilityInvocationGateway:
+    """Assemble the one authoritative invocation path.
+
+    Every authority port is wired to the service that actually owns that
+    authority. The two seams that stay empty — credentials and the rate limiter —
+    stay empty deliberately: no credential system and no limiter is built in this
+    phase, and the gateway's behaviour with each absent is stated rather than
+    assumed (a missing credential provider is not consulted; a missing limiter is
+    not a rule; an *unavailable* one refuses).
+    """
+    return SecureCapabilityInvocationGateway(
+        worker_runtime=worker_runtime,
+        authority=AuthorizationAuthorityAdapter(
+            authorization_service, delegation=delegation
+        ),
+        leases=ExecutionLeaseAdapter(execution_service),
+        recorder=ExecutionResultRecorder(execution_service),
+        input_validator=input_validator,
+        credentials=credentials,
+        rate_limiter=rate_limiter,
+        outbox=getattr(execution_service, "outbox", None),
+        audit=audit,
+        observer=observer,
+        clock=clock,
+    )
+
+
+# ----------------------------------------------------------------------
+# Phase 3.3.4 — the production lifecycle
+# ----------------------------------------------------------------------
+
+
+class StoredBindingSource:
+    """The dispatcher's ``BindingSource``, answered by Connectivity.
+
+    Finds the binding Connectivity already made **for this execution and node**
+    and projects it. It never resolves and never binds: binding at dispatch time
+    would let the dispatcher choose a provider, which is exactly the authority
+    the dispatcher exists not to have.
+
+    A missing binding returns ``None`` and the node is refused. There is no
+    branch that makes one.
+    """
+
+    def __init__(
+        self,
+        resolution_service: Any,
+        *,
+        environment: Optional[ExecutionEnvironment] = None,
+        interface: Optional[str] = None,
+    ) -> None:
+        self._resolution = resolution_service
+        self._environment = environment
+        self._interface = interface
+
+    def binding_for(
+        self, context: Any, execution_id: str, node_id: str
+    ) -> Optional[BoundCapability]:
+        found = self._resolution._bindings.for_execution(  # noqa: SLF001
+            context, execution_id
+        )
+        for binding in found or ():
+            if (binding.node_id or None) != node_id:
+                continue
+            try:
+                return project_binding(
+                    binding,
+                    environment=self._environment,
+                    interface=self._interface,
+                )
+            except ValueError:
+                # Unsealed or effect-less. Refused rather than projected with a
+                # gap that the gateway would then have to guess about.
+                log.warning(
+                    "binding %s for node %s could not be projected",
+                    binding.binding_id,
+                    node_id,
+                )
+                return None
+        return None
+
+
+class SelectingRequestFactory:
+    """Builds the ADR-038 request, selecting the worker through the 3.3.2 fabric.
+
+    **This is the authoritative worker-selection boundary**, and therefore the
+    emission point for ``WorkerSelected`` (ADR-037 left it with none). A selection
+    made anywhere else would not be the one the gateway re-checks, so an event
+    emitted anywhere else would name a worker that never ran.
+    """
+
+    def __init__(
+        self,
+        worker_runtime: WorkerRuntime,
+        *,
+        outbox: Optional[Any] = None,
+    ) -> None:
+        self._workers = worker_runtime
+        self._outbox = outbox
+
+    def build(
+        self,
+        context: Any,
+        candidate: Any,
+        binding: BoundCapability,
+        *,
+        attempt_id: str,
+        deadline_at: Optional[Any],
+        lease_holder: Optional[str] = None,
+    ) -> Optional[InvocationRequest]:
+        from backend.contexts.execution import (
+            AttemptId,
+            ExecutionId,
+            WorkerSelected,
+            WorkerInvocationRefused,
+        )
+        from backend.platform.events import EventMetadata
+
+        try:
+            selection = self._workers.select(context, binding)
+        except WorkerInvocationRefused:
+            # No eligible worker. The node is refused, never bound to a
+            # substitute -- there is no fallback anywhere in this fabric.
+            return None
+
+        request = InvocationRequest(
+            execution_id=ExecutionId(candidate.execution_id),
+            attempt_id=AttemptId(attempt_id),
+            attempt_number=candidate.attempt_number,
+            node_id=candidate.node_id,
+            tenant_id=candidate.tenant_id,
+            principal=context.identity.principal,
+            capability_ref=binding.capability_ref,
+            capability_digest=binding.capability_digest,
+            operation=binding.operation,
+            governance_operation=binding.governance_operation,
+            environment=selection.environment,
+            binding_id=binding.binding_id,
+            binding_digest=binding.binding_digest,
+            worker_selection_id=selection.selection_id,
+            worker_id=selection.worker_id,
+            worker_digest=selection.worker_digest,
+            # The node's declared input. Unvalidated at this point and
+            # deliberately so: the gateway validates it against the provider
+            # catalog and only then digests the *validated* form, so the action
+            # digest can never cover input nobody checked.
+            payload=candidate.input,
+            # Copied from the dispatcher, which wrote the same identity
+            # into the aggregate when it took the lease.
+            lease_holder_id=lease_holder,
+            correlation_id=context.correlation.correlation_id,
+            trace_id=context.trace.trace_id,
+            deadline_at=deadline_at,
+        )
+
+        if self._outbox is not None:
+            event = WorkerSelected(
+                metadata=EventMetadata.create(
+                    aggregate_id=selection.worker_id,
+                    aggregate_type="execution_worker",
+                    scope=context.scope,
+                    correlation_id=request.correlation_id,
+                ),
+                worker_id=selection.worker_id,
+                worker_kind=selection.worker_kind.value,
+                worker_version=selection.worker_version,
+                worker_digest=selection.worker_digest,
+                scope="platform",
+                selection_id=selection.selection_id,
+                selection_digest=selection.digest or "",
+                policy_version=selection.policy_version,
+                binding_id=selection.binding_id,
+                binding_digest=selection.binding_digest,
+                capability_ref=selection.capability_ref,
+                capability_digest=selection.capability_digest,
+                provider=selection.provider,
+                operation=selection.operation,
+                environment=selection.environment.value,
+                interface=selection.interface.value,
+                execution_id=selection.execution_id or candidate.execution_id,
+                node_id=selection.node_id or candidate.node_id,
+                reasons=tuple(selection.reasons),
+            )
+            try:
+                self._outbox.record(context, candidate.execution_id, [event])
+            except Exception:  # noqa: BLE001 - publication is not a decision
+                log.error("recording WorkerSelected failed", exc_info=True)
+
+        return request
+
+
+def build_execution_lifecycle(
+    *,
+    execution_service: Any,
+    gateway: SecureCapabilityInvocationGateway,
+    resolution_service: Any,
+    worker_runtime: WorkerRuntime,
+    environment: Optional[ExecutionEnvironment] = None,
+    interface: Optional[str] = None,
+    queue: Optional[Any] = None,
+    metrics: Optional[Any] = None,
+    observer: Optional[Any] = None,
+    clock: Optional[Any] = None,
+) -> tuple:
+    """Assemble the dispatcher and the recovery coordinator.
+
+    Returns ``(dispatcher, recovery)``. The scheduler is left to the caller to
+    construct and own, because *when* cycles run is a deployment decision and
+    binding it here would make the lifecycle depend on this process having a
+    thread.
+    """
+    outbox = getattr(execution_service, "outbox", None)
+    dispatcher = ExecutionDispatcher(
+        executions=execution_service,
+        gateway=gateway,
+        bindings=StoredBindingSource(
+            resolution_service, environment=environment, interface=interface
+        ),
+        requests=SelectingRequestFactory(worker_runtime, outbox=outbox),
+        queue=queue,
+        outbox=outbox,
+        observer=observer,
+        metrics=metrics,
+        clock=clock,
+    )
+    recovery = RecoveryCoordinator(
+        executions=execution_service,
+        outbox=outbox,
+        observer=observer,
+        metrics=metrics,
+        clock=clock,
+    )
+    return dispatcher, recovery

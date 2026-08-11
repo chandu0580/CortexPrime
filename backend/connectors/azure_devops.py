@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
-import os
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -42,9 +41,10 @@ class AzureDevOpsConnector(BaseConnector):
         self._pat = credentials.get("pat", self._pat)
 
     async def initialize(self) -> bool:
-        self._org = self._org or os.getenv(AZURE_DEVOPS_ORG_ENV, "")
-        self._project = self._project or os.getenv(AZURE_DEVOPS_PROJECT_ENV, "")
-        self._pat = self._pat or os.getenv(AZURE_DEVOPS_PAT_ENV, "")
+        creds = self._load_credentials()
+        self._org = self._org or creds.get("organization", "")
+        self._project = self._project or creds.get("project", "")
+        self._pat = self._pat or creds.get("pat", "")
         if not self._org or not self._pat:
             log.warning("AZURE_DEVOPS_ORG or AZURE_DEVOPS_PAT not set — Azure DevOps connector in degraded mode")
             self._available = False

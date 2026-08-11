@@ -3,7 +3,9 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from backend.api.legacy_execution_boundary import guard_legacy_execution
 from pydantic import BaseModel
 
 log = logging.getLogger(__name__)
@@ -211,7 +213,12 @@ async def get_in_memory_events(execution_id: str):
     ]
 
 
-@router.post("/run", response_model=dict[str, Any])
+@router.post(
+    "/run", response_model=dict[str, Any],
+    # V1 strangler boundary (ADR-039). Privileged, and bypasses the
+    # invocation gateway entirely. Disabled unless the migration flag is set.
+    dependencies=[Depends(guard_legacy_execution("POST /api/executions/run"))],
+)
 async def run_execution(req: CreateExecutionRequest):
     from backend.execution.models import ExecutionTrigger, ExecutionType
     try:

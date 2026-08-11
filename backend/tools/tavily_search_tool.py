@@ -13,15 +13,22 @@ load_dotenv(
 
 
 # ==========================================
-# TAVILY CLIENT
+# TAVILY CLIENT — lazily constructed (Phase 5.15, ADR-058)
 # ==========================================
+# Some tavily SDK versions raise at construction when the key is absent,
+# which would make a credential a precondition for importing this module.
+# Built on first use instead; a missing key fails the search that needed it.
 
-client = TavilyClient(
+_client = None
 
-    api_key=os.getenv(
-        "TAVILY_API_KEY"
-    )
-)
+
+def _get_client() -> TavilyClient:
+    global _client
+    if _client is None:
+        _client = TavilyClient(
+            api_key=os.getenv("TAVILY_API_KEY")
+        )
+    return _client
 
 
 # ==========================================
@@ -46,7 +53,7 @@ class TavilySearchTool:
 
         try:
 
-            response = client.search(
+            response = _get_client().search(
 
                 query=query,
 

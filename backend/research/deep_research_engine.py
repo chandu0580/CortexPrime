@@ -575,9 +575,37 @@ class DeepResearchEngine:
 
 
 # ==========================================
-# SINGLETON
+# SINGLETON — lazily constructed (Phase 5.15, ADR-058)
 # ==========================================
+# Constructing the engine at import time made a Tavily credential a
+# precondition for IMPORTING this module — and, through the orchestrator's
+# import chain, for booting the entire application (found in Phase 5.14).
+# Research is an optional capability: the application must start without it,
+# and a missing key must fail the research call that needed it, with this
+# precise reason, not every unrelated import.
 
-deep_research_engine = (
-    DeepResearchEngine()
-)
+
+class _LazyDeepResearchEngine:
+    """Defers construction to first use; transparent thereafter.
+
+    Importing this module is now a pure definition. The first attribute
+    access builds the real engine — and if ``TAVILY_API_KEY`` is absent,
+    raises the engine's own precise error at that call site, where an
+    operator can see which feature actually needed the credential.
+    """
+
+    __slots__ = ("_engine",)
+
+    def __init__(self) -> None:
+        self._engine = None
+
+    def _resolve(self) -> "DeepResearchEngine":
+        if self._engine is None:
+            self._engine = DeepResearchEngine()
+        return self._engine
+
+    def __getattr__(self, name: str):
+        return getattr(self._resolve(), name)
+
+
+deep_research_engine = _LazyDeepResearchEngine()

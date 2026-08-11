@@ -30,6 +30,7 @@ from backend.contracts.errors import ContractViolation
 __all__ = [
     "SideEffectClass",
     "EffectSemantics",
+    "ExecutionEnvironment",
     "ExecutionStatus",
     "ExecutionScope",
     "ActionRef",
@@ -98,6 +99,32 @@ class EffectSemantics(str, Enum):
     def is_declared(self) -> bool:
         """Whether somebody actually said what repeating this does."""
         return self is not EffectSemantics.UNKNOWN
+
+
+class ExecutionEnvironment(str, Enum):
+    """Where work is being performed.
+
+    Promoted to ``contracts/`` because a third context now needs it, which is
+    exactly the condition ``connectivity.domain.contract.CapabilityEnvironment``
+    named for promotion rather than a third copy. Its values are identical, so a
+    composition root translates by value and never by table -- and a mistranslation
+    would be a ``ValueError``, not a silently wrong environment.
+
+    Deliberately an enum rather than the free-form string ``ExecutionScope.
+    environment`` still carries. That field predates this and describes a declared
+    blast radius; this one is compared against what a worker is *entitled* to run
+    in, and ``prod`` / ``production`` / ``Production`` becoming three environments
+    is not survivable for a comparison that decides whether something may touch
+    production.
+    """
+
+    DEVELOPMENT = "development"
+    STAGING = "staging"
+    PRODUCTION = "production"
+
+    @property
+    def is_live(self) -> bool:
+        return self is ExecutionEnvironment.PRODUCTION
 
 
 class ExecutionStatus(str, Enum):

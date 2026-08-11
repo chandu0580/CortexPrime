@@ -11,6 +11,8 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends
+
+from backend.api.legacy_execution_boundary import guard_legacy_execution
 from pydantic import BaseModel, Field
 
 from backend.auth.dependencies import require_user
@@ -53,7 +55,12 @@ def _get_agent():
 # POST /computer/execute-workflow
 # =========================================================
 
-@router.post("/execute-workflow")
+@router.post(
+    "/execute-workflow",
+    # V1 strangler boundary (ADR-039). Privileged, and bypasses the
+    # invocation gateway entirely. Disabled unless the migration flag is set.
+    dependencies=[Depends(guard_legacy_execution("POST /api/computer/execute-workflow"))],
+)
 async def execute_workflow(request: WorkflowRequest) -> Dict[str, Any]:
     """
     Submit a multi-step computer-use workflow to the Computer Agent.

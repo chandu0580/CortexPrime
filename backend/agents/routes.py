@@ -3,8 +3,9 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from backend.api.legacy_execution_boundary import guard_legacy_execution
 from backend.agents.base import AgentContext, AgentTask, CollaborationMode, TaskPriority
 from backend.agents.coordinator import coordinator
 from backend.agents.models import DelegateRequest, RunMissionRequest
@@ -15,7 +16,12 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/agents", tags=["Multi-Agent"])
 
 
-@router.post("/run")
+@router.post(
+    "/run",
+    # V1 strangler boundary (ADR-038). ``tenant_id`` is read from the request
+    # body below -- a tenant the caller chose, which is the same as having none.
+    dependencies=[Depends(guard_legacy_execution("POST /api/agents/run"))],
+)
 async def run_mission(body: Dict[str, Any]):
     goal = body.get("goal", "")
     if not goal:
@@ -87,7 +93,11 @@ async def run_mission(body: Dict[str, Any]):
     }
 
 
-@router.post("/delegate")
+@router.post(
+    "/delegate",
+    # V1 strangler boundary (ADR-038). Same body-supplied tenancy as /run.
+    dependencies=[Depends(guard_legacy_execution("POST /api/agents/delegate"))],
+)
 async def delegate_task(body: Dict[str, Any]):
     req = DelegateRequest(
         mission_id=body.get("mission_id", ""),

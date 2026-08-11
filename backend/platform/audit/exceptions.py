@@ -18,6 +18,8 @@ __all__ = [
     "AuditCorruptionError",
     "AuditChainError",
     "AuditRetentionError",
+    "AuditWriterNotOwned",
+    "StaleAuditWriter",
 ]
 
 
@@ -43,6 +45,37 @@ class AuditCorruptionError(AuditError):
     def __init__(self, message: str, *, line_number: Optional[int] = None) -> None:
         super().__init__(message)
         self.line_number = line_number
+
+
+class AuditWriterNotOwned(AuditError):
+    """This runtime is not the admitted audit writer, so it did not append.
+
+    Deliberately its own type, and deliberately **not** a subclass of anything
+    that reads as an authorization outcome. An audit runtime that is not the
+    writer has failed to *observe*; it has not decided anything about whether an
+    operation was permitted, and a caller that conflated the two would turn an
+    infrastructure ownership problem into a security refusal.
+    """
+
+
+class StaleAuditWriter(AuditWriterNotOwned):
+    """This runtime *was* the admitted writer and has been superseded.
+
+    Raised when a fenced append finds the leadership fencing token has moved
+    past the one this writer holds: a successor acquired the role while this
+    process was stalled, partitioned, or slow. The append was refused **by the
+    storage transaction itself** -- the record was never durably written.
+
+    A subclass of :class:`AuditWriterNotOwned` because the consequence is the
+    same -- this runtime failed to *observe*, it decided nothing about whether
+    an operation was permitted -- but kept distinct because the operator story
+    differs: "never held the role" is a configuration question, "held it and
+    lost it" is a lease-expiry or partition question.
+
+    The caller must not retry, must not reacquire, and must not present a newer
+    token: a stale writer that responded to this by taking the role back would
+    be a second writer manufacturing its own authority.
+    """
 
 
 class AuditChainError(AuditError):

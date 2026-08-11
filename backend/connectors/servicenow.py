@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
-import os
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -43,9 +42,10 @@ class ServiceNowConnector(BaseConnector):
         self._password = credentials.get("password", self._password)
 
     async def initialize(self) -> bool:
-        self._instance = self._instance or os.getenv(SERVICENOW_INSTANCE_ENV, "")
-        self._username = self._username or os.getenv(SERVICENOW_USERNAME_ENV, "")
-        self._password = self._password or os.getenv(SERVICENOW_PASSWORD_ENV, "")
+        creds = self._load_credentials()
+        self._instance = self._instance or creds.get("instanceUrl", "")
+        self._username = self._username or creds.get("username", "")
+        self._password = self._password or creds.get("password", "")
         if not self._instance or not self._username or not self._password:
             log.warning("SERVICENOW_INSTANCE, SERVICENOW_USERNAME, or SERVICENOW_PASSWORD not set — ServiceNow connector in degraded mode")
             self._available = False

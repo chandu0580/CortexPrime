@@ -41,15 +41,27 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from backend.api.legacy_connectivity_boundary import guard_legacy_connectivity
 from backend.auth.dependencies import require_user
 from backend.connectors.registry import connector_registry
 
 log = logging.getLogger(__name__)
 
+#: **V1 connectivity strangler boundary (ADR-043).** Every route here either
+#: writes a provider credential into a process-wide singleton or makes an
+#: authenticated outbound call using one, with no tenant anywhere in the
+#: request. ``require_user`` proves who is asking; it does not authorize an
+#: external operation, and these predate the path that does.
+#:
+#: Applied at the router so a route added later inherits it. Disabled by default
+#: -- see ``legacy_connectivity_boundary`` for what that breaks and why.
 router = APIRouter(
     prefix="/api/connectors",
     tags=["Enterprise Connectors"],
-    dependencies=[Depends(require_user)],
+    dependencies=[
+        Depends(require_user),
+        Depends(guard_legacy_connectivity("/api/connectors/*")),
+    ],
 )
 
 # ---------------------------------------------------------------------------

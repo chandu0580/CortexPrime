@@ -73,6 +73,22 @@ class WorkerKind(str, Enum):
     TERRAFORM = "terraform"
     BROWSER = "browser"
 
+    # -- Phase 3.3.2. The three adapter seams need a kind to exist before an
+    # adapter can declare one, and the resolver needs a value to resolve *to*.
+    # Added rather than repurposed: routing an MCP tool call through
+    # ``HTTP`` because MCP often travels over HTTP would make the transport the
+    # identity, and a worker that offers HTTP would then be offered MCP work it
+    # has no idea how to perform.
+    MCP = "mcp"
+    """A tool exposed over the Model Context Protocol by some server."""
+
+    CONNECTOR = "connector"
+    """A configured external system reached through a connector adapter."""
+
+    AGENT = "agent"
+    """A model-driven actor invoked as a capability. A mechanism only -- what it
+    is allowed to do is still the binding's to say."""
+
     @property
     def is_inherently_stateful(self) -> bool:
         """Whether work of this kind usually leaves something behind.
@@ -81,12 +97,19 @@ class WorkerKind(str, Enum):
         container and a ``TERRAFORM`` apply all leave state that outlives the
         node, which is what makes an abandoned lease on one worth reporting
         rather than merely retrying.
+
+        ``AGENT`` joins them: an actor that chose its own steps leaves partial
+        work nobody enumerated in advance. ``MCP`` and ``CONNECTOR`` do not --
+        a single tool call or connector request is no more stateful than the
+        ``HTTP`` call it resembles, and claiming otherwise would make every
+        remote read look like an abandoned container.
         """
         return self in (
             WorkerKind.DOCKER,
             WorkerKind.KUBERNETES,
             WorkerKind.TERRAFORM,
             WorkerKind.BROWSER,
+            WorkerKind.AGENT,
         )
 
 

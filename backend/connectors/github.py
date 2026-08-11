@@ -5,7 +5,6 @@ import base64
 import hashlib
 import json
 import logging
-import os
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -45,7 +44,10 @@ class GitHubConnector(BaseConnector):
         self._token = credentials.get("token", self._token)
 
     async def initialize(self) -> bool:
-        self._token = self._token or os.getenv(GITHUB_TOKEN_ENV, "")
+        # Credentials come from the store the composition root populated
+        # (connector_credential_composition); never from the environment
+        # here. An unconfigured connector degrades visibly (ADR-058).
+        self._token = self._token or self._load_credentials().get("token", "")
         if not self._token:
             log.warning("GITHUB_TOKEN not set — GitHub connector in degraded mode")
             self._available = False

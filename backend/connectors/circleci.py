@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -33,7 +32,7 @@ class CircleCIConnector(BaseConnector):
         self._token = credentials.get("token", self._token)
 
     async def initialize(self) -> bool:
-        self._token = self._token or os.getenv(CIRCLECI_TOKEN_ENV, "")
+        self._token = self._token or self._load_credentials().get("token", "")
         if not self._token:
             log.warning("CIRCLECI_TOKEN not set — CircleCI connector in degraded mode")
             self._available = False

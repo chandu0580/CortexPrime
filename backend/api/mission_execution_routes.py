@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends
+from backend.api.legacy_execution_boundary import guard_legacy_execution
 from pydantic import BaseModel, Field
 
 from backend.auth.dependencies import require_user
@@ -39,7 +40,12 @@ class ExecuteResponse(BaseModel):
 # POST /execute  (async — returns immediately, streams via WS)
 # =========================================================
 
-@router.post("/execute", response_model=ExecuteResponse)
+@router.post(
+    "/execute",
+    response_model=ExecuteResponse,
+    dependencies=[Depends(guard_legacy_execution(
+        "POST /execute"))],
+)
 async def execute_mission(
     request:          ExecuteRequest,
     background_tasks: BackgroundTasks,
@@ -83,7 +89,11 @@ async def _run_mission_bg(
 # POST /execute/sync  (waits for completion — dev/test)
 # =========================================================
 
-@router.post("/execute/sync")
+@router.post(
+    "/execute/sync",
+    dependencies=[Depends(guard_legacy_execution(
+        "POST /execute/sync"))],
+)
 async def execute_mission_sync(
     request:      ExecuteRequest,
     current_user: dict = Depends(require_user),

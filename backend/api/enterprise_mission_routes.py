@@ -16,6 +16,7 @@ import logging
 from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException
+from backend.api.legacy_execution_boundary import guard_legacy_execution
 from pydantic import BaseModel
 
 from backend.auth.dependencies import require_user
@@ -68,7 +69,11 @@ async def get_mission_template(template_id: str) -> Dict[str, Any]:
 # Launch & status
 # =====================================================================
 
-@router.post("/launch")
+@router.post(
+    "/launch",
+    dependencies=[Depends(guard_legacy_execution(
+        "POST /api/enterprise/missions/launch"))],
+)
 async def launch_mission(body: LaunchRequest) -> Dict[str, Any]:
     """Launch an enterprise mission from a template."""
     t = get_template(body.template_id)

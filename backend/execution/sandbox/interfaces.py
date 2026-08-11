@@ -198,7 +198,53 @@ _DENIED_PATTERNS = [
 ]
 
 
+class UnsandboxedScriptExecutionRefused(RuntimeError):
+    """``ScriptSandbox`` is not a sandbox. Refused by default.
+
+    Found during the Phase 5.4 security sweep. ``execute`` calls Python's
+    ``exec`` with a restricted ``__builtins__`` and a denied-substring list.
+    Neither is an isolation boundary:
+
+    * restricted builtins are routinely escaped by walking object internals
+      (``().__class__.__mro__``, ``__subclasses__`` and so on) — this is a
+      well-published class of escape, not a hypothetical;
+    * a denied-substring list is a blocklist, and a blocklist over a Turing
+      complete language enumerates what somebody already thought of;
+    * ``exec`` runs **in this process**, so anything it reaches — the durable
+      store's engine, the credential broker, the transport broker — is reachable
+      by whatever it executes.
+
+    The name is the dangerous part. A component called ``ScriptSandbox``
+    registered in a ``SandboxRegistry`` reads, to anybody wiring it, as the
+    containment this platform says it requires before running untrusted code.
+    It is not, and Phase 5.4 records sandboxed execution as DEFERRED precisely
+    because no real boundary exists yet.
+
+    Quarantined rather than deleted: the class stays so an existing dependency
+    fails loudly with an explanation instead of vanishing at import.
+    """
+
+
+#: Set to ``1`` only to perform a specific migration off this surface.
+UNSANDBOXED_SCRIPT_FLAG = "CORTEXPRIME_ENABLE_UNSANDBOXED_SCRIPT_EXECUTION"
+
+
 class ScriptSandbox(ExecutionSandbox):
+    def __init__(self, *, allow_non_production: bool = False) -> None:
+        import os
+
+        permitted = allow_non_production or os.environ.get(
+            UNSANDBOXED_SCRIPT_FLAG, ""
+        ).strip().lower() in ("1", "true", "yes")
+        if not permitted:
+            raise UnsandboxedScriptExecutionRefused(
+                "ScriptSandbox executes Python in this process with restricted "
+                "builtins, which is not an isolation boundary and is escapable. "
+                f"It is disabled. Set {UNSANDBOXED_SCRIPT_FLAG}=1, or pass "
+                "allow_non_production=True, only to perform a specific migration "
+                "off this surface."
+            )
+
     @property
     def sandbox_type(self) -> str:
         return "script"
@@ -273,4 +319,13 @@ class SandboxRegistry:
 sandbox_registry = SandboxRegistry()
 sandbox_registry.register(ShellSandbox())
 sandbox_registry.register(HTTPSandbox())
-sandbox_registry.register(ScriptSandbox())
+# ``ScriptSandbox`` is deliberately **not** registered. Registering it published
+# in-process ``exec`` under the name "sandbox", so any dispatcher asking the
+# registry for containment received something that provides none. The class is
+# still importable -- and still refuses to construct -- so a caller that wants
+# it gets an explanation rather than a silent absence.
+_log = __import__("logging").getLogger(__name__)
+_log.info(
+    "ScriptSandbox is not registered: it executes Python in this process and "
+    "is not an isolation boundary. Sandboxed execution is DEFERRED (ADR-047)."
+)

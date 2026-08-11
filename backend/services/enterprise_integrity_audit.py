@@ -124,13 +124,42 @@ class IntegrityAuditLog:
         runtime: Optional[AuditRuntime] = None,
         context: Optional[ExecutionContext] = None,
     ) -> None:
-        self._runtime = runtime if runtime is not None else _default_runtime()
+        # ``None`` stays ``None`` until first use (see ``_active``). The module
+        # global below is constructed at import time, and resolving a default
+        # store *here* would open the legacy JSONL chain in every process --
+        # including one whose composition root is about to bind the durable
+        # authority. Lazy resolution means a rebind before the first record
+        # leaves the legacy chain untouched entirely.
+        self._runtime = runtime
         self._context = context if context is not None else _DISPATCHER_CONTEXT
+
+    def rebind(self, runtime: AuditRuntime) -> None:
+        """Point this facade at the authoritative audit runtime (ADR-057).
+
+        Called by the application's composition root when the durable governed
+        composition is active, so approval-dispatch observations join **the**
+        fenced PostgreSQL chain instead of a private legacy file. This is the
+        strangler seam: the facade keeps its typed interface (the approval
+        semantics), and the sink underneath becomes the platform authority.
+
+        Refuses ``None`` rather than treating it as "back to the default" --
+        unbinding an authority silently is exactly the fallback behaviour this
+        phase removed.
+        """
+        if runtime is None:
+            raise ValueError("rebind requires a runtime; there is no unbind")
+        self._runtime = runtime
+
+    @property
+    def _active(self) -> AuditRuntime:
+        if self._runtime is None:
+            self._runtime = _default_runtime()
+        return self._runtime
 
     @property
     def runtime(self) -> AuditRuntime:
         """The underlying runtime, for callers needing query or export."""
-        return self._runtime
+        return self._active
 
     # ------------------------------------------------------------------
     # Recording
@@ -154,7 +183,7 @@ class IntegrityAuditLog:
                 context,
                 correlation=CorrelationContext.join(correlation_id),
             )
-        return self._runtime.record_in_context(
+        return self._active.record_in_context(
             kind,
             context,
             subject_reference=subject_reference,
@@ -243,7 +272,7 @@ class IntegrityAuditLog:
         Now reads from durable storage rather than an in-memory ring, so this
         no longer silently truncates after 1000 entries as it did in PR-04.
         """
-        return self._runtime.query()
+        return self._active.query()
 
     def verify_chain(self) -> tuple[bool, Optional[int]]:
         """Verify the chain. Returns ``(ok, first_defective_sequence)``.
@@ -253,7 +282,7 @@ class IntegrityAuditLog:
         PR-04 implementation could not see, because a deletion leaves the
         survivors internally consistent.
         """
-        report = verify_chain(self._runtime)
+        report = verify_chain(self._active)
         if report.ok:
             return True, None
         first = report.first_defect
@@ -261,7 +290,7 @@ class IntegrityAuditLog:
 
     def integrity_report(self) -> IntegrityReport:
         """Full report, including every defect found and the head digest."""
-        return verify_chain(self._runtime)
+        return verify_chain(self._active)
 
     def clear(self) -> None:
         """Reset to a fresh in-memory runtime. Test isolation only.
@@ -272,20 +301,50 @@ class IntegrityAuditLog:
         self._runtime = AuditRuntime(InMemoryAuditStore())
 
 
-def _default_runtime() -> AuditRuntime:
-    """Durable runtime for the integrity trail.
+def _is_production_environment() -> bool:
+    """The application's own environment convention (see ``main.py``)."""
+    import os
 
-    Falls back to in-memory if the durable store cannot be opened, and says so
-    loudly. Refusing to start would take the whole platform down over an audit
-    path; running silently unaudited would be worse. A warning plus a degraded
-    trail is the least-bad third option, and it is visible.
+    value = (os.getenv("ENVIRONMENT") or os.getenv("ENV") or "development")
+    return value.lower() in ("production", "prod")
+
+
+def _default_runtime() -> AuditRuntime:
+    """The legacy default sink, resolved lazily and gated by environment.
+
+    This default exists only for the composition the platform is moving away
+    from: a process that never bound the durable audit authority (ADR-057).
+    Where the governed composition is active, the application root calls
+    ``integrity_audit.rebind(persistence.audit)`` before anything records, and
+    this function never runs.
+
+    **Production fails closed.** The previous behaviour -- fall back to an
+    in-memory store and log -- meant a production approval trail could
+    silently stop surviving restarts. An approval-integrity record that only
+    ever existed in one process's memory is not evidence; refusing to record
+    is at least a visible failure with a named remedy (bind the durable
+    authority, or fix the file store).
+
+    **Development keeps the JSONL default, explicitly.** Single-writer
+    admission only, never fenced (ADR-055) -- a development convenience, not
+    an authority. The in-memory fallback survives only outside production and
+    only with a loud error naming what was lost.
     """
     try:
         return AuditRuntime(JsonlAuditStore(_DATA_DIR / "integrity_audit.jsonl"))
-    except Exception as exc:  # noqa: BLE001 - never let audit setup break boot
+    except Exception as exc:  # noqa: BLE001 - classified below, never silent
+        if _is_production_environment():
+            raise RuntimeError(
+                "the integrity audit store could not be opened and this is "
+                "production; there is no in-memory fallback here -- an "
+                "approval trail that vanishes on restart is not evidence. "
+                "Bind the durable audit authority (ADR-057) or repair the "
+                f"store ({type(exc).__name__}: {exc})"
+            ) from exc
         log.error(
-            "Durable integrity audit unavailable (%s); falling back to in-memory. "
-            "Records will NOT survive a restart.",
+            "Durable integrity audit unavailable (%s); NON-PRODUCTION in-memory "
+            "fallback engaged. Records will NOT survive a restart. This branch "
+            "does not exist in production, which fails closed instead.",
             exc,
         )
         return AuditRuntime(InMemoryAuditStore())

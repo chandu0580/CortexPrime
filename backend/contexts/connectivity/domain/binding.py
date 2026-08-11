@@ -144,6 +144,15 @@ class CapabilityBinding:
     rejected_candidates: tuple = ()
     candidate_count: int = 0
 
+    provider_operation: Optional[str] = None
+    """The provider catalog operation, copied from the capability contract.
+
+    Distinct from ``operation``, which is the governance verb. Execution
+    reads this to select a worker and to validate input against the
+    provider's declared contract; ``None`` falls back to the verb, which
+    refuses at selection for any adapter with a declared catalog.
+    """
+
     digest: Optional[str] = None
 
     def __post_init__(self) -> None:
@@ -229,6 +238,7 @@ class CapabilityBinding:
             "capability_digest": self.capability_digest,
             "provider": self.provider,
             "operation": self.operation.value,
+            "provider_operation": self.provider_operation,
             "authorization_digest": self.authorization_digest,
             "authorization_policy_version": self.authorization_policy_version,
             "resolution_policy_version": self.resolution_policy_version,
@@ -363,6 +373,7 @@ class CapabilityBinding:
             capability_digest=candidate.digest,
             provider=candidate.provider,
             operation=operation,
+            provider_operation=getattr(candidate, "provider_operation", None),
             authorization_digest=authorization_digest,
             authorization_policy_version=authorization_policy_version,
             resolution_policy_version=resolution_policy_version,

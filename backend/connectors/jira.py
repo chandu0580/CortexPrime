@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
-import os
 from typing import Any, Dict, Optional
 
 import httpx
@@ -40,9 +39,11 @@ class JiraConnector(BaseConnector):
         self._token = credentials.get("token", self._token)
 
     async def initialize(self) -> bool:
-        self._base_url = self._base_url or os.getenv(JIRA_BASE_URL_ENV, "https://chandu-ai.atlassian.net").rstrip("/")
-        self._email = self._email or os.getenv(JIRA_EMAIL_ENV, "")
-        self._token = self._token or os.getenv(JIRA_TOKEN_ENV, "")
+        creds = self._load_credentials()
+        self._base_url = (self._base_url or creds.get("baseUrl", "")
+                          or "https://chandu-ai.atlassian.net").rstrip("/")
+        self._email = self._email or creds.get("email", "")
+        self._token = self._token or creds.get("token", "")
         if not self._email or not self._token:
             log.warning("JIRA_EMAIL or JIRA_API_TOKEN not set — Jira connector in degraded mode")
             self._available = False

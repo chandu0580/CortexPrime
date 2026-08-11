@@ -291,13 +291,32 @@ class TestCredentialService:
         CredentialService.remove("slack")
         assert CredentialService.exists("slack") is False
 
-    def test_load_from_env_fallback(self, monkeypatch):
+    def test_no_environment_fallback(self, monkeypatch):
+        """Contract change (Phase 5.15, ADR-058): the store never falls back
+        to the environment. A credential in the process environment is
+        invisible until the composition root explicitly bootstraps it —
+        which is what stopped a bare application boot consuming `.env`
+        provider tokens and contacting real providers (found in 5.14)."""
         self._reset()
         from backend.services.credential_service import CredentialService
 
         monkeypatch.setenv("GITHUB_TOKEN", "env-token")
-        creds = CredentialService.load("github")
-        assert creds.get("token") == "env-token"
+        assert CredentialService.load("github") == {}
+        assert CredentialService.exists("github") is False
+
+    def test_bootstrap_is_the_one_road_in(self, monkeypatch):
+        """The sanctioned path: the composition act carries environment
+        configuration into the store, once, explicitly (ADR-058)."""
+        self._reset()
+        from backend.api.connector_credential_composition import (
+            bootstrap_connector_credentials,
+        )
+        from backend.services.credential_service import CredentialService
+
+        monkeypatch.setenv("GITHUB_TOKEN", "env-token")
+        outcome = bootstrap_connector_credentials(["github"])
+        assert outcome == {"github": True}
+        assert CredentialService.load("github") == {"token": "env-token"}
 
     def test_exists_returns_false_for_unknown(self):
         self._reset()
@@ -306,13 +325,17 @@ class TestCredentialService:
         assert CredentialService.exists("unknown") is False
 
     def test_env_mapping_for_all_connectors(self):
-        """Verify every connector has a defined env mapping."""
-        from backend.services.credential_service import CredentialService
+        """The env mapping lives in the composition module now (ADR-058) —
+        the credential store itself knows nothing about the environment."""
+        from backend.api.connector_credential_composition import (
+            CONNECTOR_ENVIRONMENT,
+        )
 
-        connectors = ["github", "jira", "slack", "teams", "azure_devops", "servicenow", "confluence", "notion"]
+        connectors = ["github", "jira", "slack", "teams", "azure_devops",
+                      "servicenow", "confluence", "notion", "gitlab_ci",
+                      "jenkins", "circleci"]
         for ctype in connectors:
-            creds = CredentialService._load_from_env(ctype)
-            assert isinstance(creds, dict)
+            assert isinstance(CONNECTOR_ENVIRONMENT.get(ctype), dict), ctype
 
 
 # =============================================================

@@ -27,7 +27,14 @@ from backend.contexts.connectivity.domain.identifiers import (
 )
 from backend.contexts.connectivity.domain.lifecycle import CapabilityStatus, TrustState
 
-__all__ = ["RECORD_SCHEMA_VERSION", "to_record", "from_record"]
+__all__ = [
+    "RECORD_SCHEMA_VERSION",
+    "BINDING_RECORD_SCHEMA_VERSION",
+    "to_record",
+    "from_record",
+    "binding_to_record",
+    "binding_from_record",
+]
 
 RECORD_SCHEMA_VERSION = 1
 
@@ -110,3 +117,126 @@ def from_record(data: Mapping[str, Any]) -> CapabilityDefinition:
         supersedes=data.get("supersedes"),
         metadata=data.get("metadata", {}),
     )
+
+
+# ----------------------------------------------------------------------
+# Bindings
+# ----------------------------------------------------------------------
+
+BINDING_RECORD_SCHEMA_VERSION = 1
+
+
+def binding_to_record(binding: "Any") -> dict[str, Any]:
+    """Flatten a ``CapabilityBinding`` for storage.
+
+    Written explicitly rather than reusing ``to_dict``: that projection is
+    shaped for audit and drops what a caller does not need to see, and a record
+    that cannot rebuild the object is a record that loses the binding.
+
+    The digest travels as stored. ``binding_from_record`` verifies it rather
+    than recomputing it — this is the artifact that says what was authorized, so
+    a row edited after the fact must be detectable.
+    """
+    return {
+        "schema_version": BINDING_RECORD_SCHEMA_VERSION,
+        "binding_id": binding.binding_id,
+        "tenant_id": binding.tenant_id,
+        "principal": {
+            "principal_id": binding.principal.principal_id,
+            "kind": binding.principal.kind.value,
+            "display_name": binding.principal.display_name,
+        },
+        "capability_id": binding.capability_id.value,
+        "version": binding.version.number,
+        "capability_digest": binding.capability_digest,
+        "provider": binding.provider,
+        "operation": binding.operation.value,
+        "provider_operation": binding.provider_operation,
+        "authorization_digest": binding.authorization_digest,
+        "authorization_policy_version": binding.authorization_policy_version,
+        "resolution_policy_version": binding.resolution_policy_version,
+        "resolved_at": binding.resolved_at.isoformat(),
+        "expires_at": binding.expires_at.isoformat(),
+        "side_effect_class": (
+            binding.side_effect_class.value if binding.side_effect_class else None
+        ),
+        "effect_semantics": (
+            binding.effect_semantics.value if binding.effect_semantics else None
+        ),
+        "mission_id": binding.mission_id,
+        "workflow_id": binding.workflow_id,
+        "execution_id": binding.execution_id,
+        "node_id": binding.node_id,
+        "selection_reasons": list(binding.selection_reasons),
+        "rejected_candidates": [
+            [reference, reason] for reference, reason in binding.rejected_candidates
+        ],
+        "candidate_count": binding.candidate_count,
+        "digest": binding.digest,
+    }
+
+
+def binding_from_record(data: Mapping[str, Any]):
+    """Rebuild a binding and **verify** its digest. Refuses a tampered row.
+
+    ``verify_digest`` is the domain's own check and raises ``BindingUnusable``
+    when the stored digest does not match the rebuilt payload. Calling it here
+    is what makes an edited row fail to load rather than loading as authority
+    nobody granted.
+    """
+    from backend.contracts.execution import EffectSemantics, SideEffectClass
+    from backend.contexts.connectivity.domain.binding import CapabilityBinding
+    from backend.contexts.connectivity.domain.authorization import CapabilityOperation
+
+    schema = data.get("schema_version")
+    if schema != BINDING_RECORD_SCHEMA_VERSION:
+        raise ContractViolation(
+            f"binding record schema version {schema!r} is not "
+            f"{BINDING_RECORD_SCHEMA_VERSION}; refusing to guess at a shape this "
+            "build does not know"
+        )
+    principal = data["principal"]
+    binding = CapabilityBinding(
+        binding_id=data["binding_id"],
+        tenant_id=data["tenant_id"],
+        principal=PrincipalRef(
+            principal_id=principal["principal_id"],
+            kind=PrincipalKind(principal["kind"]),
+            display_name=principal.get("display_name"),
+        ),
+        capability_id=CapabilityId.parse(data["capability_id"]),
+        version=CapabilityVersion(data["version"]),
+        capability_digest=data["capability_digest"],
+        provider=data["provider"],
+        operation=CapabilityOperation(data["operation"]),
+        # ``get`` rather than ``[]``: bindings written before Phase 5.5
+        # have no such key, and a stored binding must still load.
+        provider_operation=data.get("provider_operation"),
+        authorization_digest=data["authorization_digest"],
+        authorization_policy_version=data["authorization_policy_version"],
+        resolution_policy_version=data["resolution_policy_version"],
+        resolved_at=datetime.fromisoformat(data["resolved_at"]),
+        expires_at=datetime.fromisoformat(data["expires_at"]),
+        side_effect_class=(
+            SideEffectClass(data["side_effect_class"])
+            if data.get("side_effect_class")
+            else None
+        ),
+        effect_semantics=(
+            EffectSemantics(data["effect_semantics"])
+            if data.get("effect_semantics")
+            else None
+        ),
+        mission_id=data.get("mission_id"),
+        workflow_id=data.get("workflow_id"),
+        execution_id=data.get("execution_id"),
+        node_id=data.get("node_id"),
+        selection_reasons=tuple(data.get("selection_reasons", ())),
+        rejected_candidates=tuple(
+            (entry[0], entry[1]) for entry in data.get("rejected_candidates", ())
+        ),
+        candidate_count=data.get("candidate_count", 0),
+        digest=data.get("digest"),
+    )
+    binding.verify_digest()
+    return binding

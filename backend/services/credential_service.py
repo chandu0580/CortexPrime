@@ -1,11 +1,27 @@
+"""In-process credential store for V1 connectors. **No environment fallback.**
+
+Phase 5.15 (ADR-058) removed the ambient path this module used to carry:
+``load()`` fell back to ``os.getenv`` per connector type, which meant any code
+that constructed a connector silently consumed whatever provider credentials
+the process environment happened to hold — demonstrated in Phase 5.14, when
+merely booting the application contacted GitHub.
+
+Now the store answers only with what somebody explicitly put in it. The one
+sanctioned way environment configuration gets here is
+``backend.api.connector_credential_composition.bootstrap_connector_credentials``
+— a single, logged composition act in the application lifespan. A process that
+never performs it gets empty credentials and visibly degraded connectors, not
+a quiet borrow from ``.env``.
+"""
+
 import logging
-import os
 from typing import Dict
 
 log = logging.getLogger(__name__)
 
 # Keep in-memory store
 _CREDENTIAL_STORE: Dict[str, dict] = {}
+
 
 class CredentialService:
     @classmethod
@@ -16,64 +32,24 @@ class CredentialService:
 
     @classmethod
     def load(cls, connector_type: str) -> dict:
-        """Loads credentials, falling back to environment variables if not stored."""
+        """Loads stored credentials. Empty if nothing was explicitly stored.
+
+        Deliberately no environment fallback: what the store was never given,
+        it does not have. See the module docstring.
+        """
         if connector_type in _CREDENTIAL_STORE:
             return dict(_CREDENTIAL_STORE[connector_type])
-
-        # Fallback to environment variables
-        return cls._load_from_env(connector_type)
+        return {}
 
     @classmethod
     def exists(cls, connector_type: str) -> bool:
-        """Checks if credentials exist in the store or environment."""
-        if connector_type in _CREDENTIAL_STORE:
-            return True
-        # Check if environment variables are populated
-        creds = cls._load_from_env(connector_type)
-        return any(creds.values())
+        """Whether any credentials were explicitly stored for this type."""
+        return connector_type in _CREDENTIAL_STORE and any(
+            _CREDENTIAL_STORE[connector_type].values()
+        )
 
     @classmethod
     def remove(cls, connector_type: str) -> None:
         """Removes credentials from the store."""
         if connector_type in _CREDENTIAL_STORE:
             del _CREDENTIAL_STORE[connector_type]
-
-    @classmethod
-    def _load_from_env(cls, connector_type: str) -> dict:
-        """Helper to map connector type to environment variables."""
-        if connector_type == "github":
-            return {"token": os.getenv("GITHUB_TOKEN", "")}
-        elif connector_type == "jira":
-            return {
-                "baseUrl": os.getenv("JIRA_BASE_URL", ""),
-                "email": os.getenv("JIRA_EMAIL", ""),
-                "token": os.getenv("JIRA_API_TOKEN", "")
-            }
-        elif connector_type == "slack":
-            return {"botToken": os.getenv("SLACK_BOT_TOKEN", "")}
-        elif connector_type == "teams":
-            return {"accessToken": os.getenv("TEAMS_ACCESS_TOKEN", "")}
-        elif connector_type == "azure_devops":
-            return {
-                "organization": os.getenv("AZURE_DEVOPS_ORG", ""),
-                "project": os.getenv("AZURE_DEVOPS_PROJECT", ""),
-                "pat": os.getenv("AZURE_DEVOPS_PAT", "")
-            }
-        elif connector_type == "servicenow":
-            return {
-                "instanceUrl": os.getenv("SERVICENOW_INSTANCE", ""),
-                "username": os.getenv("SERVICENOW_USERNAME", ""),
-                "password": os.getenv("SERVICENOW_PASSWORD", "")
-            }
-        elif connector_type == "confluence":
-            return {
-                "siteUrl": os.getenv("CONFLUENCE_BASE_URL", ""),
-                "email": os.getenv("CONFLUENCE_EMAIL", ""),
-                "token": os.getenv("CONFLUENCE_API_TOKEN", "")
-            }
-        elif connector_type == "notion":
-            return {
-                "integrationToken": os.getenv("NOTION_API_KEY", ""),
-                "notionVersion": os.getenv("NOTION_VERSION", "")
-            }
-        return {}

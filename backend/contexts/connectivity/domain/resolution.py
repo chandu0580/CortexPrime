@@ -163,6 +163,10 @@ class CandidateSnapshot:
     supported_environments: tuple = ()
     input_schema_digest: Optional[str] = None
     output_schema_digest: Optional[str] = None
+    provider_operation: Optional[str] = None
+    """The provider catalog operation this capability performs, from its
+    contract. Carried so the binding can hand Execution the operation an
+    adapter can actually look up."""
     observed_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def __post_init__(self) -> None:

@@ -14,11 +14,55 @@ from backend.tools.tool_registry import tool_registry
 # COMPUTER TASK ENGINE
 # ==========================================
 
+class UncontainedProcessLaunchRefused(RuntimeError):
+    """This engine launches host processes with no containment. Refused.
+
+    Found during the Phase 5.4 security sweep. ``launch_application`` calls
+    ``subprocess.Popen(app)`` on a caller-supplied application name, with no
+    allow-list, no isolation boundary, no resource ceiling, no filesystem or
+    network restriction, and no kill path. That is arbitrary process execution
+    on the host, and it was reachable from any code that constructed the class.
+
+    It is quarantined rather than deleted because deleting a V1 surface somebody
+    may still depend on is a decision for whoever owns that dependency. The
+    default is refusal, and the flag exists to be *not* set.
+
+    Note what this deliberately does not do: it does not become the platform's
+    sandboxed-execution story. Phase 5.4 records sandboxed stdio as DEFERRED
+    precisely because a real isolation boundary does not exist yet, and wiring
+    this into the governed path would be claiming containment that is absent.
+    """
+
+
+#: Set to ``1`` only to perform a specific migration off this surface.
+UNCONTAINED_PROCESS_FLAG = "CORTEXPRIME_ENABLE_UNCONTAINED_PROCESS_LAUNCH"
+
+_TRUE = ("1", "true", "yes")
+
+
 class ComputerTaskEngine:
 
-    def __init__(self):
+    def __init__(self, *, allow_non_production: bool = False):
+        """Refuses to exist unless a caller states it accepts an uncontained host.
 
-        pass
+        Constructor-level rather than method-level on purpose: a class that can
+        be built and passed around is a class somebody will call, and the
+        refusal should happen where the dependency is taken rather than deep in
+        a call stack at the moment a process would launch.
+        """
+        import os
+
+        permitted = allow_non_production or os.environ.get(
+            UNCONTAINED_PROCESS_FLAG, ""
+        ).strip().lower() in _TRUE
+        if not permitted:
+            raise UncontainedProcessLaunchRefused(
+                "ComputerTaskEngine launches host processes with no isolation "
+                "boundary, no resource ceiling and no kill path. It is disabled. "
+                f"Set {UNCONTAINED_PROCESS_FLAG}=1, or pass "
+                "allow_non_production=True, only to perform a specific migration "
+                "off this surface."
+            )
 
 
     # ==========================================
@@ -548,9 +592,41 @@ class ComputerTaskEngine:
 # SINGLETON
 # ==========================================
 
-computer_task_engine = (
-    ComputerTaskEngine()
-)
+class _RefusingEngineProxy:
+    """Stands in for the singleton so **importing** stays safe.
+
+    The engine is quarantined, but it was constructed at module import, so a
+    refusing constructor turned every importer of this module into an import
+    error -- including modules that never launch anything. That trades one
+    hazard for an outage.
+
+    This proxy defers the refusal to the moment somebody actually reaches for
+    the engine, which is where it belongs: import is not use.
+    """
+
+    def __getattr__(self, name: str):
+        """Hand back a refusing coroutine, rather than refusing the lookup.
+
+        The module registers these methods as tool handlers at import time, so
+        raising on *attribute access* broke registration and therefore import.
+        Returning a callable that refuses when awaited puts the refusal exactly
+        where the danger is: the tool still appears in the registry, and calling
+        it fails closed with an explanation instead of launching a process.
+        """
+
+        async def _refuse(*_args: object, **_kwargs: object):
+            raise UncontainedProcessLaunchRefused(
+                "ComputerTaskEngine launches host processes with no isolation "
+                f"boundary; {name!r} is disabled. Set "
+                f"{UNCONTAINED_PROCESS_FLAG}=1 only to perform a specific "
+                "migration off this surface."
+            )
+
+        _refuse.__name__ = f"refused_{name}"
+        return _refuse
+
+
+computer_task_engine = _RefusingEngineProxy()
 
 
 # ==========================================

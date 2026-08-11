@@ -45,6 +45,7 @@ from backend.contracts import (
 from backend.platform.audit.exceptions import (
     AuditChainError,
     AuditCorruptionError,
+    AuditWriterNotOwned,
     AuditStorageError,
 )
 from backend.platform.audit.store import AuditQuery, AuditStore, InMemoryAuditStore
@@ -100,14 +101,63 @@ def _chain_body(
 class AuditRuntime:
     """Records security-critical decisions into an append-only chain."""
 
-    __slots__ = ("_lock", "_store", "_head", "_next_sequence")
+    __slots__ = ("_lock", "_store", "_head", "_next_sequence", "_ownership")
 
-    def __init__(self, store: Optional[AuditStore] = None) -> None:
+    def __init__(
+        self,
+        store: Optional[AuditStore] = None,
+        *,
+        ownership: Optional[Any] = None,
+    ) -> None:
+        """``ownership`` admits this runtime as **the** audit writer, or refuses it.
+
+        A hash chain has one tail. Two runtimes appending to one store interleave
+        into a chain that verifies as neither, which Phase 5.10 demonstrated with
+        two real processes. The port supplied here is consulted before every
+        append and is expected to be backed by the platform's existing
+        leadership mechanism (``LeadershipRole.AUDIT_WRITER``) -- not by a new
+        lock, a file, a pid or "I started first".
+
+        **This is admission, not fencing, and the distinction is load-bearing.**
+        ``fenced_where`` works because the token check and the mutation are one
+        SQL statement; a filesystem append cannot join that predicate. So a
+        runtime that *lost* the role between the check and its append can still
+        physically write. What this closes is the ordinary case -- a second
+        process that never held the role is refused before it touches the file.
+        What it does not close is the stalled ex-owner. See ADR-054.
+
+        ``None`` means unowned, which is the single-writer deployment and the
+        pre-existing behaviour: one process, one store, nothing to arbitrate.
+        """
         self._lock = threading.RLock()
         self._store: AuditStore = store if store is not None else InMemoryAuditStore()
         self._head: Optional[PayloadDigest] = None
         self._next_sequence = 0
+        self._ownership = ownership
         self._recover()
+
+    def _assert_writer(self) -> None:
+        """Refuse to append unless this runtime is the admitted writer.
+
+        Raises ``AuditWriterNotOwned``, which is deliberately not an
+        authorization type: failing to *observe* is not deciding that something
+        was not permitted.
+        """
+        if self._ownership is None:
+            return
+        try:
+            owned = bool(self._ownership.is_writer())
+        except Exception as exc:  # noqa: BLE001 - unverifiable ownership is not ownership
+            raise AuditWriterNotOwned(
+                f"audit writer ownership could not be established "
+                f"({type(exc).__name__}); refusing to append rather than "
+                "appending on an assumption"
+            ) from None
+        if not owned:
+            raise AuditWriterNotOwned(
+                "this runtime does not hold the audit writer role; the append is "
+                "refused so two writers cannot interleave into one chain"
+            )
 
     # ------------------------------------------------------------------
     # Recovery
@@ -208,6 +258,7 @@ class AuditRuntime:
         failed write leaves the chain intact and the next record links to the
         last one that actually reached storage.
         """
+        self._assert_writer()
         with self._lock:
             sequence = self._next_sequence
             previous = self._head

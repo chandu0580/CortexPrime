@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -36,8 +35,9 @@ class GitLabCIConnector(BaseConnector):
         self._token = credentials.get("token", self._token)
 
     async def initialize(self) -> bool:
-        self._url = (self._url or os.getenv(GITLAB_URL_ENV, "")).rstrip("/") or GITLAB_API_BASE
-        self._token = self._token or os.getenv(GITLAB_TOKEN_ENV, "")
+        creds = self._load_credentials()
+        self._url = (self._url or creds.get("url", "")).rstrip("/") or GITLAB_API_BASE
+        self._token = self._token or creds.get("token", "")
         if not self._token:
             log.warning("GITLAB_TOKEN not set — GitLab CI connector in degraded mode")
             self._available = False

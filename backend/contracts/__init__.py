@@ -86,9 +86,29 @@ from backend.contracts.evidence import (
     SourceOutcome,
     SourceStatus,
 )
+from backend.contracts.credential import (
+    CredentialRef,
+    CredentialScope,
+    CredentialState,
+    CredentialType,
+)
+from backend.contracts.transport import (
+    ConnectionRef,
+    ConnectionState,
+    TransportFailure,
+    TransportKind,
+)
+from backend.contracts.provider import (
+    ADAPTER_METRICS,
+    AdapterRef,
+    ProviderDelivery,
+    ProviderFailure,
+    ProviderRef,
+)
 from backend.contracts.execution import (
     ActionRef,
     ExecutionContract,
+    ExecutionEnvironment,
     ExecutionResult,
     ExecutionScope,
     ExecutionStatus,
@@ -180,6 +200,20 @@ __all__ = [
     "SideEffectClass",
     "ExecutionStatus",
     "ExecutionScope",
+    "ExecutionEnvironment",
+    "CredentialRef",
+    "CredentialScope",
+    "CredentialState",
+    "CredentialType",
+    "TransportKind",
+    "ConnectionState",
+    "TransportFailure",
+    "ConnectionRef",
+    "ProviderRef",
+    "AdapterRef",
+    "ProviderFailure",
+    "ProviderDelivery",
+    "ADAPTER_METRICS",
     "ActionRef",
     "ExecutionContract",
     "ExecutionResult",

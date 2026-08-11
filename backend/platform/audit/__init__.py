@@ -43,9 +43,11 @@ from __future__ import annotations
 from backend.platform.audit.exceptions import (
     AuditChainError,
     AuditCorruptionError,
+    AuditWriterNotOwned,
     AuditError,
     AuditRetentionError,
     AuditStorageError,
+    StaleAuditWriter,
 )
 from backend.platform.audit.retention import (
     AgeBasedRetention,
@@ -96,6 +98,8 @@ __all__ = [
     "AuditError",
     "AuditStorageError",
     "AuditCorruptionError",
+    "AuditWriterNotOwned",
+    "StaleAuditWriter",
     "AuditChainError",
     "AuditRetentionError",
 ]

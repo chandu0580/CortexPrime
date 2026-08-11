@@ -100,6 +100,32 @@ async def lifespan(_app: FastAPI):
     container.register("runtime_metrics", runtime_metrics)
     container.register("runtime_state", runtime_state)
 
+    # ============================================================
+    # GOVERNED DURABLE RUNTIME (Phase 5.14, ADR-057)
+    # ============================================================
+    # The 5.x production composition: DurablePersistence (PostgreSQL, the
+    # fenced audit authority), the governed invocation gateway, scheduler,
+    # recovery, and outbox publisher — assembled from the existing roots.
+    #
+    # DELIBERATELY NOT wrapped in the try/except-warning pattern used below.
+    # The governed runtime is absent unless CORTEX_DURABLE_URL is set; once
+    # it is set, a failure here must abort startup. A process that continued
+    # anyway would be the unaudited, non-durable version of itself wearing
+    # the production name — that is the fallback ADR-057 removes.
+    import asyncio as _asyncio
+
+    from backend.api.application_runtime import build_governed_runtime
+
+    governed_runtime = build_governed_runtime(
+        event_bus=event_bus, loop=_asyncio.get_running_loop()
+    )
+    if governed_runtime is not None:
+        governed_runtime.start()
+        container.register("governed_runtime", governed_runtime)
+        _app.state.governed = governed_runtime
+        log.info("Governed durable runtime ONLINE: %s",
+                 governed_runtime.describe())
+
     # Repository Layer (Pilot Services)
     from backend.database.repositories.factory import repo_factory
     container.register("repo_factory", repo_factory)
@@ -772,23 +798,38 @@ async def lifespan(_app: FastAPI):
     except Exception as exc:
         log.warning("Migration runner raised unexpectedly: %s", exc)
 
-    if not _migration_ok:
-        try:
-            from backend.database.engine import init_db
-            await init_db()
-            log.info("PostgreSQL + pgvector database layer ready (create_all fallback)")
-        except Exception as exc:
-            log.warning(f"Database layer startup incomplete: {exc}")
+    # 7) Schema bootstrap — development only, and never as a migration fallback.
+    #
+    # This used to call init_db() when migrations failed, which meant a
+    # production deployment with a broken migration would build its schema from
+    # the current models instead, start cleanly, and log a warning. The database
+    # that results is one no migration authored: alembic_version stays at the
+    # last revision that worked, columns exist that no revision added, and the
+    # next migration runs against a schema it cannot reason about.
+    #
+    # So there is no fallback any more. init_db() refuses in production
+    # (SchemaBootstrapRefused) and that refusal is deliberately not caught: a
+    # process that cannot establish its schema through migrations must not start
+    # serving as though it had.
+    from backend.database.engine import SchemaBootstrapRefused, init_db
 
-    # 7a) Bounded Context Repository Layer — ensure new domain tables exist
     try:
-        from backend.database.engine import init_db as _init_db
-        from backend.database.models import _ensure_bc_models
-        _ensure_bc_models()
-        await _init_db()
-        log.info("Bounded context repository tables verified")
+        await init_db(allow_non_production=True)
+        log.info("Development schema bootstrap complete (create_all)")
+    except SchemaBootstrapRefused:
+        if not _migration_ok:
+            raise RuntimeError(
+                "database migrations did not complete and create_all is refused "
+                "outside development; start-up is aborted rather than serving "
+                "against a schema no migration authored"
+            ) from None
+        log.info("Schema is owned by Alembic; create_all correctly refused")
     except Exception as exc:
-        log.warning("Repository layer table check incomplete: %s", exc)
+        # A development bootstrap that failed for some other reason. Reported,
+        # not fatal -- but only because migrations already succeeded above.
+        if not _migration_ok:
+            raise
+        log.warning("Development schema bootstrap incomplete: %s", exc)
 
     # 7b) Object Storage client connect
     try:
@@ -943,6 +984,20 @@ async def lifespan(_app: FastAPI):
     # Each connector is imported + registered independently so one broken
     # or missing optional dependency (e.g. the `docker` SDK) can't take
     # down registration for the other, unrelated connectors.
+    #
+    # Credentials first, as ONE deliberate composition act (Phase 5.15,
+    # ADR-058): connectors no longer read the environment themselves, and the
+    # credential store has no ambient fallback. This call is the only place
+    # environment configuration reaches V1 connectors — remove it and every
+    # connector runs visibly degraded, borrowing nothing from `.env`.
+    try:
+        from backend.api.connector_credential_composition import (
+            bootstrap_connector_credentials,
+        )
+
+        bootstrap_connector_credentials()
+    except Exception as exc:
+        log.warning("Connector credential bootstrap incomplete: %s", exc)
     try:
         from backend.connectors.registry import connector_registry
 
@@ -1069,6 +1124,17 @@ async def lifespan(_app: FastAPI):
     # ============================================================
 
     log.info("CortexPrime shutdown sequence initiated")
+
+    # 0) Stop the governed durable runtime FIRST: stop scheduling, drain the
+    #    active cycle, stop the publisher, release leadership roles, dispose
+    #    the engine. Its own contracts order this (ADR-057); doing it before
+    #    the infrastructure teardown below means it never coordinates against
+    #    a half-closed process.
+    if governed_runtime is not None:
+        try:
+            governed_runtime.stop()
+        except Exception as exc:
+            log.warning("Governed runtime shutdown incomplete: %s", exc)
 
     # 1) Emit shutdown event
     try:

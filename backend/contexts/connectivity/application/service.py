@@ -230,6 +230,7 @@ class CapabilityService:
             cancellable=command.cancellable,
             compensation_capability=command.compensation_capability,
             timeout_seconds=command.timeout_seconds,
+                provider_operation=command.provider_operation,
         )
 
         definition = CapabilityDefinition.register(

@@ -9,6 +9,8 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+
+from backend.api.legacy_execution_boundary import guard_legacy_execution
 from pydantic import BaseModel, Field
 
 from backend.auth.dependencies import require_user
@@ -53,7 +55,12 @@ class DecomposeRequest(BaseModel):
 # EXECUTE MISSION
 # =========================================================
 
-@router.post("/execute")
+@router.post(
+    "/execute",
+    # V1 strangler boundary (ADR-039). Privileged, and bypasses the
+    # invocation gateway entirely. Disabled unless the migration flag is set.
+    dependencies=[Depends(guard_legacy_execution("POST /api/v1/runtime/execute"))],
+)
 async def execute_mission(request: ExecuteRequest) -> Dict[str, Any]:
     """
     Launch a full cognition pipeline execution for the given objective.

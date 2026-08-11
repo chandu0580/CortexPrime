@@ -6,6 +6,8 @@ from typing import Any, Dict
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from backend.api.legacy_connectivity_boundary import guard_legacy_connectivity
+from backend.api.legacy_execution_boundary import guard_legacy_execution
 from backend.auth.dependencies import require_user
 from backend.mcp.gateway import MCPRequest, MCPResponse, mcp_gateway
 from backend.mcp.registry import mcp_registry
@@ -39,7 +41,13 @@ async def list_connectors(user: Dict = Depends(require_user)):
     return {"connectors": mcp_gateway.list_connectors()}
 
 
-@router.post("/execute")
+@router.post(
+    "/execute",
+    # V1 strangler boundary (ADR-038). This takes an arbitrary tool name and an
+    # arbitrary parameter dict with no tenant anywhere in the request, so there
+    # is nothing to check one against. Disabled unless the migration flag is set.
+    dependencies=[Depends(guard_legacy_execution("POST /api/v2/mcp/execute"))],
+)
 async def execute_tool(
     req: ExecuteToolRequest,
     user: Dict = Depends(require_user),
@@ -51,7 +59,17 @@ async def execute_tool(
     return {"result": response.data, "request_id": response.request_id}
 
 
-@router.post("/connectors/register")
+@router.post(
+    "/connectors/register",
+    # V1 connectivity strangler boundary (ADR-043). This writes a caller-named
+    # connector with caller-named tools into the global ``mcp_registry``, whose
+    # ``execute`` resolves a tool by name across every registered connector and
+    # calls the first match -- so a registration can shadow an existing tool name
+    # for the whole process. No tenant, and the registration outlives the request.
+    dependencies=[
+        Depends(guard_legacy_connectivity("POST /api/v2/mcp/connectors/register"))
+    ],
+)
 async def register_connector(
     req: RegisterConnectorRequest,
     user: Dict = Depends(require_user),

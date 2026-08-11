@@ -40,7 +40,11 @@ from datetime import datetime, timezone
 from typing import Any, Mapping, Optional
 
 from backend.contracts.errors import ContractViolation
-from backend.contracts.execution import EffectSemantics, SideEffectClass
+from backend.contracts.execution import (
+    EffectSemantics,
+    ExecutionEnvironment,
+    SideEffectClass,
+)
 
 __all__ = ["BoundCapability", "BindingRefused"]
 
@@ -72,6 +76,10 @@ class BoundCapability:
     capability_digest: str
     provider: str
     operation: str
+    """The **provider** operation: what the adapter will call, and what the
+    operation catalog is keyed by. Worker selection and input validation both
+    read this."""
+
     authorization_digest: str
     tenant_id: str
     principal_id: str
@@ -79,6 +87,33 @@ class BoundCapability:
 
     side_effect_class: SideEffectClass
     effect_semantics: EffectSemantics
+
+    environment: Optional[ExecutionEnvironment] = None
+    """Where this is to be performed. Optional in the type and **mandatory in
+    practice**: worker selection refuses a binding that does not say (Phase
+    3.3.2), because a worker registered only for development must never perform a
+    production binding and 'unstated' cannot be read as 'anywhere'.
+
+    Optional rather than required because ``CapabilityBinding`` does not carry an
+    environment and this projection may not invent one. The composition root
+    supplies it from the resolution request that produced the binding; where it
+    cannot, every selection refuses, which is the correct behaviour."""
+
+    interface: Optional[str] = None
+    governance_operation: Optional[str] = None
+    """The **governance** verb the binding was authorized for -- ``invoke``,
+    and never a provider operation.
+
+    Kept separate from ``operation`` because the two are different closed and
+    open vocabularies with different readers: the gateway re-derives the
+    authorization decision from this one, while worker selection and input
+    validation read the provider one. Collapsing them, which is what this
+    codebase did until Phase 5.5, means whichever reader loses gets a value it
+    cannot parse -- ``CapabilityOperation('repository.get_repository')``
+    raises, and ``catalog.get('invoke')`` returns nothing."""
+    """The provider shape, as ``CapabilityInterface`` names it. A string because
+    Execution never parses it -- it is compared, by value, against what an adapter
+    declares it drives."""
 
     execution_id: Optional[str] = None
     node_id: Optional[str] = None
@@ -111,6 +146,18 @@ class BoundCapability:
             raise ContractViolation("side_effect_class must be a SideEffectClass")
         if not isinstance(self.effect_semantics, EffectSemantics):
             raise ContractViolation("effect_semantics must be an EffectSemantics")
+        if self.environment is not None and not isinstance(
+            self.environment, ExecutionEnvironment
+        ):
+            raise ContractViolation(
+                "environment must be an ExecutionEnvironment; a free-form string "
+                "would let 'prod' and 'production' become two environments and a "
+                "production guard compare unequal against the thing it guards"
+            )
+        if self.interface is not None and (
+            not isinstance(self.interface, str) or not self.interface.strip()
+        ):
+            raise ContractViolation("interface must be non-blank text when present")
 
     # ------------------------------------------------------------------
     # What Execution can check on its own
@@ -181,6 +228,8 @@ class BoundCapability:
             "expires_at": self.expires_at.isoformat(),
             "side_effect_class": self.side_effect_class.value,
             "effect_semantics": self.effect_semantics.value,
+            "environment": self.environment.value if self.environment else None,
+            "interface": self.interface,
             "execution_id": self.execution_id,
             "node_id": self.node_id,
             "workflow_id": self.workflow_id,

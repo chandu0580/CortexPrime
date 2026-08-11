@@ -169,6 +169,25 @@ class CapabilityContract:
     compensation_capability: Optional[str] = None
     timeout_seconds: Optional[int] = None
 
+    provider_operation: Optional[str] = None
+    """Which operation in the provider's catalog this capability performs.
+
+    ``tenant.github.repository@1`` is a governed identity; ``repository.
+    get_repository`` is the thing an adapter actually calls. Both are needed and
+    they are different vocabularies -- ``CapabilityOperation`` is the closed set
+    of governance verbs (invoke, enable, revoke...), while this is provider
+    specific and open.
+
+    Part of the contract, and therefore part of the **digest**: changing which
+    provider operation a capability performs changes what an approval approved,
+    so it must invalidate the decision rather than quietly redirect it.
+
+    ``None`` means the capability declares no provider operation. Execution then
+    falls back to the governance verb, which is the pre-existing behaviour and
+    still refuses at worker selection for any adapter with a declared catalog --
+    an absent declaration stays closed rather than becoming a wildcard.
+    """
+
     def __post_init__(self) -> None:
         if not isinstance(self.interface, CapabilityInterface):
             raise ContractViolation("interface must be a CapabilityInterface")
@@ -283,6 +302,9 @@ class CapabilityContract:
             "cancellable": self.cancellable,
             "compensation_capability": self.compensation_capability,
             "timeout_seconds": self.timeout_seconds,
+            # Part of the digest: changing which provider operation a
+            # capability performs changes what an approval approved.
+            "provider_operation": self.provider_operation,
         }
 
     def to_dict(self) -> dict:
@@ -315,4 +337,8 @@ class CapabilityContract:
             cancellable=data.get("cancellable", False),
             compensation_capability=data.get("compensation_capability"),
             timeout_seconds=data.get("timeout_seconds"),
+            # ``get``, so a definition stored before Phase 5.5 still loads.
+            # It restores as ``None``, which is the honest reading: that
+            # capability never declared a provider operation.
+            provider_operation=data.get("provider_operation"),
         )

@@ -17,10 +17,33 @@ load_dotenv()
 # ==========================================
 
 class OpenAIProvider:
+    """Azure OpenAI provider with a LAZILY built client (Phase 5.15, ADR-058).
+
+    The SDK client used to be constructed in ``__init__`` at module import,
+    which made three Azure environment variables a precondition for importing
+    this module: with any of them absent the ``openai`` SDK raises, and every
+    transitive importer inherits the crash. Construction now happens on first
+    use, so importing is a pure definition and a missing credential fails the
+    completion call that actually needed it, with the SDK's own precise error.
+    """
 
     def __init__(self):
 
-        self.client = AsyncAzureOpenAI(
+        self._client = None
+
+        self.deployment_name = os.getenv(
+            "AZURE_OPENAI_CHAT_DEPLOYMENT"
+        )
+
+    @property
+    def client(self):
+        if self._client is None:
+            self._client = self._build_client()
+        return self._client
+
+    def _build_client(self):
+
+        return AsyncAzureOpenAI(
 
             api_key=os.getenv(
                 "AZURE_OPENAI_API_KEY"
@@ -33,10 +56,6 @@ class OpenAIProvider:
             api_version=os.getenv(
                 "AZURE_OPENAI_API_VERSION"
             )
-        )
-
-        self.deployment_name = os.getenv(
-            "AZURE_OPENAI_CHAT_DEPLOYMENT"
         )
 
 

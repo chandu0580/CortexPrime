@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -40,12 +39,13 @@ class NotionConnector(BaseConnector):
         self._version = credentials.get("notionVersion", self._version)
 
     async def initialize(self) -> bool:
-        self._token = self._token or os.getenv(NOTION_TOKEN_ENV, "")
+        creds = self._load_credentials()
+        self._token = self._token or creds.get("integrationToken", "")
         if not self._token:
             log.warning("NOTION_API_KEY not set — Notion connector in degraded mode")
             self._available = False
             return False
-        self._version = self._version or os.getenv(NOTION_VERSION_ENV, NOTION_VERSION_DEFAULT)
+        self._version = self._version or creds.get("notionVersion", "") or NOTION_VERSION_DEFAULT
         self._client = httpx.AsyncClient(
             base_url=NOTION_API_BASE,
             headers={

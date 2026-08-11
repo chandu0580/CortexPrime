@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
-import os
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -40,9 +39,10 @@ class ConfluenceConnector(BaseConnector):
         self._token = credentials.get("token", self._token)
 
     async def initialize(self) -> bool:
-        self._base_url = self._base_url or os.getenv(CONFLUENCE_BASE_URL_ENV, "").rstrip("/")
-        self._email = self._email or os.getenv(CONFLUENCE_EMAIL_ENV, "")
-        self._token = self._token or os.getenv(CONFLUENCE_TOKEN_ENV, "")
+        creds = self._load_credentials()
+        self._base_url = (self._base_url or creds.get("siteUrl", "")).rstrip("/")
+        self._email = self._email or creds.get("email", "")
+        self._token = self._token or creds.get("token", "")
         if not self._base_url or not self._email or not self._token:
             log.warning("CONFLUENCE_BASE_URL, CONFLUENCE_EMAIL, or CONFLUENCE_API_TOKEN not set — Confluence connector in degraded mode")
             self._available = False

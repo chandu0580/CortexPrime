@@ -78,6 +78,9 @@ from backend.contexts.execution.domain.events import (
     ExecutionStarted,
     ExecutionTimedOut,
 )
+from backend.contexts.execution.domain.lifecycle_events import (
+    NodeCompensationConcluded,
+)
 from backend.contexts.execution.application.instrumentation import NullObserver, SafeObserver
 from backend.contexts.execution.application.replay import ExecutionReplayer
 from backend.contexts.execution.domain.compensation import CompensationRecord
@@ -119,11 +122,42 @@ class CommandResult:
 
 
 class WorkerPool:
-    """The workers currently offering themselves.
+    """The workers currently offering themselves. **Capacity, never authority.**
 
-    In-memory and per-process, which is honest about what it is: a durable pool
-    needs the same storage the repository needs, and inventing a second
-    persistence story here would be worse than admitting there is one.
+    Two registries, and they are not duplicates
+    ---------------------------------------------
+    A worker must be present in both this pool and ``WorkerDirectory`` before it
+    can run anything, which reads like duplication until you name what each one
+    answers. Phase 5.5 hit ``UnknownWorker`` at claim time by registering in one
+    and not the other, so the distinction is written down here rather than
+    rediscovered:
+
+        WorkerDirectory  answers **"may this worker be selected?"** -- the
+                         governance question. Lifecycle (REGISTERED ->
+                         VALIDATED -> ENABLED), trust, availability, tenant
+                         visibility, isolation tier, which providers and
+                         operations the implementation advertises, and the
+                         implementation digest. It is durable
+                         (``SqlWorkerDirectory``), because a worker's
+                         commissioning must survive a restart -- otherwise
+                         "is this worker trusted" is answered from whatever
+                         the current process happened to be told.
+
+        WorkerPool       answers **"how much can this worker take right now?"**
+                         -- the capacity question. Kinds offered, concurrency
+                         ceiling, lease duration. The execution aggregate reads
+                         it to decide whether a lease may be issued at all.
+
+    Neither can answer the other's question, and collapsing them would produce a
+    single registry where revoking trust silently changed concurrency, or where
+    a worker at its concurrency ceiling looked untrusted. They are separate
+    invariants that happen to be keyed by the same id.
+
+    In-memory and per-process, which is honest about what it is: capacity is a
+    property of *this* process's live workers, and a durable copy would describe
+    a fleet nobody in this process can lease from. That is also why losing it on
+    restart is correct rather than a gap -- a restarted process has no
+    outstanding leases to account for.
     """
 
     def __init__(self) -> None:
@@ -279,6 +313,7 @@ class ExecutionService:
                 compensates=node.get("compensates"),
                 cancellable=node.get("cancellable", True),
                 execution_key=node.get("execution_key"),
+                input=node.get("input") or {},
             )
             for node in command.nodes
         )
@@ -712,8 +747,47 @@ class ExecutionService:
         return self._saved(context, execution.skip(command.node_id, command.reason))
 
     def compensate(self, context: Any, command: CompensateNode) -> CommandResult:
+        """Record that a node was compensated. **The platform did not do it.**
+
+        This marks a node ``COMPENSATED``; nothing dispatches a compensating
+        action, because no compensating action exists to dispatch. So the event
+        this emits says exactly that: the outcome is **not known** and the
+        original change is assumed to **still be out there**.
+
+        Those two field values are the whole reason this emits at all. Before
+        Phase 5.3 the compensation events were declared and never constructed —
+        an operator subscribing to ``execution.runtime.compensation_concluded``
+        would have waited forever while believing they had compensation
+        observability, which is worse than having none. Emitting a truthful
+        "somebody asserted this was compensated and the platform cannot confirm
+        it" is strictly better than emitting nothing, and far better than
+        emitting ``change_remains=False`` for something nobody verified.
+        """
         execution = self._load(context, command.execution_id)
-        return self._saved(context, execution.compensate(command.node_id))
+        compensated = execution.compensate(command.node_id)
+        return self._saved(
+            context,
+            compensated,
+            (
+                NodeCompensationConcluded(
+                    metadata=self._metadata(context, compensated),
+                    execution_id=str(compensated.execution_id),
+                    node_id=command.node_id,
+                    # The node is its own compensation subject: there is no
+                    # separate compensating node, and naming a fictional one
+                    # would be the dishonesty this event was rewritten to avoid.
+                    compensating_node_id=command.node_id,
+                    outcome="recorded",
+                    change_remains=True,
+                    outcome_known=False,
+                    reason=(
+                        "the node was marked compensated by command; this "
+                        "platform dispatches no compensating action, so whether "
+                        "the original change was actually undone is unknown"
+                    ),
+                ),
+            ),
+        )
 
     # ------------------------------------------------------------------
     # Checkpoints

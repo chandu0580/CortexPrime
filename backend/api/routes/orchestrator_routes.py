@@ -2,6 +2,8 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from backend.api.legacy_execution_boundary import guard_legacy_execution
+
 from backend.auth.dependencies import require_user
 from backend.orchestrator.agent_router import agent_router
 from backend.orchestrator.autonomous_reasoning_loop import autonomous_reasoning_loop
@@ -15,7 +17,12 @@ router = APIRouter(dependencies=[Depends(require_user)])
 # EXECUTE GOAL
 # ==========================================
 
-@router.post("/execute")
+@router.post(
+    "/execute",
+    # V1 strangler boundary (ADR-039). Privileged, and bypasses the
+    # invocation gateway entirely. Disabled unless the migration flag is set.
+    dependencies=[Depends(guard_legacy_execution("POST /api/orchestrator/execute"))],
+)
 
 async def execute_goal(
     payload: Dict[str, Any]

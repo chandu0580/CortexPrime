@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional, Sequence
+from typing import Any, Mapping, Optional, Sequence
 
 from backend.contracts.execution import SideEffectClass
 from backend.contexts.execution.domain.execution import Execution
@@ -49,6 +49,7 @@ def node_spec(
     compensates: Optional[str] = None,
     cancellable: bool = True,
     execution_key: Optional[str] = None,
+    input: Optional[Mapping[str, Any]] = None,
 ) -> NodeSpec:
     """One node of the compiled graph, as the runtime needs it.
 
@@ -66,6 +67,7 @@ def node_spec(
         compensates=compensates,
         cancellable=cancellable,
         execution_key=execution_key,
+        input=dict(input or {}),
     )
 
 

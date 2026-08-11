@@ -71,6 +71,7 @@ class RegisterCapability:
     cancellable: bool = False
     compensation_capability: Optional[str] = None
     timeout_seconds: Optional[int] = None
+    provider_operation: Optional[str] = None
     supersedes: Optional[int] = None
     metadata: Optional[Dict[str, Any]] = None
 

@@ -20,9 +20,10 @@ requiring an idempotency key for anything that mutates.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from types import MappingProxyType
+from typing import Any, Mapping, Optional
 
 from backend.contracts._contract import Contract
 from backend.contracts.errors import ContractViolation
@@ -348,8 +349,41 @@ class NodeSpec(Contract):
     cancellable: bool = True
     execution_key: Optional[str] = None
 
+    input: Mapping[str, Any] = field(default_factory=dict)
+    """The arguments for this node's provider operation. **Data, never authority.**
+
+    Owned here because the node is the unit of work: what a node does and what it
+    does it *to* are one declaration, and splitting them would let the two drift
+    between the workflow that was approved and the invocation that ran.
+
+    It cannot select anything. The capability, its version, the provider, the
+    worker, the credential and the operation are all decided by resolution,
+    authorization and worker selection before this is read; the input only says
+    which repository, which issue, which document. The existing
+    ``OperationInputValidator`` refuses any key the provider catalog does not
+    declare, so a payload carrying ``_operation``, ``_worker`` or ``tenant_id``
+    is rejected as an unknown field rather than honoured.
+
+    Frozen at construction into a ``MappingProxyType``: once an execution is
+    admitted the input is part of the concrete action the action digest covers,
+    and a caller holding a reference to a mutable dict could otherwise change
+    what executes after it was digested.
+    """
+
     def __post_init__(self) -> None:
         object.__setattr__(self, "node_id", normalise_node_id(self.node_id))
+
+        if not isinstance(self.input, Mapping):
+            raise ContractViolation("node input must be a mapping")
+        for key in self.input:
+            if not isinstance(key, str):
+                raise ContractViolation(
+                    "node input keys must be strings; a non-string key cannot be "
+                    "canonicalised, and the action digest depends on canonical form"
+                )
+        # A read-only view over a copy. The copy defeats a caller that kept the
+        # original dict; the proxy defeats one that reaches in through the spec.
+        object.__setattr__(self, "input", MappingProxyType(dict(self.input)))
 
         if not isinstance(self.worker_kind, WorkerKind):
             raise ContractViolation("worker_kind must be a WorkerKind")

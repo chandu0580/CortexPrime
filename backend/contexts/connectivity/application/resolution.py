@@ -424,6 +424,7 @@ class CapabilityResolutionService:
                 is_self_declared=d.source.is_self_declared,
                 side_effect_class=d.contract.side_effect_class,
                 effect_semantics=d.contract.effect_semantics,
+                provider_operation=d.contract.provider_operation,
                 supported_environments=d.contract.supported_environments,
                 input_schema_digest=(
                     d.contract.input_schema.digest if d.contract.input_schema else None

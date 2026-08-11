@@ -19,6 +19,8 @@ import logging
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+
+from backend.api.legacy_execution_boundary import guard_legacy_execution
 from pydantic import BaseModel
 
 from backend.auth.dependencies import require_admin, require_user
@@ -153,7 +155,13 @@ async def list_active_missions() -> Dict[str, Any]:
     return {"missions": active, "count": len(active)}
 
 
-@router.post("/execute", dependencies=_ADMIN)
+@router.post(
+    "/execute",
+    # V1 strangler boundary (ADR-039). Admin-guarded is not gateway-governed:
+    # _ADMIN proves who is asking, not that the action was authorized against
+    # a capability, a binding and a worker selection.
+    dependencies=_ADMIN + [Depends(guard_legacy_execution("POST /operator/execute"))],
+)
 async def execute_mission(req: ExecuteMissionRequest) -> Dict[str, Any]:
     """
     Submit a new autonomous mission.

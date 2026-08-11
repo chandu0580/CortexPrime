@@ -28,6 +28,18 @@ silently accepting.
 
 It is still an interim. PostgreSQL gives transactional guarantees this does not,
 which is why the interface exists.
+
+What JSONL guarantees, exactly (ADR-054 / ADR-055)
+---------------------------------------------------
+``JsonlAuditStore`` under ``AuditRuntime`` with an ownership port gives
+**single-writer admission only**. A process that never held ``AUDIT_WRITER`` is
+refused before it touches the file; a process that held the role, lost it, and
+still appends gets its write into the file, because a filesystem append cannot
+carry the fencing token into the write itself. Physically fenced appends exist
+only in the SQL store (``backend.database.durable.audit.SqlAuditStore``), where
+the fence predicate and the insert commit or roll back as one transaction.
+JSONL is therefore correct for a single-writer deployment, for development, and
+as an export/archive format -- and must never be described as fenced.
 """
 
 from __future__ import annotations

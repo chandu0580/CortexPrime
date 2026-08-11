@@ -31,6 +31,9 @@ __all__ = [
     "ContextIsolationRule",
     "PersistenceEncapsulationRule",
     "NoLegacyImportRule",
+    "LegacyAuditQuarantineRule",
+    "AmbientProviderCredentialRule",
+    "DirectProviderHttpRule",
     "InterfacePurityRule",
     "default_boundary_rules",
     "BOUNDED_CONTEXTS",
@@ -240,6 +243,219 @@ class NoLegacyImportRule:
 
 
 @dataclass(frozen=True)
+class LegacyAuditQuarantineRule:
+    """The legacy approval-audit facade may only shrink (ADR-057).
+
+    ``enterprise_integrity_audit`` is a strangled surface: an adapter over the
+    platform ``AuditRuntime`` whose sink the application root rebinds to the
+    durable authority. Its *interface* survives for the approval dispatcher;
+    its *reach* must not grow. In particular the governed composition — the
+    bounded contexts, the composition roots under ``backend.api``, the durable
+    layer — must never import it: governed execution audits through the
+    platform runtime directly, and a second route into audit is how a second
+    authority quietly begins.
+
+    Allowed importers, exactly: the approval action dispatcher (the facade's
+    one production caller, which *records through* it) and the governed
+    application runtime (the composition root, which *rebinds its sink* to
+    the durable authority and records nothing through it). Everything else
+    is a violation. Removing a name from this list is progress; adding one
+    needs an ADR.
+    """
+
+    rule_id: str = "BND-LEGACY-AUDIT"
+    description: str = (
+        "enterprise_integrity_audit is quarantined: only the approval "
+        "dispatcher and the rebinding composition root may import it"
+    )
+    legacy_module: str = "backend.services.enterprise_integrity_audit"
+    allowed_importers: tuple[str, ...] = (
+        "backend.services.enterprise_approval_action_dispatcher",
+        "backend.api.application_runtime",
+    )
+    severity: Severity = Severity.ERROR
+
+    def evaluate(self, graph: ModuleGraph) -> RuleResult:
+        violations: list[Violation] = []
+        checked = 0
+        for module in graph.modules():
+            if module.name == self.legacy_module:
+                continue
+            checked += 1
+            for imported, line in module.imports_matching(self.legacy_module):
+                if module.name in self.allowed_importers:
+                    continue
+                violations.append(
+                    Violation(
+                        rule_id=self.rule_id,
+                        severity=self.severity,
+                        module=module.name,
+                        line=line,
+                        offender=imported,
+                        detail=(
+                            f"imports {imported!r}; the legacy approval-audit "
+                            "facade is quarantined to "
+                            f"{', '.join(self.allowed_importers)} (ADR-057). "
+                            "Audit through backend.platform.audit instead"
+                        ),
+                    )
+                )
+        return RuleResult(
+            rule_id=self.rule_id,
+            description=self.description,
+            violations=tuple(violations),
+            modules_checked=checked,
+        )
+
+
+@dataclass(frozen=True)
+class AmbientProviderCredentialRule:
+    """Provider credentials are a composition decision, not ambient state.
+
+    Phase 5.15 (ADR-058) moved every V1 connector credential read out of the
+    connector modules and into one composition act
+    (``backend.api.connector_credential_composition``). This rule keeps them
+    out: an ``os.getenv``/``os.environ`` access naming a provider credential
+    variable, anywhere outside the allowlisted composition/bootstrap sites, is
+    a violation. AST-based — a variable name in a comment, docstring, or log
+    message does not trip it; only an actual environment access does.
+
+    ``VAULT_TOKEN`` is deliberately not in the name list: it is the
+    platform's own bootstrap secret (ADR-040), read by the production
+    connectivity builder as part of the bootstrap trust model.
+    """
+
+    rule_id: str = "BND-AMBIENT-CREDENTIALS"
+    description: str = (
+        "provider credential environment variables are read only by the "
+        "allowlisted composition roots"
+    )
+    credential_variables: tuple[str, ...] = (
+        "GITHUB_TOKEN", "GH_TOKEN", "GITLAB_TOKEN", "JIRA_API_TOKEN",
+        "JIRA_EMAIL", "CONFLUENCE_API_TOKEN", "CONFLUENCE_EMAIL",
+        "SLACK_BOT_TOKEN", "TEAMS_ACCESS_TOKEN", "NOTION_API_KEY",
+        "CIRCLECI_TOKEN", "AZURE_DEVOPS_PAT", "JENKINS_PASS",
+        "SERVICENOW_PASSWORD", "SERVICENOW_USERNAME",
+    )
+    allowed_modules: tuple[str, ...] = (
+        "backend.api.connector_credential_composition",
+    )
+    severity: Severity = Severity.ERROR
+
+    def evaluate(self, graph: ModuleGraph) -> RuleResult:
+        import ast as _ast
+
+        wanted = set(self.credential_variables)
+        violations: list[Violation] = []
+        checked = 0
+        for module in graph.modules():
+            if module.name in self.allowed_modules:
+                continue
+            checked += 1
+            try:
+                tree = _ast.parse(module.path.read_text(encoding="utf-8"))
+            except (OSError, SyntaxError):
+                continue
+            for node in _ast.walk(tree):
+                name: Optional[str] = None
+                # os.getenv("X") / os.environ.get("X")
+                if (isinstance(node, _ast.Call)
+                        and isinstance(node.func, _ast.Attribute)
+                        and node.func.attr in ("getenv", "get")
+                        and node.args
+                        and isinstance(node.args[0], _ast.Constant)
+                        and isinstance(node.args[0].value, str)):
+                    name = node.args[0].value
+                # os.environ["X"]
+                elif (isinstance(node, _ast.Subscript)
+                        and isinstance(node.value, _ast.Attribute)
+                        and node.value.attr == "environ"
+                        and isinstance(node.slice, _ast.Constant)
+                        and isinstance(node.slice.value, str)):
+                    name = node.slice.value
+                if name in wanted:
+                    violations.append(
+                        Violation(
+                            rule_id=self.rule_id,
+                            severity=self.severity,
+                            module=module.name,
+                            line=node.lineno,
+                            offender=name,
+                            detail=(
+                                f"reads provider credential {name!r} from the "
+                                "environment; credentials reach connectors only "
+                                "through connector_credential_composition "
+                                "(ADR-058)"
+                            ),
+                        )
+                    )
+        return RuleResult(
+            rule_id=self.rule_id,
+            description=self.description,
+            violations=tuple(violations),
+            modules_checked=checked,
+        )
+
+
+@dataclass(frozen=True)
+class DirectProviderHttpRule:
+    """The governed path speaks to providers only through the transport broker.
+
+    Inside the bounded contexts and the platform credential fabric, importing
+    an HTTP client library directly is a violation: a context that can open
+    its own connections has a second transport, and a second transport is how
+    connection policy, budgets, and audit stop being facts. The one home for
+    HTTP client code is ``backend.platform.transport`` (ADR-041). The V1
+    connector zone (``backend.connectors``) is a documented quarantine, not an
+    endorsement — it is outside this rule's scope and inside the legacy
+    boundary's.
+    """
+
+    rule_id: str = "BND-DIRECT-HTTP"
+    description: str = (
+        "bounded contexts and the credential fabric import no HTTP client "
+        "library; transport lives in backend.platform.transport"
+    )
+    scopes: tuple[str, ...] = (
+        "backend.contexts",
+        "backend.platform.credentials",
+    )
+    http_libraries: tuple[str, ...] = ("httpx", "requests", "aiohttp", "urllib3")
+    severity: Severity = Severity.ERROR
+
+    def evaluate(self, graph: ModuleGraph) -> RuleResult:
+        violations: list[Violation] = []
+        checked = 0
+        for module in graph.modules():
+            if not any(module.name == scope or module.name.startswith(scope + ".")
+                       for scope in self.scopes):
+                continue
+            checked += 1
+            for library in self.http_libraries:
+                for imported, line in module.imports_matching(library):
+                    violations.append(
+                        Violation(
+                            rule_id=self.rule_id,
+                            severity=self.severity,
+                            module=module.name,
+                            line=line,
+                            offender=imported,
+                            detail=(
+                                f"imports {imported!r} inside the governed "
+                                "path; provider connections go through the "
+                                "TransportBroker (ADR-041)"
+                            ),
+                        )
+                    )
+        return RuleResult(
+            rule_id=self.rule_id,
+            description=self.description,
+            violations=tuple(violations),
+            modules_checked=checked,
+        )
+
+
+@dataclass(frozen=True)
 class InterfacePurityRule:
     """Delivery interfaces contain translation, not business logic.
 
@@ -300,5 +516,8 @@ def default_boundary_rules() -> tuple:
         ContextIsolationRule(),
         PersistenceEncapsulationRule(),
         NoLegacyImportRule(),
+        LegacyAuditQuarantineRule(),
+        AmbientProviderCredentialRule(),
+        DirectProviderHttpRule(),
         InterfacePurityRule(),
     )
