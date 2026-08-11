@@ -562,7 +562,28 @@ def build_production_connectivity(
     # 5b. Additional providers, through the very same seams. A deployment
     #     with a second provider registers it here; nothing about the path
     #     downstream of registration knows or cares which providers exist.
-    for entry, adapter, catalog in connectors:
+    #
+    #     Phase 6.1: an item may be a *builder* — a callable invoked here with
+    #     this composition's own broker, policy and preflight — because those
+    #     seams do not exist yet when ``CORTEX_CONNECTOR_FACTORIES`` factories
+    #     run. A factory that constructed its own broker to work around that
+    #     would be a second transport authority, which is the one thing this
+    #     function exists to prevent.
+    materialized = []
+    for item in connectors:
+        if callable(item) and not isinstance(item, tuple):
+            materialized.append(
+                item(
+                    transport_broker=transport_broker,
+                    connection_policy=policy,
+                    environment=config.environment,
+                    preflight=preflight,
+                    metrics=metrics,
+                )
+            )
+        else:
+            materialized.append(item)
+    for entry, adapter, catalog in materialized:
         provider_id = getattr(catalog, "provider_id", None) or getattr(
             entry, "worker_id", "connector"
         )

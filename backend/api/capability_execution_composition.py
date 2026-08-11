@@ -505,6 +505,92 @@ def build_github_connector(
     return WorkerEntry(implementation=implementation), adapter, catalog
 
 
+def build_grafana_connector(
+    *,
+    transport_broker: Any,
+    connection_policy: Any,
+    environment: ExecutionEnvironment,
+    worker_id: str = "grafana-connector",
+    base_url: Optional[str] = None,
+    preflight: Optional[Any] = None,
+    metrics: Optional[Any] = None,
+    isolation: Optional[Any] = None,
+) -> tuple:
+    """The second declared provider (Phase 6.1). Returns ``(entry, adapter, catalog)``.
+
+    Same contract as :func:`build_github_connector`: the entry is returned at
+    ``REGISTERED``/``UNVERIFIED``/``UNAVAILABLE``, construction contacts
+    nothing, and four separate deliberate acts stand between this and real
+    work.
+
+    Isolation is ``CONTAINED``, and the claim is examined rather than assumed
+    (the GitHub comment below this one is the precedent for saying this out
+    loud): the catalog's one write is ``REVERSIBLE_WRITE`` with a complete
+    declared inverse; every operation is declared, validated, and digested;
+    and the credential is minted per execution by the broker with a bounded
+    lifetime. What this in-process adapter does NOT provide is a separate
+    worker process — recorded here and in ADR-059 as the accepted deviation
+    for the development deployment, to be revisited when workers gain process
+    separation. Declaring ``AMBIENT`` instead would refuse the write and with
+    it the phase's one governed side effect; declaring ``SEALED`` would claim
+    hardware isolation that does not exist. ``CONTAINED`` is the honest middle
+    with one stated gap.
+    """
+    from backend.contracts.connector import IsolationTier
+    from backend.contexts.execution import (
+        WorkerEntry,
+        WorkerInterface,
+        WorkerScope,
+    )
+    from backend.contexts.execution.infrastructure.adapters.connectors.grafana import (
+        GRAFANA_API_BASE,
+        GRAFANA_PROVIDER,
+        GRAFANA_PROVIDER_ID,
+        GrafanaResponseTranslator,
+        build_grafana_channel,
+        grafana_catalog,
+    )
+
+    catalog = grafana_catalog()
+    channel = build_grafana_channel(
+        broker=transport_broker,
+        policy=connection_policy,
+        environment=environment,
+        base_url=base_url or GRAFANA_API_BASE,
+    )
+    implementation = WorkerImplementation(
+        worker_id=worker_id,
+        worker_kind=WorkerKind.CONNECTOR,
+        interface=WorkerInterface.CONNECTOR,
+        implementation=(
+            "backend.contexts.execution.infrastructure.adapters.connector."
+            "ConnectorAdapter+connectors.grafana"
+        ),
+        implementation_version="1.0.0",
+        isolation=isolation or IsolationTier.CONTAINED,
+        scope=WorkerScope.PLATFORM,
+        supported_environments=frozenset({environment}),
+        supported_effects=frozenset(
+            {spec.effect_semantics for spec in _catalog_specs(catalog)}
+        ),
+        supported_providers=frozenset({GRAFANA_PROVIDER_ID}),
+        supported_operations=frozenset(catalog.operations),
+        # Grafana reads no idempotency key on these endpoints. Declared
+        # honestly, exactly as for GitHub.
+        supports_provider_idempotency=False,
+    )
+    adapter = build_adapter(
+        implementation,
+        provider=GRAFANA_PROVIDER,
+        catalog=catalog,
+        channel=channel,
+        translator=GrafanaResponseTranslator(),
+        preflight=preflight,
+        metrics=metrics,
+    )
+    return WorkerEntry(implementation=implementation), adapter, catalog
+
+
 def _catalog_specs(catalog: Any) -> tuple:
     return tuple(catalog.require(name) for name in catalog.operations)
 

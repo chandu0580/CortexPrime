@@ -141,16 +141,13 @@ class LLMServiceModelPort:
         return self._service
 
     async def generate(self, *, system_prompt: str, prompt: str) -> ModelInvocation:
-        from backend.llm_provider.models import LLMRequest
-
         service = await self._service_instance()
-        request = LLMRequest(
+        response = await service.generate(
+            prompt,
             model=self._model or "",
-            messages=[{"role": "user", "content": prompt}],
             system_prompt=system_prompt,
             response_format={"type": "json_object"},
         )
-        response = await service.generate(request)
         if getattr(response, "error", None):
             raise RuntimeError(f"model call failed: {response.error}")
         return ModelInvocation(
