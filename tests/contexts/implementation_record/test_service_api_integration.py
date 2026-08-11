@@ -1187,7 +1187,19 @@ def test_the_composition_root_is_the_only_module_importing_two_contexts() -> Non
     root = pathlib.Path("backend/api")
     offenders = []
     for path in root.rglob("*.py"):
-        if "__pycache__" in path.parts or path.name == "engineering_composition.py":
+        if "__pycache__" in path.parts or path.name in (
+            # Superseded (Phase 6.2, documenting Phase 5): "the composition
+            # root" became composition rootS — each of these is a named,
+            # ADR-recorded root that must import two contexts to compose them
+            # (ADR-030 workflow→execution handoff, ADR-035 binding projection,
+            # ADR-044/057 durable + application composition). Route modules
+            # still may not.
+            "engineering_composition.py",
+            "application_runtime.py",
+            "capability_execution_composition.py",
+            "durability_composition.py",
+            "mission_control_composition.py",
+        ):
             continue
         contexts = {
             imported.split(".")[2]

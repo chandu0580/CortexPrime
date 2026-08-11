@@ -27,7 +27,11 @@ PLATFORM_DIR = REPO_ROOT / "backend" / "platform"
 
 #: Third-party distributions these modules may import. Deliberately empty.
 #: Adding an entry is an architectural change requiring an ADR.
-APPROVED_THIRD_PARTY: frozenset[str] = frozenset()
+#: Superseded (Phase 6.2, documenting Phase 5): ADR-041 made the platform's
+#: transport *implementation* an httpx adapter — the one sanctioned home for a
+#: raw HTTP client, enforced repo-wide by the BND-DIRECT-HTTP fitness rule.
+#: The empty set predated the transport fabric.
+APPROVED_THIRD_PARTY: frozenset[str] = frozenset({"httpx"})
 
 #: Standard-library modules platform may use. Listed explicitly so that a new
 #: stdlib dependency is a visible, reviewed change rather than a silent one.
@@ -41,16 +45,25 @@ APPROVED_STDLIB = frozenset(
         "enum",
         "hashlib",
         "hmac",
+        # Phase 6.2 supersession note: the five below arrived with Phase 5's
+        # transport/credential fabric (ADR-040/041) — ssrf.py needs ipaddress
+        # and socket to judge addresses, vault/broker log and mint (secrets),
+        # endpoint parses URLs (urllib). Reviewed additions, not drift.
+        "ipaddress",
         "json",
+        "logging",
         "math",
         "os",
         "pathlib",
         "re",
+        "secrets",
+        "socket",
         "sys",
         "threading",
         "time",
         "types",
         "typing",
+        "urllib",
         "uuid",
     }
 )
@@ -137,8 +150,14 @@ def test_every_module_imports_standalone() -> None:
 
 
 def test_no_third_party_dependency_was_introduced() -> None:
-    """ULID is implemented, not imported. This guards that decision."""
-    assert APPROVED_THIRD_PARTY == frozenset(), (
-        "a third-party dependency was added to platform identity/hashing; "
-        "this requires an ADR superseding ADR-011"
+    """ULID is implemented, not imported. This guards that decision.
+
+    Superseded once (Phase 6.2, documenting Phase 5): ADR-041 introduced
+    ``httpx`` as the transport fabric's one sanctioned client. The assertion
+    pins the set to exactly that, so any further third-party dependency still
+    requires an ADR — the ratchet survives, one notch later.
+    """
+    assert APPROVED_THIRD_PARTY == frozenset({"httpx"}), (
+        "a third-party dependency was added to backend/platform beyond the "
+        "ADR-041 httpx transport client; this requires an ADR"
     )

@@ -636,7 +636,14 @@ def _imports(path: pathlib.Path) -> list:
 
 
 def test_the_context_imports_only_contracts_and_platform() -> None:
-    permitted = ("backend.contracts", "backend.platform", "backend.contexts.execution")
+    permitted = (
+        "backend.contracts", "backend.platform", "backend.contexts.execution",
+        # Superseded (Phase 6.2, documenting Phase 5): ADR-044 put the durable
+        # Core tables in backend.database.durable, deliberately outside the
+        # declarative V1 registry; the context's SQL infrastructure is their
+        # one sanctioned consumer. The rest of backend.database stays banned.
+        "backend.database.durable",
+    )
     offences = [
         f"{path}: {imported}"
         for path in _modules()
@@ -666,6 +673,7 @@ def test_the_context_imports_no_v1_module() -> None:
         for path in _modules()
         for imported in _imports(path)
         if imported.startswith(forbidden)
+        and not imported.startswith("backend.database.durable")
     ]
     assert offences == [], offences
 

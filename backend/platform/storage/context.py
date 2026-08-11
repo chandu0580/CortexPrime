@@ -59,10 +59,15 @@ def is_repository_context(candidate: Any) -> bool:
     """
     if candidate is None:
         return False
-    if not isinstance(candidate, RepositoryContext):
-        return False
 
     try:
+        # The isinstance check is INSIDE the try (Phase 6.2 defect fix): a
+        # runtime_checkable Protocol isinstance calls hasattr on each member,
+        # and hasattr only suppresses AttributeError — a property raising
+        # anything else escaped this function *before* the accessor try below
+        # ever ran, surfacing as a query-path fault instead of a refusal.
+        if not isinstance(candidate, RepositoryContext):
+            return False
         tenant_id = candidate.tenant_id
         platform_internal = candidate.is_platform_internal
     except Exception:
