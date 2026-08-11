@@ -611,6 +611,32 @@ audit_record_table = sa.Table(
 )
 
 
+harness_trace_table = sa.Table(
+    "cp_harness_trace",
+    DURABLE_METADATA,
+    # Phase 6.1, L14. Append-only harness evidence, joined to the audit chain
+    # by correlation_id — never part of it (the audit runtime bans traces from
+    # the chain). Spans arrive redacted-at-construction; this table never sees
+    # an unredacted prompt, output, or tool payload.
+    sa.Column("span_record_id", sa.Text(), primary_key=True),
+    sa.Column("kind", sa.Text(), nullable=False),
+    sa.Column("mission_id", sa.Text(), nullable=False),
+    sa.Column("iteration", sa.Integer(), nullable=False),
+    sa.Column("step_id", sa.Text(), nullable=False),
+    sa.Column("harness_version", sa.Text(), nullable=False),
+    sa.Column("correlation_id", sa.Text(), nullable=False),
+    sa.Column("trace_id", sa.Text(), nullable=False),
+    sa.Column("trace_span_id", sa.Text(), nullable=False),
+    sa.Column("started_at", sa.Text(), nullable=False),
+    sa.Column("finished_at", sa.Text(), nullable=False),
+    sa.Column("record", _DOC, nullable=False),
+    sa.Column("recorded_at", _TS, nullable=False),
+    sa.Index("ix_cp_harness_trace_correlation", "correlation_id"),
+    sa.Index("ix_cp_harness_trace_mission", "mission_id", "iteration"),
+    sa.Index("ix_cp_harness_trace_version", "harness_version"),
+)
+
+
 #: Every durable table, in creation order. Used by the migration and by the
 #: bootstrap check that the schema a process needs is the schema it found.
 DURABLE_TABLES = (
@@ -629,4 +655,5 @@ DURABLE_TABLES = (
     connector_config_table,
     audit_chain_table,
     audit_record_table,
+    harness_trace_table,
 )
