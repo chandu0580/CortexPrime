@@ -36,6 +36,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Mapping, Optional
 
+from pydantic import BaseModel, Field
+
 __all__ = [
     "ArgKind",
     "ArgSpec",
@@ -44,7 +46,27 @@ __all__ = [
     "ResolvedTool",
     "ToolRefused",
     "ToolRefusalReason",
+    "ToolProposal",
 ]
+
+
+class ToolProposal(BaseModel):
+    """The canonical shape a model proposes when the loop runs under a tool
+    exposure policy: a tool NAME and its ARGUMENTS, nothing else.
+
+    The model names a tool (a key) and supplies arguments. It does not — cannot,
+    in this schema — supply a provider, an operation, a URL, a tenant, or a
+    capability: those are not fields here, so a model output carrying them fails
+    validation or has them ignored, and the resolver takes provider/operation
+    from the deployment's registry. Extra top-level keys are ignored by default;
+    the *arguments* are checked against the resolved tool's declared arg specs
+    (undeclared argument → refusal), which is where a smuggled 'operation' or
+    'sql' field is caught.
+    """
+
+    tool: str = Field(min_length=1)
+    arguments: dict = Field(default_factory=dict)
+    reason: str = ""
 
 
 class ArgKind(str, Enum):

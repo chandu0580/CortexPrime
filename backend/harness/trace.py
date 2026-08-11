@@ -72,6 +72,10 @@ class HarnessSpan:
     # context / which schema produced this action" is an answerable query.
     context_id: Optional[str] = None
     schema_id: Optional[str] = None
+    # Part E attribution: the exact set of tool names this model step was
+    # allowed to name. Attached to the model-step evidence itself, so "what
+    # tools were available" is answerable from the span, not inferred.
+    tools_available: Optional[tuple] = None
     latency_ms: Optional[float] = None
     model_provider: Optional[str] = None
     model_id: Optional[str] = None
@@ -102,6 +106,7 @@ class HarnessSpan:
             "finished_at": self.finished_at,
             "context_id": self.context_id,
             "schema_id": self.schema_id,
+            "tools_available": list(self.tools_available) if self.tools_available is not None else None,
             "latency_ms": self.latency_ms,
             "model_provider": self.model_provider,
             "model_id": self.model_id,
@@ -178,6 +183,7 @@ def build_model_span(
     latency_ms: Optional[float],
     context_id: Optional[str] = None,
     schema_id: Optional[str] = None,
+    tools_available: Optional[Sequence[str]] = None,
     stop_or_failure_reason: Optional[str] = None,
     gate_decisions: Sequence[str] = (),
 ) -> HarnessSpan:
@@ -196,6 +202,7 @@ def build_model_span(
         finished_at=_now(),
         context_id=context_id,
         schema_id=schema_id,
+        tools_available=tuple(tools_available) if tools_available is not None else None,
         latency_ms=latency_ms,
         model_provider=model_provider,
         model_id=model_id,

@@ -36,6 +36,12 @@ from backend.harness.llm_boundary import (
     TraceEvidenceMissing,
 )
 from backend.harness.trace import TraceRecorder, build_action_span
+from backend.harness.tool_exposure import (
+    ResolvedTool,
+    ToolExposurePolicy,
+    ToolProposal,
+    ToolRefused,
+)
 from backend.harness.version import HarnessVersion
 from backend.platform.identity.generators import prefixed_id
 
@@ -59,6 +65,7 @@ class StopReason(str, Enum):
     WALL_CLOCK_EXHAUSTED = "wall_clock_exhausted"
     TOKEN_BUDGET_EXHAUSTED = "token_budget_exhausted"
     INVALID_MODEL_OUTPUT = "invalid_model_output"
+    TOOL_REFUSED = "tool_refused"  # named tool not exposed / bad args — pre-governance
     TRACE_WRITE_FAILED = "trace_write_failed"  # pre-action evidence unpersistable
     GOVERNANCE_REFUSED = "governance_refused"
     ACTION_FAILED = "action_failed"
@@ -146,6 +153,7 @@ class HarnessLoop:
         harness_version: HarnessVersion,
         budget: LoopBudget,
         proposal_schema: Type[BaseModel],
+        tool_exposure: Optional[ToolExposurePolicy] = None,
     ) -> None:
         self._boundary = boundary
         self._actions = action_port
@@ -154,7 +162,12 @@ class HarnessLoop:
         self._recorder = recorder
         self._version = harness_version
         self._budget = budget
-        self._schema = proposal_schema
+        # Under a tool exposure policy the model proposes a ToolProposal
+        # (tool + arguments), and the loop resolves it against the frozen
+        # allowlist BEFORE governance. Without one, the schema is used as-is
+        # and the action port receives the raw proposal (the 6.1 mode).
+        self._tool_exposure = tool_exposure
+        self._schema = ToolProposal if tool_exposure is not None else proposal_schema
 
     async def run(
         self,
@@ -238,6 +251,11 @@ class HarnessLoop:
 
                 iterations += 1
                 step_id = prefixed_id("step")
+                exposed = (
+                    tuple(sorted(self._tool_exposure.exposed_names))
+                    if self._tool_exposure is not None
+                    else None
+                )
 
                 # -- model proposes (untrusted) ------------------------------
                 try:
@@ -251,6 +269,7 @@ class HarnessLoop:
                         correlation_id=correlation_id,
                         trace_id=trace_id,
                         trace_span_id=span_id,
+                        tools_available=exposed,
                     )
                 except TraceEvidenceMissing as exc:
                     # Pre-action evidence could not be persisted; the boundary
@@ -270,12 +289,46 @@ class HarnessLoop:
                 if model_span.token_usage:
                     tokens += int(model_span.token_usage.get("total_tokens", 0))
 
+                # -- tool resolution (deterministic, BEFORE governance) ------
+                # The model named a tool; the harness resolves it against the
+                # frozen allowlist. An unknown tool, an undeclared/malformed
+                # argument, or a smuggled provider/operation/URL is refused
+                # here — nothing governed runs, and provider/operation come
+                # from the deployment's registry, never the model (Part I).
+                action_input: Any = proposal
+                if self._tool_exposure is not None:
+                    resolution = self._tool_exposure.resolve({
+                        "tool": proposal.tool,
+                        "arguments": proposal.arguments,
+                    })
+                    if isinstance(resolution, ToolRefused):
+                        _safe_record(
+                            build_action_span(
+                                kind="governed_action",
+                                mission_id=mission_id, iteration=iterations,
+                                step_id=step_id,
+                                harness_version=self._version.identity,
+                                correlation_id=correlation_id, trace_id=trace_id,
+                                trace_span_id=span_id, started_at=started_at,
+                                tool_call={
+                                    "requested_tool": resolution.tool_name,
+                                    "tools_available": list(exposed or ()),
+                                    "resolved": False,
+                                },
+                                gate_decisions=(f"tool_refused:{resolution.reason.value}",),
+                                stop_or_failure_reason=resolution.reason.value,
+                            )
+                        )
+                        return _result(
+                            StopReason.TOOL_REFUSED, failure=resolution.reason.value)
+                    action_input = resolution
+
                 # -- governed action -----------------------------------------
                 if tool_calls >= self._budget.max_tool_calls:
                     return _result(StopReason.MAX_TOOL_CALLS)
                 tool_calls += 1
                 action_started = datetime.now(timezone.utc).isoformat()
-                outcome = await self._actions.execute(proposal)
+                outcome = await self._actions.execute(action_input)
                 _safe_record(
                     build_action_span(
                         kind="governed_action",
@@ -289,6 +342,17 @@ class HarnessLoop:
                         started_at=action_started,
                         tool_call={
                             "proposal": proposal.model_dump(),
+                            # When resolved through the exposure policy, record
+                            # the DEPLOYMENT's provider/operation — the model
+                            # supplied neither (Part I/E lineage).
+                            "resolved_provider": (
+                                action_input.provider
+                                if isinstance(action_input, ResolvedTool) else None
+                            ),
+                            "resolved_operation": (
+                                action_input.operation
+                                if isinstance(action_input, ResolvedTool) else None
+                            ),
                             "performed": outcome.performed,
                             "refused": outcome.refused,
                             "refusal_stage": outcome.refusal_stage,

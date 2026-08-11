@@ -230,6 +230,7 @@ class GovernedModelBoundary:
         trace_id: str,
         trace_span_id: str,
         context_recipe: Optional[Mapping[str, Any]] = None,
+        tools_available: Optional[Any] = None,
     ) -> tuple[ProposalT, HarnessSpan]:
         """One validated proposal, or :class:`InvalidModelOutput`. Always a span.
 
@@ -296,6 +297,7 @@ class GovernedModelBoundary:
             latency_ms=invocation.latency_ms,
             context_id=context_id,
             schema_id=schema_identity(schema),
+            tools_available=tuple(tools_available) if tools_available is not None else None,
             stop_or_failure_reason=failure,
         )
         # Fail-closed: if the pre-action evidence cannot be persisted, the

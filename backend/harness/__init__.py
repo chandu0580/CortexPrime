@@ -51,6 +51,7 @@ from backend.harness.tool_exposure import (
     ExposedTool,
     ResolvedTool,
     ToolExposurePolicy,
+    ToolProposal,
     ToolRefusalReason,
     ToolRefused,
 )
@@ -84,4 +85,5 @@ __all__ = [
     "ToolExposurePolicy",
     "ToolRefusalReason",
     "ToolRefused",
+    "ToolProposal",
 ]
