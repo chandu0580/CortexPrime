@@ -46,6 +46,8 @@ __all__ = [
     "WorldApplicationPureRule",
     "ObservationAppendOnlyRule",
     "AssuranceCannotExecuteRule",
+    "IntelligenceCannotExecuteRule",
+    "NoV1IntelligenceImportRule",
     "default_boundary_rules",
     "BOUNDED_CONTEXTS",
 ]
@@ -1127,7 +1129,8 @@ class ModelCannotCreateFactRule:
         "constructors (Fact, Observation, Belief, WorldVerification, Outcome)"
     )
     model_roots: tuple[str, ...] = ("backend.harness", "backend.agents",
-                                    "backend.orchestration", "backend.orchestrator")
+                                    "backend.orchestration", "backend.orchestrator",
+                                    "backend.intelligence")
     grounded_module: str = "backend.contracts.world.epistemic"
     # A model plane may propose (ModelProposal, ModelHypothesisProposal,
     # Hypothesis, Prediction) but may not import the constructors of grounded or
@@ -1258,7 +1261,8 @@ class ObservationAppendOnlyRule:
         "the World and Assurance planes issue no UPDATE or DELETE — observations, "
         "facts and verifications are immutable"
     )
-    world_roots: tuple[str, ...] = ("backend.world", "backend.assurance")
+    world_roots: tuple[str, ...] = ("backend.world", "backend.assurance",
+                                    "backend.intelligence")
     severity: Severity = Severity.ERROR
 
     def evaluate(self, graph: ModuleGraph) -> RuleResult:
@@ -1380,6 +1384,134 @@ class AssuranceCannotExecuteRule:
         )
 
 
+@dataclass(frozen=True)
+class IntelligenceCannotExecuteRule:
+    """The Intelligence Plane proposes and consumes evidence; it never acts
+    (Phase 8.1, ADR-071/072).
+
+    Intelligence orchestrates investigations: it queries the World, obtains
+    schema-validated model proposals through the harness governed model boundary,
+    and maintains investigation state. It must never reach a provider or execute —
+    a reasoning plane that could act would reintroduce the exact V1 hazard (inline
+    ungoverned execution). So no module under ``backend/intelligence`` may import a
+    connector, the execution context, a provider adapter, the transport fabric, a
+    credential carrier, the scheduler/dispatcher, computer-use/browser, the MCP
+    gateway, or a **direct LLM provider** (``backend.llm`` / ``backend.llm_provider``
+    / ``backend.providers``) — the model is reached only through
+    ``backend.harness`` (the governed model boundary). Reading the durable ledger
+    (``backend.database.durable``) and the World read layer is allowed; acting is
+    not.
+    """
+
+    rule_id: str = "BND-INTELLIGENCE-CANNOT-EXECUTE"
+    description: str = (
+        "the Intelligence Plane imports no connector, execution, transport, "
+        "credential carrier, scheduler, computer/browser, MCP, or direct LLM "
+        "provider — only the harness governed model boundary"
+    )
+    intelligence_root: str = "backend.intelligence"
+    forbidden_roots: tuple[str, ...] = (
+        "backend.connectors",
+        "backend.contexts.execution",
+        "backend.platform.transport",
+        "backend.platform.credentials.broker",
+        "backend.platform.credentials.vault",
+        "backend.platform.credentials.material",
+        "backend.platform.credentials.request",
+        "backend.platform.credentials.development",
+        "backend.computer",
+        "backend.tools",
+        "backend.mcp",
+        "backend.llm",
+        "backend.llm_provider",
+        "backend.providers",
+    )
+    severity: Severity = Severity.ERROR
+
+    def evaluate(self, graph: ModuleGraph) -> RuleResult:
+        violations: list[Violation] = []
+        checked = 0
+        for module in graph.modules():
+            if not (module.name.startswith(self.intelligence_root + ".")
+                    or module.name == self.intelligence_root):
+                continue
+            checked += 1
+            for imported, line in module.imports:
+                if any(imported == f or imported.startswith(f + ".")
+                       for f in self.forbidden_roots):
+                    violations.append(
+                        Violation(
+                            rule_id=self.rule_id, severity=self.severity,
+                            module=module.name, line=line, offender=imported,
+                            detail=(
+                                f"the Intelligence Plane imports {imported!r}; it "
+                                "proposes and consumes evidence and never executes "
+                                "or reaches a provider directly — the model is "
+                                "reached only through the harness governed boundary "
+                                "(ADR-071/072)"
+                            ),
+                        )
+                    )
+        return RuleResult(
+            rule_id=self.rule_id, description=self.description,
+            violations=tuple(violations), modules_checked=checked)
+
+
+@dataclass(frozen=True)
+class NoV1IntelligenceImportRule:
+    """New governed code does not import the quarantined V1 intelligence stack
+    (Phase 8.1, the strangler ratchet).
+
+    Phase 8.0 classified the V1 intelligence packages (agents/memory/RAG/
+    orchestration/...) as QUARANTINE/REPLACE/DELETE: they let model output become
+    "truth", lack tenant scoping, execute inline, and hold provider keys. The new
+    governed Intelligence Plane must not depend on any of them, so the strangler
+    zone can only shrink. A module under ``backend/intelligence`` importing a V1
+    package is an ERROR.
+    """
+
+    rule_id: str = "BND-NO-V1-INTELLIGENCE-IMPORT"
+    description: str = (
+        "the governed Intelligence Plane imports none of the quarantined V1 "
+        "intelligence packages"
+    )
+    intelligence_root: str = "backend.intelligence"
+    v1_roots: tuple[str, ...] = (
+        "backend.agents", "backend.agent_sdk", "backend.ai", "backend.autonomy",
+        "backend.cognitive_memory", "backend.cortex_memory", "backend.memory",
+        "backend.orchestration", "backend.orchestrator", "backend.research",
+        "backend.learning", "backend.knowledge", "backend.mission_intel",
+        "backend.runtime", "backend.vision", "backend.voice", "backend.voice_v2",
+    )
+    severity: Severity = Severity.ERROR
+
+    def evaluate(self, graph: ModuleGraph) -> RuleResult:
+        violations: list[Violation] = []
+        checked = 0
+        for module in graph.modules():
+            if not (module.name.startswith(self.intelligence_root + ".")
+                    or module.name == self.intelligence_root):
+                continue
+            checked += 1
+            for imported, line in module.imports:
+                if any(imported == f or imported.startswith(f + ".")
+                       for f in self.v1_roots):
+                    violations.append(
+                        Violation(
+                            rule_id=self.rule_id, severity=self.severity,
+                            module=module.name, line=line, offender=imported,
+                            detail=(
+                                f"the Intelligence Plane imports quarantined V1 "
+                                f"package {imported!r}; the V1 intelligence stack is "
+                                "strangled, not extended (Phase 8.0/8.1)"
+                            ),
+                        )
+                    )
+        return RuleResult(
+            rule_id=self.rule_id, description=self.description,
+            violations=tuple(violations), modules_checked=checked)
+
+
 def default_boundary_rules() -> tuple:
     """The boundary rules the Constitution defines."""
     return (
@@ -1401,4 +1533,6 @@ def default_boundary_rules() -> tuple:
         WorldApplicationPureRule(),
         ObservationAppendOnlyRule(),
         AssuranceCannotExecuteRule(),
+        IntelligenceCannotExecuteRule(),
+        NoV1IntelligenceImportRule(),
     )

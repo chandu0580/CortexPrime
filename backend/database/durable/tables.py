@@ -837,6 +837,45 @@ world_reasoning_table = sa.Table(
 )
 
 
+world_investigation_table = sa.Table(
+    "cw_investigation",
+    DURABLE_METADATA,
+    # Phase 8.1, ADR-072. The Intelligence Plane's durable investigation ledger.
+    # An investigation is a stateful workflow (status machine + differential +
+    # open questions + checkpoint) that is NOT reconstructable from the World
+    # ledgers — those hold evidence/facts/verifications, not the loop's phase. So
+    # it is event-sourced here: each row is one immutable event carrying the full
+    # new aggregate SNAPSHOT; the latest committed snapshot (max seq) is the
+    # authoritative current state. Crash recovery restores that snapshot and never
+    # fabricates progress. Append-only: no row is ever updated or deleted.
+    sa.Column("event_id", sa.Text(), primary_key=True),
+    # One event per (investigation, seq). The unique digest gives optimistic
+    # concurrency (two writers at the same seq collide) and idempotency. At-least-
+    # once, deterministic identity — NOT exactly-once.
+    sa.Column("identity_digest", sa.String(128), nullable=False, unique=True),
+    sa.Column("investigation_id", sa.Text(), nullable=False),
+    sa.Column("tenant_id", sa.String(128), nullable=False),
+    sa.Column("incident_ref", sa.Text(), nullable=False),
+    sa.Column("seq", sa.Integer(), nullable=False),
+    sa.Column("event_kind", sa.String(32), nullable=False),
+    sa.Column("from_status", sa.String(32), nullable=True),
+    sa.Column("to_status", sa.String(32), nullable=False),
+    # Platform-set autonomy (A0..A4); never promotable by a model.
+    sa.Column("autonomy_level", sa.String(32), nullable=False),
+    # The full Investigation aggregate snapshot after this event — authoritative
+    # for reconstruction. Secret-firewalled before it reaches here (references and
+    # digests only, no credential material, no chain-of-thought).
+    sa.Column("state", _DOC, nullable=False),
+    # The event-specific payload (the question/hypothesis/test/human-event/refs).
+    sa.Column("payload", _DOC, nullable=False),
+    sa.Column("recorded_at", _TS, nullable=False),
+    sa.Column("schema_version", sa.Integer(), nullable=False),
+    sa.Index("ix_cw_investigation_seq", "tenant_id", "investigation_id", "seq"),
+    sa.Index("ix_cw_investigation_incident", "tenant_id", "incident_ref"),
+    sa.Index("ix_cw_investigation_recorded_at", "recorded_at"),
+)
+
+
 #: Every durable table, in creation order. Used by the migration and by the
 #: bootstrap check that the schema a process needs is the schema it found.
 DURABLE_TABLES = (
@@ -860,4 +899,5 @@ DURABLE_TABLES = (
     world_fact_table,
     world_verification_table,
     world_reasoning_table,
+    world_investigation_table,
 )
