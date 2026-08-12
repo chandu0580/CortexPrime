@@ -32,6 +32,9 @@ from backend.intelligence.application.context import ContextAssembler, ContextBu
 from backend.intelligence.application.investigation_service import InvestigationService
 from backend.intelligence.application.proposal import (
     EvidenceSelectionPolicy,
+    ModelProviderUnavailable,
+    ModelSchemaRejected,
+    ModelTraceUnavailable,
     ProposedTest,
     TestRejected,
     test_identity,
@@ -111,8 +114,25 @@ class InvestigationEngine:
             available_tools=self._tools, harness_version=self._harness_version,
             now=now, budget=budget.context)
 
-        # PROPOSE: the model proposes through the governed boundary.
-        proposal = self._model.propose(context=context, investigation=investigation, now=now)
+        # PROPOSE: the model proposes through the governed boundary. Failures are
+        # classified honestly — a model/trace/provider failure never becomes
+        # investigation success (Part H/I).
+        try:
+            proposal = self._model.propose(context=context, investigation=investigation, now=now)
+        except (ModelTraceUnavailable, ModelProviderUnavailable) as exc:
+            # Pre-action fail-closed (L14): no attribution-grade evidence, or no
+            # provider — cannot advance to a governed read. BLOCKED.
+            concluded = self._svc.conclude(
+                investigation=investigation, conclusion=InvestigationConclusion.BLOCKED,
+                cause=f"model boundary: {exc.category}", now=now)
+            return StepResult(StepOutcome.TERMINATED, concluded, context.context_digest,
+                              "unknown", reason=exc.category)
+        except ModelSchemaRejected as exc:
+            # Malformed/oversized/smuggled output: the proposal never existed. A
+            # step is consumed (budget), no state pretends success.
+            inv = self._svc.checkpoint(investigation=investigation, now=now, steps_delta=1)
+            return StepResult(StepOutcome.TEST_REJECTED, inv, context.context_digest,
+                              "unknown", reason=f"model output rejected: {exc.reason}")
 
         inv = investigation
         # Record proposed hypotheses (platform records them as reasoning artifacts).

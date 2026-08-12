@@ -27,6 +27,10 @@ __all__ = [
     "EvidenceResult",
     "ValidatedTest",
     "TestRejected",
+    "ModelProposalFailed",
+    "ModelSchemaRejected",
+    "ModelTraceUnavailable",
+    "ModelProviderUnavailable",
     "EvidenceSelectionPolicy",
     "ModelProposalPort",
     "WorldReadPort",
@@ -38,6 +42,42 @@ __all__ = [
 class TestRejected(ContractViolation):
     """A proposed investigation test was refused (purposeless, non-falsifiable,
     redundant, undeclared tool, or attempting more than a governed read)."""
+
+
+class ModelProposalFailed(RuntimeError):
+    """The governed model boundary could not produce an admissible proposal.
+    Carries a category so the engine classifies the step honestly (never turns a
+    model/trace/provider failure into investigation success)."""
+
+    def __init__(self, category: str, reason: str) -> None:
+        super().__init__(f"{category}: {reason}")
+        self.category = category
+        self.reason = reason
+
+
+class ModelSchemaRejected(ModelProposalFailed):
+    """Model output failed strict schema validation — malformed/oversized/extra
+    fields. The proposal never existed; no state pretends success."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__("schema_violation", reason)
+
+
+class ModelTraceUnavailable(ModelProposalFailed):
+    """The pre-action model-proposal trace could not be committed (L14).
+    Fail closed: without attribution-grade evidence the proposal may not advance
+    to a governed read."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__("trace_unavailable", reason)
+
+
+class ModelProviderUnavailable(ModelProposalFailed):
+    """The model provider was unavailable / timed out / authentication failed.
+    Investigation state does not change; the step is classified BLOCKED."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__("provider_unavailable", reason)
 
 
 @dataclass(frozen=True)

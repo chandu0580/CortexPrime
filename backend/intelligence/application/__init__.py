@@ -28,13 +28,23 @@ from backend.intelligence.application.proposal import (
     EvidenceResult,
     EvidenceSelectionPolicy,
     InvestigationProposal,
+    ModelProposalFailed,
     ModelProposalPort,
+    ModelProviderUnavailable,
+    ModelSchemaRejected,
+    ModelTraceUnavailable,
     ProposedHypothesis,
     ProposedTest,
     TestRejected,
     ValidatedTest,
     WorldReadPort,
     test_identity,
+)
+from backend.intelligence.application.model_boundary import (
+    GovernedModelProposalPort,
+    INVESTIGATION_SYSTEM_PROMPT,
+    InvestigationProposalSchema,
+    ScriptedModelPort,
 )
 from backend.intelligence.application.engine import (
     InvestigationBudget,
@@ -71,6 +81,15 @@ __all__ = [
     "WorldReadPort",
     "EvidenceAcquisitionPort",
     "test_identity",
+    # 8.3 model boundary
+    "GovernedModelProposalPort",
+    "ScriptedModelPort",
+    "InvestigationProposalSchema",
+    "INVESTIGATION_SYSTEM_PROMPT",
+    "ModelProposalFailed",
+    "ModelSchemaRejected",
+    "ModelTraceUnavailable",
+    "ModelProviderUnavailable",
     # 8.2 engine
     "InvestigationEngine",
     "InvestigationBudget",
