@@ -799,6 +799,44 @@ world_verification_table = sa.Table(
 )
 
 
+world_reasoning_table = sa.Table(
+    "cw_reasoning",
+    DURABLE_METADATA,
+    # Phase 7.8, ADR-070. The durable reasoning trail — the smallest append-only
+    # representation of the model-authored reasoning artifacts that cannot be
+    # reconstructed from the observation/fact ledgers: a grounded hypothesis, a
+    # prediction, and (the calibration payload) a prediction evaluation. Beliefs
+    # stay derived projections; observations/facts/verifications live in their own
+    # ledgers; this holds only what is genuinely non-derivable and externally
+    # meaningful. Immutable — a revised hypothesis is a new row, never an
+    # overwrite. Same durable template as the other cw_* ledgers.
+    sa.Column("reasoning_id", sa.Text(), primary_key=True),
+    # Deterministic identity for idempotency: digest over (tenant, kind, subject,
+    # predicate, record). Re-recording the same reasoning artifact collides and is
+    # refused. At-least-once, NOT exactly-once.
+    sa.Column("identity_digest", sa.String(128), nullable=False, unique=True),
+    sa.Column("tenant_id", sa.String(128), nullable=False),
+    # hypothesis / prediction / prediction_evaluation.
+    sa.Column("kind", sa.String(32), nullable=False),
+    sa.Column("subject_ref", sa.Text(), nullable=False),
+    sa.Column("predicate", sa.Text(), nullable=True),
+    # The full contract/record document (Hypothesis / Prediction /
+    # PredictionEvaluation to_dict) — authoritative; the columns are for lookup.
+    # Runs through the field-aware secret firewall before it reaches here: no
+    # credential material, references and digests only.
+    sa.Column("record", _DOC, nullable=False),
+    # The provenance-graph cross-references (hypothesis_ref, prediction_ref,
+    # execution_ref, outcome_ref, evidence_refs) promoted so the chain is
+    # queryable without loading every document.
+    sa.Column("refs", _DOC, nullable=False),
+    sa.Column("recorded_at", _TS, nullable=False),
+    sa.Column("schema_version", sa.Integer(), nullable=False),
+    sa.Index("ix_cw_reasoning_subject", "tenant_id", "subject_ref"),
+    sa.Index("ix_cw_reasoning_kind", "tenant_id", "kind"),
+    sa.Index("ix_cw_reasoning_recorded_at", "recorded_at"),
+)
+
+
 #: Every durable table, in creation order. Used by the migration and by the
 #: bootstrap check that the schema a process needs is the schema it found.
 DURABLE_TABLES = (
@@ -821,4 +859,5 @@ DURABLE_TABLES = (
     world_observation_table,
     world_fact_table,
     world_verification_table,
+    world_reasoning_table,
 )

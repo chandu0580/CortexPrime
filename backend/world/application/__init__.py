@@ -81,6 +81,13 @@ from backend.world.application.hypothesis import (
     PredictionEvaluation,
     evaluate_prediction,
 )
+from backend.world.application.reasoning import (
+    ReasoningKind,
+    ReasoningLedger,
+    ReasoningRecord,
+    ReasoningRejected,
+    ReasoningRepository,
+)
 
 __all__ = [
     # observation ingestion (Phase 7.2)
@@ -148,4 +155,10 @@ __all__ = [
     "HypothesisRejected",
     "PredictionEvaluation",
     "evaluate_prediction",
+    # durable reasoning trail (Phase 7.8)
+    "ReasoningLedger",
+    "ReasoningRepository",
+    "ReasoningRecord",
+    "ReasoningKind",
+    "ReasoningRejected",
 ]

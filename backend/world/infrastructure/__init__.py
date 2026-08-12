@@ -8,5 +8,6 @@ nothing that executes.
 
 from backend.world.infrastructure.sql_observation import SqlObservationRepository
 from backend.world.infrastructure.sql_fact import SqlFactRepository
+from backend.world.infrastructure.sql_reasoning import SqlReasoningRepository
 
-__all__ = ["SqlObservationRepository", "SqlFactRepository"]
+__all__ = ["SqlObservationRepository", "SqlFactRepository", "SqlReasoningRepository"]
