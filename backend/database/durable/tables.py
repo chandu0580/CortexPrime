@@ -689,6 +689,72 @@ world_observation_table = sa.Table(
 )
 
 
+world_fact_table = sa.Table(
+    "cw_fact",
+    DURABLE_METADATA,
+    # Phase 7.3, ADR-065. The World Plane's bitemporal FACT ledger, derived
+    # deterministically from cw_observation. Append-only *version* records: a
+    # correction or a world-state change is a NEW row, never an overwrite —
+    # historical world state stays reconstructable (STEP 7/13). A Fact is NOT an
+    # Observation: it carries valid-time (validity) and an authority tier, and it
+    # is grounded in a real Observation (never a model). Same durable template as
+    # cw_observation.
+    #
+    # Two independent temporal axes are kept distinct (the whole point):
+    #   valid_from / valid_to  — WORLD/VALID time: when the state was true.
+    #   recorded_at            — KNOWLEDGE/TRANSACTION time: when CortexPrime
+    #                            recorded this version. A value valid_from 09:58
+    #                            can be recorded_at 10:10 and neither overwrites
+    #                            the other. valid_to is usually NULL (open, "as
+    #                            asserted"); the effective end is DERIVED from
+    #                            succeeding versions at query time, so no prior
+    #                            row is ever mutated.
+    sa.Column("fact_id", sa.Text(), primary_key=True),
+    # Deterministic version identity for idempotency: a digest over
+    # (semantic_identity, value_digest, valid_from). The same observation derived
+    # twice collides here and is refused — at-least-once derivation, deterministic
+    # identity, NOT exactly-once (mirrors cw_observation).
+    sa.Column("version_digest", sa.String(128), nullable=False, unique=True),
+    # The SEMANTIC identity of the real-world proposition: a digest over
+    # (tenant, subject_ref, predicate). Every version/state of "deployment/
+    # payments spec.replicas" shares this; it is NOT a random UUID. Indexed
+    # because every temporal query narrows on it.
+    sa.Column("semantic_identity", sa.String(128), nullable=False),
+    sa.Column("tenant_id", sa.String(128), nullable=False),
+    sa.Column("subject_ref", sa.Text(), nullable=False),
+    sa.Column("predicate", sa.Text(), nullable=False),
+    # The value digest promotes value-equality to a column; the full structured
+    # value lives in the record document (never prose — a fact is structured
+    # observation-derived state, not an interpretation).
+    sa.Column("value_digest", sa.String(128), nullable=False),
+    sa.Column("valid_from", _TS, nullable=False),
+    sa.Column("valid_to", _TS, nullable=True),
+    # EpistemicStatus at assertion (affirmed/conflicted/... — never FALSE from
+    # absence). The query-time projection is authoritative for the *current*
+    # status of a valid instant; this is the status as written.
+    sa.Column("status", sa.String(32), nullable=False),
+    # KnowledgeAuthority tier (authoritative/advisory). A single uncorroborated
+    # source derives ADVISORY — authority is provenance-derived, never a number
+    # a model invents.
+    sa.Column("authority", sa.String(32), nullable=False),
+    sa.Column("recorded_at", _TS, nullable=False),
+    # The full Fact contract document (Fact.to_dict) — authoritative for the
+    # version; the promoted columns are for lookup. Carries no credential
+    # material (grounded in an observation the ingestion firewall already
+    # cleared; provenance is references only).
+    sa.Column("record", _DOC, nullable=False),
+    sa.Column("produced_by", sa.Text(), nullable=False),
+    # Grounding: the observation this fact was derived from (never a model).
+    sa.Column("observation_ref", sa.Text(), nullable=False),
+    # Supersession/conflict lineage: the prior fact version this one succeeds or
+    # conflicts with. References, not deletion — the prior row remains.
+    sa.Column("parent_claim_ref", sa.Text(), nullable=True),
+    sa.Column("schema_version", sa.Integer(), nullable=False),
+    sa.Index("ix_cw_fact_identity", "tenant_id", "semantic_identity"),
+    sa.Index("ix_cw_fact_recorded_at", "recorded_at"),
+)
+
+
 #: Every durable table, in creation order. Used by the migration and by the
 #: bootstrap check that the schema a process needs is the schema it found.
 DURABLE_TABLES = (
@@ -709,4 +775,5 @@ DURABLE_TABLES = (
     audit_record_table,
     harness_trace_table,
     world_observation_table,
+    world_fact_table,
 )
