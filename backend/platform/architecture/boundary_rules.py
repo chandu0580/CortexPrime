@@ -1122,13 +1122,20 @@ class ModelCannotCreateFactRule:
 
     rule_id: str = "BND-MODEL-CANNOT-CREATE-FACT"
     description: str = (
-        "the intelligence/harness planes do not import the World Plane Fact, "
-        "Observation or Belief constructors"
+        "the intelligence/harness planes do not import the World Plane grounded "
+        "constructors (Fact, Observation, Belief, WorldVerification, Outcome)"
     )
     model_roots: tuple[str, ...] = ("backend.harness", "backend.agents",
                                     "backend.orchestration", "backend.orchestrator")
     grounded_module: str = "backend.contracts.world.epistemic"
-    grounded_symbols: tuple[str, ...] = ("Fact", "Observation", "Belief")
+    # A model plane may propose (ModelProposal, ModelHypothesisProposal,
+    # Hypothesis, Prediction) but may not import the constructors of grounded or
+    # execution-grounded world state: a Fact/Observation (instrument-grounded), a
+    # Belief (evidence-grounded), a WorldVerification (procedure + independent
+    # verifier), or an Outcome (real execution_ref). Those are minted only by the
+    # World Plane's deterministic boundaries.
+    grounded_symbols: tuple[str, ...] = (
+        "Fact", "Observation", "Belief", "WorldVerification", "Outcome")
     severity: Severity = Severity.ERROR
 
     def evaluate(self, graph: ModuleGraph) -> RuleResult:

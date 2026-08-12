@@ -51,6 +51,7 @@ __all__ = [
     "Outcome",
     "WorldVerification",
     "ModelProposal",
+    "ModelHypothesisProposal",
 ]
 
 
@@ -404,6 +405,13 @@ class Hypothesis(EpistemicRecord):
     origin: str
     status: HypothesisStatus
     support_refs: tuple[str, ...] = ()
+    # Phase 7.6 (additive): the structure a testable hypothesis needs. Evidence
+    # against it, what observation would falsify it, and the investigation step
+    # that could test it — so a hypothesis is a candidate explanation that can be
+    # tested, never a smuggled fact.
+    contradiction_refs: tuple[str, ...] = ()
+    falsifier: Optional[str] = None
+    investigation_ref: Optional[str] = None
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -413,10 +421,16 @@ class Hypothesis(EpistemicRecord):
             raise ContractViolation("origin must name who proposed the hypothesis")
         if not isinstance(self.status, HypothesisStatus):
             raise ContractViolation("status must be a HypothesisStatus")
-        if not isinstance(self.support_refs, tuple) or not all(
-            isinstance(r, str) and r.strip() for r in self.support_refs
-        ):
-            raise ContractViolation("support_refs must be a tuple of reference strings")
+        for name in ("support_refs", "contradiction_refs"):
+            v = getattr(self, name)
+            if not isinstance(v, tuple) or not all(
+                isinstance(r, str) and r.strip() for r in v
+            ):
+                raise ContractViolation(f"{name} must be a tuple of reference strings")
+        for name in ("falsifier", "investigation_ref"):
+            v = getattr(self, name)
+            if v is not None and (not isinstance(v, str) or not v.strip()):
+                raise ContractViolation(f"{name} must be a non-empty string or None")
 
 
 # ----------------------------------------------------------------------
@@ -442,6 +456,13 @@ class Prediction(EpistemicRecord):
     predicted_at: datetime
     deadline: Optional[datetime] = None
     model_ref: Optional[str] = None
+    # Phase 7.6 (additive): the proposition's predicate, the evidence basis the
+    # prediction rests on, and the hypothesis it tests. A prediction is a
+    # forward claim with an explicit horizon (``deadline``) — never evidence that
+    # it came true.
+    predicate: Optional[str] = None
+    basis: tuple[str, ...] = ()
+    hypothesis_ref: Optional[str] = None
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -452,6 +473,10 @@ class Prediction(EpistemicRecord):
             _require_aware(self.deadline, "deadline")
             if self.deadline <= self.predicted_at:
                 raise ContractViolation("deadline must be after predicted_at")
+        if not isinstance(self.basis, tuple) or not all(
+            isinstance(r, str) and r.strip() for r in self.basis
+        ):
+            raise ContractViolation("basis must be a tuple of reference strings")
 
 
 @dataclass(frozen=True)
@@ -471,6 +496,10 @@ class Outcome(EpistemicRecord):
     execution_ref: str
     observed: Any
     observation_ref: Optional[str] = None
+    # Phase 7.6 (additive): the prediction this outcome resolves, if any — so
+    # prediction error can be computed later. An outcome is still grounded in a
+    # real execution, never in a prediction.
+    prediction_ref: Optional[str] = None
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -577,3 +606,41 @@ class ModelProposal(EpistemicRecord):
             raise ContractViolation("proposed_by must name the model")
         # Note, loudly, the absence of any to_fact()/to_belief() method. That
         # absence is the firewall; adding one would breach ADR-062.
+
+
+@dataclass(frozen=True)
+class ModelHypothesisProposal(EpistemicRecord):
+    """A model's *proposed* explanatory hypothesis (Phase 7.6, Part H).
+
+    The model may propose "investigate whether the deployment rollout caused the
+    5xx rate" — a candidate explanation, explicitly not a verified hypothesis and
+    certainly not a fact, belief, or verification. There is deliberately no
+    ``to_hypothesis``/``to_fact``/``to_belief``/``to_verification`` method: the
+    platform's deterministic hypothesis-formation boundary consumes a proposal
+    *together with real evidence* to construct a grounded ``Hypothesis`` (status
+    OPEN, never VERIFIED). A proposal with no evidence cannot become a hypothesis.
+
+    ``subject_ref`` names what the hypothesis is about (so the platform can find
+    real evidence); ``suggested_investigation`` is the model's suggested test.
+    Both are advisory text — the platform decides validity.
+    """
+
+    CONTRACT_NAME = "cortexprime.world.model_hypothesis_proposal"
+
+    claim: str
+    proposed_by: str
+    subject_ref: Optional[str] = None
+    suggested_investigation: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if not isinstance(self.claim, str) or not self.claim.strip():
+            raise ContractViolation("claim is required on a hypothesis proposal")
+        if not isinstance(self.proposed_by, str) or not self.proposed_by.strip():
+            raise ContractViolation("proposed_by must name the model")
+        for name in ("subject_ref", "suggested_investigation"):
+            v = getattr(self, name)
+            if v is not None and (not isinstance(v, str) or not v.strip()):
+                raise ContractViolation(f"{name} must be a non-empty string or None")
+        # No to_hypothesis()/to_fact()/to_belief()/to_verification(). The absence
+        # is the firewall — a model proposes; the platform grounds and decides.

@@ -39,6 +39,7 @@ from backend.contracts.world.epistemic import (
     Fact,
     Hypothesis,
     HypothesisStatus,
+    ModelHypothesisProposal,
     ModelProposal,
     Observation,
     ObservationSource,
@@ -74,4 +75,5 @@ __all__ = [
     "Outcome",
     "WorldVerification",
     "ModelProposal",
+    "ModelHypothesisProposal",
 ]

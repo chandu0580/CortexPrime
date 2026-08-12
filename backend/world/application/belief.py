@@ -59,6 +59,7 @@ from backend.platform.hashing import compute_digest
 from backend.platform.identity.generators import prefixed_id
 from backend.world.application.authority import AuthorityPolicy, AuthorityStatus
 from backend.world.application.freshness import FreshnessResult, FreshnessState
+from backend.world.application.lineage import LineagePolicy, SourceLineage
 from backend.world.application.world_query import ObservationEvidence, WorldQuery
 
 __all__ = [
@@ -71,14 +72,22 @@ __all__ = [
 
 
 class CorroborationLevel(str, Enum):
-    """How the evidence corroborates the effective value — independence, not a
-    count, and never a probability."""
+    """How the evidence corroborates the effective value — independence proven by
+    lineage, not a count, and never a probability (Phase 7.6)."""
 
     INDEPENDENT = "independent"
-    """Two or more *distinct* sources agree on the value."""
+    """Two or more sources with DISTINCT, KNOWN lineage origins agree. The only
+    level that claims proven independence."""
+    CORRELATED = "correlated"
+    """Two or more sources agree but resolve to the SAME known lineage origin
+    (e.g. Prometheus derived from the K8s API) — one independent unit, not many."""
+    INDETERMINATE = "indeterminate"
+    """Two or more distinct sources agree but at least one has UNKNOWN lineage —
+    independence cannot be proven. Not INDEPENDENT: false certainty is worse than
+    admitting the corroboration is insufficient (Part C)."""
     SINGLE = "single"
-    """Exactly one source supports the value (one or more correlated
-    observations from it — correlated evidence is not independent corroboration)."""
+    """Exactly one source supports the value (correlated same-source observations
+    add no independence)."""
     CONTRADICTED = "contradicted"
     """Sources disagree; there is no single corroborated value."""
     INSUFFICIENT = "insufficient"
@@ -97,10 +106,13 @@ class ObservationCorroborationReader(Protocol):
 
 @dataclass(frozen=True)
 class CorroborationAssessment:
-    """The deterministic corroboration verdict for one proposition."""
+    """The deterministic, lineage-aware corroboration verdict for one
+    proposition (Phase 7.6)."""
 
     level: CorroborationLevel
-    independent_sources: tuple[str, ...]          # distinct source_refs that agree
+    independent_sources: tuple[str, ...]          # source_refs supporting the value
+    independent_origins: tuple[str, ...]           # distinct KNOWN lineage origins
+    lineage: tuple[SourceLineage, ...]             # lineage of each supporting source
     supporting: tuple[ObservationEvidence, ...]    # evidence for the effective value
     contradicting: tuple[ObservationEvidence, ...]  # evidence for a different value
     correlated_count: int                          # supporting obs beyond the source count
@@ -110,6 +122,8 @@ class CorroborationAssessment:
         return {
             "level": self.level.value,
             "independent_sources": list(self.independent_sources),
+            "independent_origins": list(self.independent_origins),
+            "lineage": [lg.to_dict() for lg in self.lineage],
             "correlated_count": self.correlated_count,
             "supporting": [e.to_dict() for e in self.supporting],
             "contradicting": [e.to_dict() for e in self.contradicting],
@@ -135,6 +149,7 @@ class BeliefView:
     corroboration: CorroborationAssessment
     authority: Any                 # AuthorityDecision (Phase 7.4)
     freshness: FreshnessResult
+    acceptance: Any = None         # BeliefPolicyResult (Phase 7.6); None if ungoverned
     queried_valid_at: Optional[datetime] = None
     as_known_at: Optional[datetime] = None
 
@@ -146,6 +161,11 @@ class BeliefView:
             "status": self.status.value,
             "confidence": {"state": self.confidence.state.value,
                            "value": self.confidence.value},  # UNCALIBRATED -> None
+            "acceptance": ({"acceptance": self.acceptance.acceptance.value,
+                            "requirement": (self.acceptance.requirement.value
+                                            if self.acceptance.requirement else None),
+                            "reason": self.acceptance.reason}
+                           if self.acceptance is not None else None),
             "when_valid": self.queried_valid_at.isoformat() if self.queried_valid_at else None,
             "as_known_at": self.as_known_at.isoformat() if self.as_known_at else None,
             "authority": {
@@ -179,11 +199,15 @@ class BeliefFormation:
         query: WorldQuery,
         observations: ObservationCorroborationReader,
         authority_policy: Optional[AuthorityPolicy] = None,
+        lineage_policy: Optional[LineagePolicy] = None,
+        support_policy: Any = None,      # BeliefSupportPolicy (Phase 7.6)
         produced_by: str = "belief:world-beliefs/1",
     ) -> None:
         self._query = query
         self._observations = observations
         self._authority_policy = authority_policy or AuthorityPolicy.none()
+        self._lineage_policy = lineage_policy or LineagePolicy.none()
+        self._support_policy = support_policy
         self._produced_by = produced_by
 
     # -- public forms -------------------------------------------------------
@@ -280,7 +304,7 @@ class BeliefFormation:
         #    resolves only an ungoverned proposition, and only when sources agree.
         value, base_status = self._decide(wqr, latest)
 
-        # 2) Corroboration relative to the effective value.
+        # 2) Corroboration relative to the effective value — lineage-aware.
         eff_digest = compute_digest(value).value if value is not None else None
         corroboration = self._corroborate(
             latest, source_obs_counts, eff_digest, base_status)
@@ -290,7 +314,15 @@ class BeliefFormation:
         if base_status is EpistemicStatus.AFFIRMED and wqr.freshness.state is FreshnessState.STALE:
             status = EpistemicStatus.STALE
 
-        # 4) Build the grounded Belief contract (None when UNKNOWN).
+        # 4) Governed support policy: does the evidence meet the acceptance bar?
+        acceptance = None
+        if self._support_policy is not None:
+            acceptance = self._support_policy.evaluate(
+                predicate=predicate, authority_status=wqr.authority.status,
+                corroboration=corroboration.level,
+                is_affirmed=status is EpistemicStatus.AFFIRMED)
+
+        # 5) Build the grounded Belief contract (None when UNKNOWN).
         belief = self._build_belief(
             tenant, subject_ref, predicate, value, status, corroboration,
             recorded_at) if status is not EpistemicStatus.UNKNOWN else None
@@ -299,8 +331,8 @@ class BeliefFormation:
             tenant_id=tenant.tenant_id, subject_ref=subject_ref, predicate=predicate,
             status=status, value=value, confidence=ClaimConfidence.uncalibrated(),
             belief=belief, corroboration=corroboration, authority=wqr.authority,
-            freshness=wqr.freshness, queried_valid_at=queried_valid_at,
-            as_known_at=as_known_at)
+            freshness=wqr.freshness, acceptance=acceptance,
+            queried_valid_at=queried_valid_at, as_known_at=as_known_at)
 
     def _source_obs_counts(
         self, tenant_id, subject_ref, predicate, at_valid, known_at,
@@ -340,38 +372,58 @@ class BeliefFormation:
         if not latest:
             return CorroborationAssessment(
                 level=CorroborationLevel.INSUFFICIENT, independent_sources=(),
-                supporting=(), contradicting=(), correlated_count=0,
+                independent_origins=(), lineage=(), supporting=(), contradicting=(),
+                correlated_count=0,
                 reason="no evidence covers the queried instant (INSUFFICIENT, "
                        "not FALSE)")
         supporting: list[ObservationEvidence] = []
         contradicting: list[ObservationEvidence] = []
         support_sources: list[str] = []
+        support_lineage: list[SourceLineage] = []
         for ref, obs in sorted(latest.items()):
             ev = self._evidence_of(obs)
             if eff_digest is not None and compute_digest(obs.value).value == eff_digest:
                 supporting.append(ev)
                 support_sources.append(ref)
+                support_lineage.append(self._lineage_policy.lineage_of(
+                    source_kind=obs.source.kind.value, source_ref=ref))
             else:
                 contradicting.append(ev)
         correlated = sum(max(0, source_counts.get(r, 1) - 1) for r in support_sources)
+
+        # Independence is proven by lineage, not by counting distinct source_refs.
+        known_origins = tuple(sorted({lg.origin_id for lg in support_lineage
+                                      if lg.is_known and lg.origin_id is not None}))
+        has_unknown = any(not lg.is_known for lg in support_lineage)
 
         if base_status is EpistemicStatus.CONFLICTED or eff_digest is None:
             level = CorroborationLevel.CONTRADICTED
             reason = ("sources disagree and no authority resolves it; both "
                       "evidence paths preserved")
-        elif len(support_sources) >= 2:
-            level = CorroborationLevel.INDEPENDENT
-            reason = (f"{len(support_sources)} independent sources agree "
-                      f"({', '.join(support_sources)})")
+        elif len(support_sources) == 0:
+            level = CorroborationLevel.CONTRADICTED
+            reason = "the effective value has no supporting source"
         elif len(support_sources) == 1:
             level = CorroborationLevel.SINGLE
             reason = (f"one source supports the value ({support_sources[0]}); "
                       f"{correlated} correlated observation(s) add no independence")
+        elif len(known_origins) >= 2:
+            level = CorroborationLevel.INDEPENDENT
+            reason = (f"{len(known_origins)} distinct known lineage origins agree "
+                      f"({', '.join(known_origins)}) — proven independent")
+        elif len(known_origins) == 1 and not has_unknown:
+            level = CorroborationLevel.CORRELATED
+            reason = (f"{len(support_sources)} sources agree but share lineage "
+                      f"origin {known_origins[0]!r} — correlated, not independent")
         else:
-            level = CorroborationLevel.CONTRADICTED
-            reason = "the effective value has no supporting source"
+            # >=2 distinct sources agree but lineage cannot prove independence.
+            level = CorroborationLevel.INDETERMINATE
+            reason = (f"{len(support_sources)} sources agree but independence is "
+                      "unproven (unknown lineage); not claimed INDEPENDENT — false "
+                      "certainty is worse than insufficient evidence")
         return CorroborationAssessment(
             level=level, independent_sources=tuple(support_sources),
+            independent_origins=known_origins, lineage=tuple(support_lineage),
             supporting=tuple(supporting), contradicting=tuple(contradicting),
             correlated_count=correlated, reason=reason)
 

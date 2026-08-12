@@ -60,6 +60,30 @@ class TestModelCannotCreateBelief:
                 "from backend.contracts.world import ModelProposal, Hypothesis\n"})
         assert ModelCannotCreateFactRule().evaluate(graph).passed
 
+    def test_harness_importing_verification_fails(self, tmp_path):
+        # Phase 7.6: a model cannot mint a WorldVerification
+        graph = write_tree(tmp_path / "backend", {
+            "harness/verify_leak.py":
+                "from backend.contracts.world import WorldVerification\n"})
+        result = ModelCannotCreateFactRule().evaluate(graph)
+        assert not result.passed
+        assert any(v.offender == "WorldVerification" for v in result.violations)
+
+    def test_agents_importing_outcome_fails(self, tmp_path):
+        # Phase 7.6: a model cannot self-author an Outcome
+        graph = write_tree(tmp_path / "backend", {
+            "agents/outcome_leak.py":
+                "from backend.contracts.world.epistemic import Outcome\n"})
+        assert not ModelCannotCreateFactRule().evaluate(graph).passed
+
+    def test_a_model_plane_may_import_proposal_prediction_and_hypothesis_proposal(self, tmp_path):
+        # a model MAY propose hypotheses and make predictions
+        graph = write_tree(tmp_path / "backend", {
+            "harness/ok2.py":
+                "from backend.contracts.world import (ModelHypothesisProposal, "
+                "Prediction)\n"})
+        assert ModelCannotCreateFactRule().evaluate(graph).passed
+
 
 class TestBeliefCannotExecute:
     def test_belief_importing_a_connector_fails(self, tmp_path):

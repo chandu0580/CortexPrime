@@ -54,12 +54,32 @@ from backend.world.application.world_query import (
     WorldQuery,
     WorldQueryResult,
 )
+from backend.world.application.lineage import (
+    LineagePolicy,
+    LineageRelation,
+    LineageRule,
+    SourceLineage,
+)
 from backend.world.application.belief import (
     BeliefFormation,
     BeliefView,
     CorroborationAssessment,
     CorroborationLevel,
     ObservationCorroborationReader,
+)
+from backend.world.application.belief_policy import (
+    BeliefAcceptance,
+    BeliefPolicyResult,
+    BeliefSupportPolicy,
+    BeliefSupportRule,
+    SupportRequirement,
+)
+from backend.world.application.hypothesis import (
+    HypothesisEvidence,
+    HypothesisFormation,
+    HypothesisRejected,
+    PredictionEvaluation,
+    evaluate_prediction,
 )
 
 __all__ = [
@@ -111,4 +131,21 @@ __all__ = [
     "CorroborationAssessment",
     "CorroborationLevel",
     "ObservationCorroborationReader",
+    # source lineage (Phase 7.6)
+    "LineagePolicy",
+    "LineageRule",
+    "LineageRelation",
+    "SourceLineage",
+    # governed belief support policy (Phase 7.6)
+    "BeliefSupportPolicy",
+    "BeliefSupportRule",
+    "SupportRequirement",
+    "BeliefAcceptance",
+    "BeliefPolicyResult",
+    # hypothesis / prediction (Phase 7.6)
+    "HypothesisFormation",
+    "HypothesisEvidence",
+    "HypothesisRejected",
+    "PredictionEvaluation",
+    "evaluate_prediction",
 ]

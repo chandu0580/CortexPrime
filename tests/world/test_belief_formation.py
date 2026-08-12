@@ -143,14 +143,18 @@ def test_s1_single_authoritative_source_supports_belief():
     assert isinstance(b.belief, Belief)
 
 
-# S2 — secondary corroborating source supports belief (independent agreement)
+# S2 — secondary corroborating source supports belief
+# SUPERSEDED by Phase 7.6: without a lineage policy, two distinct source_refs
+# agreeing is INDETERMINATE, not INDEPENDENT — independence is not assumed from a
+# distinct source_ref (that was the 7.5 limitation 7.6 fixes). The proven-
+# INDEPENDENT-via-lineage case lives in tests/world/test_lineage_corroboration.py.
 def test_s2_secondary_corroborating_source():
-    w = World()  # ungoverned: corroboration decides
+    w = World()  # ungoverned, no lineage policy
     w.observe(value={"replicas": 5}, observed_at=_utc(10, 0), source_ref=K8S)
     w.observe(value={"replicas": 5}, observed_at=_utc(10, 1), source_ref=PROM)
     b = w.believe()
-    assert b.status is EpistemicStatus.AFFIRMED
-    assert b.corroboration.level is CorroborationLevel.INDEPENDENT
+    assert b.status is EpistemicStatus.AFFIRMED       # the value is still supported
+    assert b.corroboration.level is CorroborationLevel.INDETERMINATE  # independence unproven
     assert set(b.corroboration.independent_sources) == {K8S, PROM}
 
 
@@ -165,12 +169,14 @@ def test_s3_same_provider_duplicate_is_correlated_not_independent():
     assert b.corroboration.correlated_count == 1                # the duplicate
 
 
-# S4 — independent sources agree
-def test_s4_independent_sources_agree():
+# S4 — sources agree; without lineage, independence is INDETERMINATE (Phase 7.6).
+# The proven-INDEPENDENT case (distinct known lineage origins) is in
+# tests/world/test_lineage_corroboration.py.
+def test_s4_sources_agree_without_lineage_is_indeterminate():
     w = World()
     w.observe(value={"replicas": 5}, observed_at=_utc(10, 0), source_ref=K8S)
     w.observe(value={"replicas": 5}, observed_at=_utc(10, 0), source_ref=PROM)
-    assert w.believe().corroboration.level is CorroborationLevel.INDEPENDENT
+    assert w.believe().corroboration.level is CorroborationLevel.INDETERMINATE
 
 
 # S5 — independent sources disagree (ungoverned) -> CONFLICTED, not resolved
