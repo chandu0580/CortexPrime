@@ -97,6 +97,7 @@ from backend.intelligence.application.calibration import (
     VerificationRecordPort,
     wilson_interval,
 )
+from backend.intelligence.application.autonomy import AutonomyPolicy
 
 __all__ = [
     # 8.1 state machine
@@ -171,6 +172,8 @@ __all__ = [
     "VerificationRecordPort",
     "HumanAdjudicationPort",
     "wilson_interval",
+    # 8.8 controlled autonomy
+    "AutonomyPolicy",
     # 8.4 differential diagnosis
     "TestQuality",
     "EvidenceGap",

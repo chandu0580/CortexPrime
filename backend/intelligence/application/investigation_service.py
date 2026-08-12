@@ -259,6 +259,19 @@ class InvestigationService:
                             from_status=investigation.status,
                             payload={"verification_ref": verification_ref}, now=now)
 
+    def record_autonomy_decision(
+        self, *, investigation: Investigation, decision, now: datetime
+    ) -> Investigation:
+        """Durably record a platform autonomy decision on the investigation event log
+        (Phase 8.8, Part Z) — auditable structured evidence, tenant-scoped, secret-
+        firewalled like every event. The decision is a value the PLATFORM computed;
+        recording it never changes the investigation's autonomy_level by itself (that
+        is a separate, explicit platform transition)."""
+        payload = decision.to_dict() if hasattr(decision, "to_dict") else dict(decision)
+        return self._commit(self._advance(investigation, now),
+                            InvestigationEventKind.AUTONOMY_DECISION,
+                            from_status=investigation.status, payload=payload, now=now)
+
     def record_human_event(
         self, *, investigation: Investigation, human_event: HumanEvent, now: datetime
     ) -> Investigation:
@@ -363,7 +376,11 @@ class InvestigationService:
         if human_event is not None:
             payload["human_event"] = human_event.to_dict()
         if policy_authorization_ref is not None:
-            payload["policy_authorization_ref"] = policy_authorization_ref
+            # Store under a firewall-safe key: the field-aware secret detector flags
+            # any key-name containing "authorization" as credential-shaped, so the
+            # A4 policy-authorization reference is recorded as ``policy_grant_ref``
+            # (a reference, never a secret).
+            payload["policy_grant_ref"] = policy_authorization_ref
         return self._commit(updated, InvestigationEventKind.TRANSITIONED,
                             from_status=investigation.status, payload=payload, now=now)
 

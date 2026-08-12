@@ -55,6 +55,17 @@ from backend.contracts.intelligence.calibration import (
     ReliabilityEstimate,
     ReliabilityInterval,
 )
+from backend.contracts.intelligence.autonomy import (
+    ApprovalRequirement,
+    AutonomyDecision,
+    AutonomyEligibility,
+    AutonomyPolicyConfig,
+    AutonomyScope,
+    BreakerTrip,
+    Capability,
+    CircuitBreakerConfig,
+    EmergencyStopState,
+)
 
 __all__ = [
     "AutonomyLevel",
@@ -89,4 +100,14 @@ __all__ = [
     "CalibrationPolicy",
     "CalibrationDataset",
     "ReliabilityEstimate",
+    # 8.8 controlled autonomy
+    "Capability",
+    "AutonomyScope",
+    "AutonomyEligibility",
+    "ApprovalRequirement",
+    "AutonomyDecision",
+    "AutonomyPolicyConfig",
+    "CircuitBreakerConfig",
+    "EmergencyStopState",
+    "BreakerTrip",
 ]

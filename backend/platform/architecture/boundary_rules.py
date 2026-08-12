@@ -50,6 +50,7 @@ __all__ = [
     "NoV1IntelligenceImportRule",
     "IntelligenceCannotBypassWorldRule",
     "WorldCannotImportV1MemoryRule",
+    "AutonomyNotModelDrivenRule",
     "default_boundary_rules",
     "BOUNDED_CONTEXTS",
 ]
@@ -1573,6 +1574,66 @@ class IntelligenceCannotBypassWorldRule:
 
 
 @dataclass(frozen=True)
+class AutonomyNotModelDrivenRule:
+    """The autonomy decision is outside the model's mutation surface (Phase 8.8).
+
+    Autonomy is delegated authority the PLATFORM grants from independent evidence
+    (calibration, assurance, risk, world) — the model must never be an input to it,
+    or a model could argue itself into more authority (the self-reinforcing loop of
+    Part X). ``BND-INTELLIGENCE-CANNOT-EXECUTE`` already stops the autonomy module
+    from reaching the execution gateway; this closes the other side: the autonomy
+    decision module (``backend.intelligence.application.autonomy``) may not import
+    the governed model boundary or any model-proposal seam. It decides from typed
+    evidence and emits a value; model text never crosses the authority boundary
+    (ADR-079).
+    """
+
+    rule_id: str = "BND-AUTONOMY-NOT-MODEL-DRIVEN"
+    description: str = (
+        "the autonomy decision module imports no model boundary / model-proposal "
+        "seam — autonomy is decided from independent evidence, never model output"
+    )
+    autonomy_module: str = "backend.intelligence.application.autonomy"
+    forbidden_roots: tuple[str, ...] = (
+        "backend.harness.llm_boundary",
+        "backend.harness.trace",
+        "backend.intelligence.application.model_boundary",
+        "backend.llm",
+        "backend.llm_provider",
+        "backend.providers",
+    )
+    severity: Severity = Severity.ERROR
+
+    def evaluate(self, graph: ModuleGraph) -> RuleResult:
+        violations: list[Violation] = []
+        checked = 0
+        for module in graph.modules():
+            if not (module.name == self.autonomy_module
+                    or module.name.startswith(self.autonomy_module + ".")):
+                continue
+            checked += 1
+            for imported, line in module.imports:
+                if any(imported == f or imported.startswith(f + ".")
+                       for f in self.forbidden_roots):
+                    violations.append(
+                        Violation(
+                            rule_id=self.rule_id, severity=self.severity,
+                            module=module.name, line=line, offender=imported,
+                            detail=(
+                                f"the autonomy decision imports the model seam "
+                                f"{imported!r}; autonomy is decided from independent "
+                                "evidence (calibration/assurance/risk/world), never "
+                                "model output — the model may not influence its own "
+                                "authority (ADR-079, Part X)"
+                            ),
+                        )
+                    )
+        return RuleResult(
+            rule_id=self.rule_id, description=self.description,
+            violations=tuple(violations), modules_checked=checked)
+
+
+@dataclass(frozen=True)
 class WorldCannotImportV1MemoryRule:
     """Historical experience never enters the World Plane as truth (Phase 8.6).
 
@@ -1656,4 +1717,5 @@ def default_boundary_rules() -> tuple:
         NoV1IntelligenceImportRule(),
         IntelligenceCannotBypassWorldRule(),
         WorldCannotImportV1MemoryRule(),
+        AutonomyNotModelDrivenRule(),
     )

@@ -173,6 +173,7 @@ class InvestigationEventKind(str, Enum):
     VERIFICATION_LINKED = "verification_linked"
     HUMAN_EVENT = "human_event"
     CHECKPOINT = "checkpoint"
+    AUTONOMY_DECISION = "autonomy_decision"   # Phase 8.8: durable, auditable autonomy verdict
 
 
 class TemporalFit(str, Enum):
