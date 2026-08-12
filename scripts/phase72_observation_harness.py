@@ -24,6 +24,8 @@ import traceback
 from datetime import datetime, timezone
 from typing import Any
 
+import sqlalchemy as sa
+
 from scripts.phase62_recovery_harness import (
     TENANT, _commission, _drive, _start_and_resolve, _tenant_ctx,
 )
@@ -219,6 +221,63 @@ def main() -> None:  # noqa: PLR0915
           repo.count_for_subject(tenant_id=TENANT, subject_ref="widget:w-1") == 1)
 
     # ------------------------------------------------------------------
+    # Round-trip (STEP 8) — Observation -> PostgreSQL -> Observation,
+    # value-equal; provenance, both instants, recording time, digest survive.
+    # ------------------------------------------------------------------
+    print("[R] round-trip semantic equality")
+    reloaded = repo.get_observation(tenant_id=TENANT, observation_id=obs.record_id)
+    check("observation reconstructs from PostgreSQL", reloaded is not None)
+    if reloaded is not None:
+        check("round-trip is value-equal to the original", reloaded == obs)
+        check("provenance survived the round-trip (references the execution)",
+              reloaded.provenance == obs.provenance
+              and reloaded.provenance.execution_ref == exec_id)
+        check("observed_at / retrieved_at / recorded_at survived",
+              reloaded.instant.observed_at == obs.instant.observed_at
+              and reloaded.instant.retrieved_at == obs.instant.retrieved_at
+              and reloaded.recorded_at == obs.recorded_at)
+        check("identity digest survived the round-trip",
+              observation_identity(reloaded) == observation_identity(obs))
+    check("cross-tenant get_observation fails closed",
+          repo.get_observation(tenant_id="other", observation_id=obs.record_id) is None)
+
+    # ------------------------------------------------------------------
+    # Schema (STEP 13-A) — the expected indexes/constraint exist
+    # ------------------------------------------------------------------
+    print("[A] schema — expected indexes exist")
+    with runtime.persistence.store.atomic() as work:
+        indexes = {r[0] for r in work.execute(sa.text(
+            "SELECT indexname FROM pg_indexes WHERE tablename = 'cw_observation'"))}
+    for expected in ("uq_cw_observation_identity",
+                     "ix_cw_observation_tenant_subject",
+                     "ix_cw_observation_observed_at",
+                     "ix_cw_observation_source"):
+        check(f"index {expected} exists", expected in indexes, str(sorted(indexes)))
+
+    # ------------------------------------------------------------------
+    # Transaction (STEP 13-I) — a failed append leaves no partial row
+    # ------------------------------------------------------------------
+    print("[I] failed append rolls back (no partial observation)")
+    from backend.database.durable.tables import world_observation_table as WT
+    before_rollback = repo.count_all()
+    try:
+        with runtime.persistence.store.atomic() as work:
+            work.execute(sa.insert(WT).values(
+                observation_id="wobs-rollback-probe", identity_digest="rollback-probe",
+                tenant_id=TENANT, source_kind="connector", source_ref="c",
+                subject_ref="s", predicate="p", status="returned_data",
+                observed_at=datetime.now(timezone.utc),
+                retrieved_at=datetime.now(timezone.utc), recorded_at=work.now,
+                record={"_contract": "probe"}, produced_by="c", schema_version=1))
+            raise RuntimeError("deliberate mid-transaction failure")
+    except RuntimeError:
+        pass
+    check("failed transaction left the row count unchanged",
+          repo.count_all() == before_rollback)
+    check("the rolled-back observation is not readable",
+          repo.get(tenant_id=TENANT, observation_id="wobs-rollback-probe") is None)
+
+    # ------------------------------------------------------------------
     # Part N — replay creates ZERO new observations
     # ------------------------------------------------------------------
     print("[N] replay inertness (no new observations)")
@@ -258,6 +317,16 @@ def main() -> None:  # noqa: PLR0915
         check("observation survived the crash intact", rec is not None)
         check("crashed observation is cross-tenant-isolated (fail closed)",
               successor.get(tenant_id="other", observation_id=crashed["observation_id"]) is None)
+        # A fresh process reconstructs the full Observation and its identity —
+        # the round-trip holds across a real crash, not just in one process.
+        recovered = successor.get_observation(
+            tenant_id=TENANT, observation_id=crashed["observation_id"])
+        check("fresh process reconstructs the crashed observation", recovered is not None)
+        if recovered is not None:
+            check("recovered identity matches the pre-crash identity",
+                  observation_identity(recovered) == crashed.get("identity"))
+            check("recovered provenance intact after the crash",
+                  recovered.provenance.execution_ref == "ex-crash")
 
     integrity = verify_chain(runtime.persistence.audit)
     check("audit chain verifies", integrity.ok, f"records={integrity.records_checked}")

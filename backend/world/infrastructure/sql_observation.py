@@ -92,6 +92,22 @@ class SqlObservationRepository:
             ).fetchone()
         return row[0] if row else None
 
+    def get_observation(
+        self, *, tenant_id: str, observation_id: str
+    ) -> Optional[Observation]:
+        """The reconstructed :class:`Observation`, only if it belongs to
+        ``tenant_id`` (Part D/E/F: the full round-trip).
+
+        The stored ``record`` document is the observation's own
+        ``to_dict()`` envelope, so ``Observation.from_dict`` rebuilds a
+        value-equal object — provenance, both instants, the recording time, the
+        source and the status all survive PostgreSQL unchanged. Cross-tenant
+        access fails closed (returns None), exactly as :meth:`get`."""
+        document = self.get(tenant_id=tenant_id, observation_id=observation_id)
+        if document is None:
+            return None
+        return Observation.from_dict(document)
+
     def count_for_subject(self, *, tenant_id: str, subject_ref: str) -> int:
         with self._store.atomic() as work:
             return int(work.execute(
