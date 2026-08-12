@@ -49,6 +49,7 @@ __all__ = [
     "IntelligenceCannotExecuteRule",
     "NoV1IntelligenceImportRule",
     "IntelligenceCannotBypassWorldRule",
+    "WorldCannotImportV1MemoryRule",
     "default_boundary_rules",
     "BOUNDED_CONTEXTS",
 ]
@@ -1571,6 +1572,65 @@ class IntelligenceCannotBypassWorldRule:
             violations=tuple(violations), modules_checked=checked)
 
 
+@dataclass(frozen=True)
+class WorldCannotImportV1MemoryRule:
+    """Historical experience never enters the World Plane as truth (Phase 8.6).
+
+    The V1 memory stack (``backend.memory``'s MemoryOrchestrator/semantic store,
+    ``backend.cognitive_memory``) turns stored model memory into prompt-injected
+    "KNOWN FACTS" — the exact anti-pattern that lets experience masquerade as truth.
+    ``BND-NO-V1-INTELLIGENCE-IMPORT`` already fences ``backend.intelligence`` from it,
+    but the WORLD/ASSURANCE planes (and the durable reasoning ledger, which lives
+    under ``backend.world.application``) were NOT gated — a dual-write from V1 memory
+    into the fact/observation/reasoning ledgers would be catastrophic. This forbids
+    any module under ``backend.world`` or ``backend.assurance`` from importing a V1
+    memory package. World truth is grounded only in observations; experience is a
+    projection over the ledgers, never a source of them (ADR-077, Part O/W).
+    """
+
+    rule_id: str = "BND-WORLD-CANNOT-IMPORT-V1-MEMORY"
+    description: str = (
+        "the World and Assurance planes import no V1 memory package — historical "
+        "experience never dual-writes into the World ledgers as truth"
+    )
+    world_roots: tuple[str, ...] = ("backend.world", "backend.assurance")
+    v1_memory_roots: tuple[str, ...] = (
+        "backend.memory",
+        "backend.cognitive_memory",
+        "backend.cortex_memory",
+        "backend.services.memory_context_service",
+        "backend.services.enterprise_engineering_memory",
+    )
+    severity: Severity = Severity.ERROR
+
+    def evaluate(self, graph: ModuleGraph) -> RuleResult:
+        violations: list[Violation] = []
+        checked = 0
+        for module in graph.modules():
+            if not any(module.name == r or module.name.startswith(r + ".")
+                       for r in self.world_roots):
+                continue
+            checked += 1
+            for imported, line in module.imports:
+                if any(imported == f or imported.startswith(f + ".")
+                       for f in self.v1_memory_roots):
+                    violations.append(
+                        Violation(
+                            rule_id=self.rule_id, severity=self.severity,
+                            module=module.name, line=line, offender=imported,
+                            detail=(
+                                f"the World/Assurance plane imports V1 memory "
+                                f"{imported!r}; historical/model memory must never "
+                                "dual-write into the World ledgers as truth — the "
+                                "World is grounded only in observations (ADR-077)"
+                            ),
+                        )
+                    )
+        return RuleResult(
+            rule_id=self.rule_id, description=self.description,
+            violations=tuple(violations), modules_checked=checked)
+
+
 def default_boundary_rules() -> tuple:
     """The boundary rules the Constitution defines."""
     return (
@@ -1595,4 +1655,5 @@ def default_boundary_rules() -> tuple:
         IntelligenceCannotExecuteRule(),
         NoV1IntelligenceImportRule(),
         IntelligenceCannotBypassWorldRule(),
+        WorldCannotImportV1MemoryRule(),
     )

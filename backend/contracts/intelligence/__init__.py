@@ -35,6 +35,13 @@ from backend.contracts.intelligence.investigation import (
     is_terminal_status,
     legal_transitions_from,
 )
+from backend.contracts.intelligence.episode import (
+    AssuranceStatus,
+    EpisodeFacets,
+    EpisodeHypothesis,
+    ExperienceQuality,
+    InvestigationEpisode,
+)
 
 __all__ = [
     "AutonomyLevel",
@@ -51,4 +58,10 @@ __all__ = [
     "is_legal_transition",
     "is_terminal_status",
     "legal_transitions_from",
+    # 8.6 investigation experience
+    "InvestigationEpisode",
+    "EpisodeFacets",
+    "EpisodeHypothesis",
+    "ExperienceQuality",
+    "AssuranceStatus",
 ]

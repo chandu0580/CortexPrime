@@ -39,6 +39,7 @@ SECTION_ORDER: tuple[str, ...] = (
     "missing_evidence",
     "world_evidence",
     "prior_tests",
+    "historical_investigation_experience",
     "available_tools",
     "harness_metadata",
 )
@@ -132,11 +133,15 @@ class ContextAssembler:
         self, *, investigation: Investigation, world_evidence: tuple[dict, ...],
         available_tools: tuple[str, ...], harness_version: str, now: datetime,
         budget: Optional[ContextBudget] = None,
+        historical_experience: tuple[dict, ...] = (),
     ) -> AssembledContext:
         """``world_evidence`` is already-fetched structured evidence (from
         WorldQuery/governed reads) — the assembler never fetches; it only orders,
-        bounds, and digests. Section order and content are fully determined by the
-        inputs, so the ``context_digest`` is reproducible."""
+        bounds, and digests. ``historical_experience`` is prior-investigation
+        experience (from the experience-retrieval layer), placed in its OWN clearly
+        labelled section — never mixed with world facts. Section order and content
+        are fully determined by the inputs, so the ``context_digest`` is
+        reproducible."""
         budget = budget or ContextBudget()
         # World evidence is bounded deterministically (oldest-first stable slice).
         bounded_evidence = tuple(world_evidence[: budget.max_world_evidence_items])
@@ -187,6 +192,12 @@ class ContextAssembler:
             self._section("prior_tests", list(investigation.test_refs),
                           provenance="investigation-ledger",
                           inclusion_reason="tests already run (avoid redundant tests)"),
+            self._section("historical_investigation_experience", list(historical_experience),
+                          provenance="experience-memory",
+                          inclusion_reason=("prior investigations of similar situations — "
+                                            "HISTORICAL EXPERIENCE, never current world truth; "
+                                            "acquire fresh evidence before relying on it"),
+                          freshness="historical (see per-episode episode_time)"),
             self._section("available_tools", sorted(available_tools),
                           provenance="tool-exposure",
                           inclusion_reason="the frozen read-only tool allowlist the model may name"),

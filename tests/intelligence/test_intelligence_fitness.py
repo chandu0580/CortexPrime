@@ -17,6 +17,7 @@ from backend.platform.architecture.boundary_rules import (
     ModelCannotCreateFactRule,
     NoV1IntelligenceImportRule,
     ObservationAppendOnlyRule,
+    WorldCannotImportV1MemoryRule,
 )
 from backend.platform.architecture.rules import ModuleGraph
 
@@ -37,8 +38,38 @@ class TestCurrentIntelligencePasses:
         assert IntelligenceCannotExecuteRule().evaluate(graph).passed
         assert NoV1IntelligenceImportRule().evaluate(graph).passed
         assert IntelligenceCannotBypassWorldRule().evaluate(graph).passed
+        assert WorldCannotImportV1MemoryRule().evaluate(graph).passed
         assert ModelCannotCreateFactRule().evaluate(graph).passed
         assert ObservationAppendOnlyRule().evaluate(graph).passed
+
+
+class TestWorldCannotImportV1Memory:
+    """Phase 8.6 (Part O/W): the World/Assurance planes never import V1 memory —
+    historical/model memory can't dual-write into the World ledgers as truth."""
+
+    def test_world_importing_v1_memory_fails(self, tmp_path):
+        graph = write_tree(tmp_path / "backend", {
+            "world/application/rogue.py":
+                "from backend.memory.memory_orchestrator import MemoryOrchestrator\n"})
+        assert not WorldCannotImportV1MemoryRule().evaluate(graph).passed
+
+    def test_world_importing_semantic_known_facts_fails(self, tmp_path):
+        graph = write_tree(tmp_path / "backend", {
+            "world/application/rogue.py":
+                "from backend.services.memory_context_service import MissionMemoryContext\n"})
+        assert not WorldCannotImportV1MemoryRule().evaluate(graph).passed
+
+    def test_assurance_importing_cognitive_memory_fails(self, tmp_path):
+        graph = write_tree(tmp_path / "backend", {
+            "assurance/application/rogue.py":
+                "from backend.cognitive_memory.service import CognitiveMemoryService\n"})
+        assert not WorldCannotImportV1MemoryRule().evaluate(graph).passed
+
+    def test_world_reasoning_ledger_is_allowed(self, tmp_path):
+        graph = write_tree(tmp_path / "backend", {
+            "world/application/ok.py":
+                "from backend.world.application.reasoning import ReasoningLedger\n"})
+        assert WorldCannotImportV1MemoryRule().evaluate(graph).passed
 
 
 class TestIntelligenceCannotBypassWorld:

@@ -84,7 +84,7 @@ class InvestigationEngine:
         self, *, service: InvestigationService, assembler: ContextAssembler,
         model_port, evidence_port, world_read_port, policy: EvidenceSelectionPolicy,
         harness_version: str, available_tools: tuple[str, ...],
-        produced_by: str = "intelligence:engine/1",
+        produced_by: str = "intelligence:engine/1", experience_port=None,
     ) -> None:
         self._svc = service
         self._assembler = assembler
@@ -95,6 +95,9 @@ class InvestigationEngine:
         self._harness_version = harness_version
         self._tools = tuple(available_tools)
         self._produced_by = produced_by
+        # Optional (Phase 8.6): prior-investigation experience, injected into the
+        # model's context as clearly-labelled HISTORY — never current world truth.
+        self._experience = experience_port
 
     # -- one step -----------------------------------------------------------
 
@@ -115,11 +118,13 @@ class InvestigationEngine:
         # OBSERVE: gather current world evidence for the differential's subjects.
         world_evidence = self._gather_world_evidence(investigation, now)
 
-        # ORIENT: assemble a deterministic, digest-stamped context.
+        # ORIENT: assemble a deterministic, digest-stamped context, including any
+        # relevant HISTORICAL experience (labelled as history, not world truth).
+        experience = self._retrieve_experience(investigation, now)
         context = self._assembler.assemble(
             investigation=investigation, world_evidence=world_evidence,
             available_tools=self._tools, harness_version=self._harness_version,
-            now=now, budget=budget.context)
+            now=now, budget=budget.context, historical_experience=experience)
 
         # PROPOSE: the model proposes through the governed boundary. Failures are
         # classified honestly — a model/trace/provider failure never becomes
@@ -255,6 +260,18 @@ class InvestigationEngine:
         return inv
 
     # -- internals ----------------------------------------------------------
+
+    def _retrieve_experience(self, investigation: Investigation, now: datetime) -> tuple[dict, ...]:
+        """Retrieve relevant prior-investigation experience (Phase 8.6). Returns
+        clearly-labelled HISTORICAL context dicts; the current investigation must
+        still acquire its own fresh evidence — experience is never current truth."""
+        if self._experience is None:
+            return ()
+        from backend.intelligence.application.episode import derive_facets
+        matches = self._experience.find_relevant_episodes(
+            tenant=investigation.tenant, facets=derive_facets(investigation), now=now,
+            exclude_ref=investigation.investigation_ref)
+        return tuple(m.to_context_dict() for m in matches)
 
     def _gather_world_evidence(self, investigation: Investigation, now: datetime) -> tuple[dict, ...]:
         seen = set()

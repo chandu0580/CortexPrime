@@ -45,6 +45,11 @@ class ReasoningKind(str, Enum):
     HYPOTHESIS = "hypothesis"
     PREDICTION = "prediction"
     PREDICTION_EVALUATION = "prediction_evaluation"
+    EXPERIENCE_USE = "experience_use"
+    """Phase 8.6: a record that a prior investigation EPISODE was retrieved and
+    injected into a current investigation's context — the calibration substrate for
+    "did historical experience help or mislead?" (Part T). References only; whether
+    it helped is computed later (Phase 8.7), never asserted here."""
 
 
 class ReasoningRejected(ContractViolation):
@@ -179,3 +184,20 @@ class ReasoningLedger:
             tenant=tenant, kind=ReasoningKind.PREDICTION_EVALUATION,
             subject_ref=subject_ref, predicate=predicate,
             document=evaluation.to_dict(), refs=refs, recorded_at=recorded_at)
+
+    def record_experience_use(
+        self, *, tenant: TenantRef, subject_ref: str, investigation_ref: str,
+        episode_ref: str, document: dict, recorded_at: datetime,
+        predicate: Optional[str] = None,
+    ) -> tuple[str, bool]:
+        """Record that historical episode ``episode_ref`` was retrieved into the
+        current ``investigation_ref`` (Phase 8.6, Part T). ``document`` is a
+        references-only summary (episode ref, match reasons, categorical assurance/
+        quality) — the field-aware firewall runs before it is written. This captures
+        the calibration substrate; it never asserts the experience was correct."""
+        if not isinstance(document, dict):
+            raise ReasoningRejected("record_experience_use requires a document dict")
+        refs = {"investigation_ref": investigation_ref, "episode_ref": episode_ref}
+        return self._record(
+            tenant=tenant, kind=ReasoningKind.EXPERIENCE_USE, subject_ref=subject_ref,
+            predicate=predicate, document=document, refs=refs, recorded_at=recorded_at)

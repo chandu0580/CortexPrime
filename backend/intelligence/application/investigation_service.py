@@ -154,6 +154,24 @@ class InvestigationService:
                 f"no investigation {investigation_ref!r} for this tenant")
         return Investigation.from_dict(state)
 
+    def reconstruct_as_known(
+        self, *, tenant: TenantRef, investigation_ref: str, known_at: datetime
+    ) -> Investigation:
+        """The investigation as it was known at ``known_at`` — temporal safety
+        (Part K). Events recorded after ``known_at`` are not visible, so evidence
+        learned later cannot appear in 'what the investigator knew then'."""
+        if not isinstance(tenant, TenantRef):
+            raise InvestigationRejected("tenant must be an explicit TenantRef")
+        reader = getattr(self._repository, "latest_state_as_known", None)
+        if reader is None:
+            raise InvestigationRejected("this repository has no as-known reader")
+        state = reader(tenant_id=tenant.tenant_id, investigation_id=investigation_ref,
+                       known_at=known_at)
+        if state is None:
+            raise InvestigationNotFound(
+                f"no investigation {investigation_ref!r} known by {known_at.isoformat()}")
+        return Investigation.from_dict(state)
+
     # -- reasoning artifacts (the model proposes; the platform records) -----
 
     def add_question(

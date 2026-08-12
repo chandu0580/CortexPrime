@@ -81,6 +81,43 @@ class SqlInvestigationRepository:
             ).fetchone()
         return row[0] if row else None
 
+    def latest_state_as_known(
+        self, *, tenant_id: str, investigation_id: str, known_at: datetime
+    ) -> Optional[dict]:
+        """The latest committed snapshot whose knowledge time is at or before
+        ``known_at`` — temporal safety (Part K): reconstruct WHAT THE INVESTIGATOR
+        KNEW at a past time, never leaking events recorded later. Tenant-scoped."""
+        with self._store.atomic() as work:
+            row = work.execute(
+                sa.select(T.c.state).where(
+                    T.c.tenant_id == tenant_id,
+                    T.c.investigation_id == investigation_id,
+                    T.c.recorded_at <= known_at,
+                ).order_by(T.c.seq.desc()).limit(1)
+            ).fetchone()
+        return row[0] if row else None
+
+    def list_terminal(
+        self, *, tenant_id: str, limit: int = 200
+    ) -> tuple[dict, ...]:
+        """The latest snapshots of TERMINAL investigations for a tenant, newest
+        first — the reusable experience source (Part D/G). Tenant-scoped in SQL (a
+        stronger boundary than application filtering, Part J). Read-only."""
+        terminal = ("completed", "failed", "abandoned")
+        with self._store.atomic() as work:
+            latest = sa.select(
+                T.c.investigation_id, sa.func.max(T.c.seq).label("mseq")
+            ).where(T.c.tenant_id == tenant_id).group_by(T.c.investigation_id).subquery()
+            rows = work.execute(
+                sa.select(T.c.state).select_from(T).join(
+                    latest, sa.and_(T.c.investigation_id == latest.c.investigation_id,
+                                    T.c.seq == latest.c.mseq)
+                ).where(
+                    T.c.tenant_id == tenant_id, T.c.to_status.in_(terminal)
+                ).order_by(T.c.recorded_at.desc()).limit(limit)
+            ).fetchall()
+        return tuple(r[0] for r in rows)
+
     def event_count(self, *, tenant_id: str, investigation_id: str) -> int:
         with self._store.atomic() as work:
             return int(work.execute(

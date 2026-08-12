@@ -79,6 +79,14 @@ from backend.intelligence.application.engine import (
     StepOutcome,
     StepResult,
 )
+from backend.intelligence.application.episode import (
+    EpisodeProjection,
+    EpisodeSourcePort,
+    ExperienceMatch,
+    ExperienceRetrievalPort,
+    StructuredExperienceRetrieval,
+    derive_facets,
+)
 
 __all__ = [
     # 8.1 state machine
@@ -137,6 +145,13 @@ __all__ = [
     "InvestigationBudget",
     "StepOutcome",
     "StepResult",
+    # 8.6 investigation experience
+    "EpisodeProjection",
+    "EpisodeSourcePort",
+    "ExperienceMatch",
+    "ExperienceRetrievalPort",
+    "StructuredExperienceRetrieval",
+    "derive_facets",
     # 8.4 differential diagnosis
     "TestQuality",
     "EvidenceGap",
