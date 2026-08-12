@@ -1100,31 +1100,35 @@ class WorldCannotExecuteRule:
 
 @dataclass(frozen=True)
 class ModelCannotCreateFactRule:
-    """Model output never becomes a world Fact (Phase 7.1, ADR-062, Part Q).
+    """Model output never becomes a world Fact or Belief (Phase 7.1/7.5, ADR-062).
 
     The intelligence and harness planes — where model output lives — must not
-    import the World Plane's *grounded* record constructors (``Fact``,
-    ``Observation``). They may propose (``ModelProposal``, ``Hypothesis``), but
-    only the deterministic ingestion boundary (a later phase, outside these
-    planes) may construct a Fact or an Observation. This is the import-level
-    half of the firewall; the type level (no ``ModelProposal.to_fact``, no
-    ``Fact.from_text``, no MODEL observation source) is the other half.
+    import the World Plane's *grounded/derived* record constructors (``Fact``,
+    ``Observation``, ``Belief``). They may propose (``ModelProposal``,
+    ``Hypothesis``), but only the deterministic World Plane boundaries (the
+    ingestion boundary for observations, the derivation boundary for facts, the
+    belief-formation boundary for beliefs — all outside these planes) may
+    construct them. This is the import-level half of the firewall; the type level
+    (no ``ModelProposal.to_fact``/``to_belief``, no ``Fact.from_text``, no MODEL
+    observation source, Belief requires structured evidence basis) is the other.
 
-    Enforced by symbol: importing ``Fact`` or ``Observation`` (by name or via
-    the ``world`` package) from a model-plane module is the violation. Importing
-    the proposal/hypothesis types, or the whole package for type annotations in
-    a non-model plane, is fine.
+    Enforced by symbol: importing ``Fact``, ``Observation`` or ``Belief`` (by
+    name or via the ``world`` package) from a model-plane module is the
+    violation. Importing the proposal/hypothesis types, or the whole package for
+    type annotations in a non-model plane, is fine. A model plane consumes a
+    belief as structured data (``BeliefView.to_dict``), never by constructing the
+    ``Belief`` contract itself.
     """
 
     rule_id: str = "BND-MODEL-CANNOT-CREATE-FACT"
     description: str = (
-        "the intelligence/harness planes do not import the World Plane Fact or "
-        "Observation constructors"
+        "the intelligence/harness planes do not import the World Plane Fact, "
+        "Observation or Belief constructors"
     )
     model_roots: tuple[str, ...] = ("backend.harness", "backend.agents",
                                     "backend.orchestration", "backend.orchestrator")
     grounded_module: str = "backend.contracts.world.epistemic"
-    grounded_symbols: tuple[str, ...] = ("Fact", "Observation")
+    grounded_symbols: tuple[str, ...] = ("Fact", "Observation", "Belief")
     severity: Severity = Severity.ERROR
 
     def evaluate(self, graph: ModuleGraph) -> RuleResult:

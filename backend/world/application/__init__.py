@@ -54,6 +54,13 @@ from backend.world.application.world_query import (
     WorldQuery,
     WorldQueryResult,
 )
+from backend.world.application.belief import (
+    BeliefFormation,
+    BeliefView,
+    CorroborationAssessment,
+    CorroborationLevel,
+    ObservationCorroborationReader,
+)
 
 __all__ = [
     # observation ingestion (Phase 7.2)
@@ -98,4 +105,10 @@ __all__ = [
     "ObservationEvidence",
     "FactVersionReader",
     "ObservationReader",
+    # belief formation (Phase 7.5)
+    "BeliefFormation",
+    "BeliefView",
+    "CorroborationAssessment",
+    "CorroborationLevel",
+    "ObservationCorroborationReader",
 ]

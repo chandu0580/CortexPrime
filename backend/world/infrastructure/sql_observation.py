@@ -108,6 +108,28 @@ class SqlObservationRepository:
             return None
         return Observation.from_dict(document)
 
+    def list_for_subject(
+        self, *, tenant_id: str, subject_ref: str, predicate: str
+    ) -> tuple["Observation", ...]:
+        """Every observation for a (subject, predicate), tenant-scoped, oldest
+        first — the corroboration input (Phase 7.5). A cross-tenant read returns
+        nothing (fail closed). Reconstructs full Observation objects from the
+        stored documents so corroboration sees source, both times, and value.
+
+        Unlike the fact ledger, the observation ledger keeps *every* observation
+        (a second source agreeing is its own row), which is exactly what
+        independent-source corroboration needs."""
+        from backend.contracts.world import Observation
+        with self._store.atomic() as work:
+            rows = work.execute(
+                sa.select(T.c.record).where(
+                    T.c.tenant_id == tenant_id,
+                    T.c.subject_ref == subject_ref,
+                    T.c.predicate == predicate,
+                ).order_by(T.c.observed_at)
+            ).fetchall()
+        return tuple(Observation.from_dict(r[0]) for r in rows)
+
     def count_for_subject(self, *, tenant_id: str, subject_ref: str) -> int:
         with self._store.atomic() as work:
             return int(work.execute(
