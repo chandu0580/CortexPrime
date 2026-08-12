@@ -45,6 +45,7 @@ __all__ = [
     "ModelCannotCreateFactRule",
     "WorldApplicationPureRule",
     "ObservationAppendOnlyRule",
+    "AssuranceCannotExecuteRule",
     "default_boundary_rules",
     "BOUNDED_CONTEXTS",
 ]
@@ -1254,9 +1255,10 @@ class ObservationAppendOnlyRule:
 
     rule_id: str = "BND-OBSERVATION-APPEND-ONLY"
     description: str = (
-        "the World Plane issues no UPDATE or DELETE — observations are immutable"
+        "the World and Assurance planes issue no UPDATE or DELETE — observations, "
+        "facts and verifications are immutable"
     )
-    world_root: str = "backend.world"
+    world_roots: tuple[str, ...] = ("backend.world", "backend.assurance")
     severity: Severity = Severity.ERROR
 
     def evaluate(self, graph: ModuleGraph) -> RuleResult:
@@ -1265,8 +1267,8 @@ class ObservationAppendOnlyRule:
         violations: list[Violation] = []
         checked = 0
         for module in graph.modules():
-            if not (module.name.startswith(self.world_root + ".")
-                    or module.name == self.world_root):
+            if not any(module.name.startswith(r + ".") or module.name == r
+                       for r in self.world_roots):
                 continue
             checked += 1
             try:
@@ -1308,6 +1310,76 @@ class ObservationAppendOnlyRule:
         )
 
 
+@dataclass(frozen=True)
+class AssuranceCannotExecuteRule:
+    """The Assurance Plane evaluates; it never acts (Phase 7.7, ADR-069).
+
+    Assurance sits between Intelligence and the Harness: it adjudicates claims
+    against evidence it obtains from the World Plane, and mints a
+    ``WorldVerification``. It must never itself reach a provider or execute — a
+    verifier that could act would be an ungoverned side-effect channel wearing an
+    evaluator's clothes. So no module under ``backend/assurance`` may import a
+    connector, the invocation gateway, a provider adapter, the transport fabric, a
+    credential carrier, the scheduler/dispatcher, or the harness. Reading the
+    durable verification ledger (``backend.database.durable``) and the World read
+    layer is allowed; acting is not — mirroring BND-WORLD-CANNOT-EXECUTE.
+    """
+
+    rule_id: str = "BND-ASSURANCE-CANNOT-EXECUTE"
+    description: str = (
+        "the Assurance Plane imports no connector, gateway, adapter, transport, "
+        "credential carrier, scheduler, dispatcher, or harness"
+    )
+    assurance_root: str = "backend.assurance"
+    forbidden_roots: tuple[str, ...] = (
+        "backend.connectors",
+        "backend.contexts.execution",
+        "backend.platform.transport",
+        "backend.platform.credentials.broker",
+        "backend.platform.credentials.vault",
+        "backend.platform.credentials.material",
+        "backend.platform.credentials.request",
+        "backend.platform.credentials.development",
+        "backend.harness",
+        "backend.orchestrator",
+        "backend.computer",
+    )
+    severity: Severity = Severity.ERROR
+
+    def evaluate(self, graph: ModuleGraph) -> RuleResult:
+        violations: list[Violation] = []
+        checked = 0
+        for module in graph.modules():
+            if not (module.name.startswith(self.assurance_root + ".")
+                    or module.name == self.assurance_root):
+                continue
+            checked += 1
+            for imported, line in module.imports:
+                if any(imported == f or imported.startswith(f + ".")
+                       for f in self.forbidden_roots):
+                    violations.append(
+                        Violation(
+                            rule_id=self.rule_id,
+                            severity=self.severity,
+                            module=module.name,
+                            line=line,
+                            offender=imported,
+                            detail=(
+                                f"the Assurance Plane imports {imported!r}; it "
+                                "evaluates claims against evidence and never "
+                                "executes — verification informs governance, it "
+                                "does not act (ADR-069)"
+                            ),
+                        )
+                    )
+        return RuleResult(
+            rule_id=self.rule_id,
+            description=self.description,
+            violations=tuple(violations),
+            modules_checked=checked,
+        )
+
+
 def default_boundary_rules() -> tuple:
     """The boundary rules the Constitution defines."""
     return (
@@ -1328,4 +1400,5 @@ def default_boundary_rules() -> tuple:
         ModelCannotCreateFactRule(),
         WorldApplicationPureRule(),
         ObservationAppendOnlyRule(),
+        AssuranceCannotExecuteRule(),
     )

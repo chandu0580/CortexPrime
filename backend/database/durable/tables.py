@@ -755,6 +755,50 @@ world_fact_table = sa.Table(
 )
 
 
+world_verification_table = sa.Table(
+    "cw_verification",
+    DURABLE_METADATA,
+    # Phase 7.7, ADR-069. The Assurance Plane's append-only ledger of independent
+    # verification decisions. A verification is an externally-meaningful
+    # historical decision ("at this knowledge time the platform verified/refuted
+    # claim X against independent evidence Y") that cannot be safely re-derived —
+    # the claim being verified is ephemeral model output. Immutable: a re-check is
+    # a new row, never an overwrite. Same durable template as cw_observation /
+    # cw_fact.
+    sa.Column("verification_id", sa.Text(), primary_key=True),
+    # Deterministic identity for idempotency: digest over (tenant, procedure kind,
+    # subject, predicate, expected, producer reasoning path, verified_at). The
+    # same verification re-run collides and is refused. At-least-once, NOT
+    # exactly-once.
+    sa.Column("identity_digest", sa.String(128), nullable=False, unique=True),
+    sa.Column("tenant_id", sa.String(128), nullable=False),
+    sa.Column("subject_ref", sa.Text(), nullable=False),
+    sa.Column("predicate", sa.Text(), nullable=False),
+    sa.Column("procedure_ref", sa.Text(), nullable=False),
+    # SUPPORTED / UNSUPPORTED / INSUFFICIENT_EVIDENCE — never FALSE, never
+    # "timeout = success". A missing/stale/conflicted/unknown adjudication is
+    # INSUFFICIENT, not SUPPORTED.
+    sa.Column("verdict", sa.String(32), nullable=False),
+    # Explicit verifier identity. model_identifier is NULL for the deterministic
+    # platform verifier. reasoning_path distinct from the producer's — recorded so
+    # independence is auditable, not assumed.
+    sa.Column("verifier_id", sa.Text(), nullable=False),
+    sa.Column("verifier_reasoning_path", sa.Text(), nullable=False),
+    sa.Column("producer_reasoning_path", sa.Text(), nullable=False),
+    # verified_at is the knowledge time of the decision; recorded_at is when the
+    # row was written. Both app-clock, tz-aware.
+    sa.Column("verified_at", _TS, nullable=False),
+    sa.Column("recorded_at", _TS, nullable=False),
+    # The full WorldVerification document (subject/procedure/verifier/verdict/
+    # evidence_refs) as its canonical to_dict — authoritative; the columns are for
+    # lookup. Carries references only, no credential material.
+    sa.Column("record", _DOC, nullable=False),
+    sa.Column("schema_version", sa.Integer(), nullable=False),
+    sa.Index("ix_cw_verification_subject", "tenant_id", "subject_ref"),
+    sa.Index("ix_cw_verification_recorded_at", "recorded_at"),
+)
+
+
 #: Every durable table, in creation order. Used by the migration and by the
 #: bootstrap check that the schema a process needs is the schema it found.
 DURABLE_TABLES = (
@@ -776,4 +820,5 @@ DURABLE_TABLES = (
     harness_trace_table,
     world_observation_table,
     world_fact_table,
+    world_verification_table,
 )
