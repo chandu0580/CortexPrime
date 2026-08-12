@@ -257,7 +257,8 @@ class PredictionLifecycle:
             predicted_at=now, deadline=deadline, model_ref=validated.provider,
             predicate=validated.predicate, hypothesis_ref=hypothesis_ref,
             basis=tuple(inv.evidence_refs))
-        self._ledger.record_prediction(tenant=inv.tenant, prediction=prediction, recorded_at=now)
+        self._ledger.record_prediction(tenant=inv.tenant, prediction=prediction, recorded_at=now,
+                                       harness_version=self._harness_version)
         inv = self._svc.link_prediction(investigation=inv, prediction_ref=prediction.record_id, now=now)
 
         # GOVERNED ACTION -> OUTCOME (built OUTSIDE intelligence, from execution +

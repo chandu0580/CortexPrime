@@ -91,18 +91,21 @@ class SqlVerificationRepository:
         return WorldVerification.from_dict(row[0]) if row else None
 
     def list_for_subject(
-        self, *, tenant_id: str, subject_ref: str, predicate: str
+        self, *, tenant_id: str, subject_ref: str, predicate: str, known_at=None
     ) -> tuple[WorldVerification, ...]:
         """Every verification for a (subject, predicate), tenant-scoped, oldest
-        first — the assurance history."""
+        first — the assurance history. ``known_at`` gives an AS-KNOWN-AT-TIME cut
+        (only decisions recorded at or before it) so calibration cannot leak future
+        verifications backward (Phase 8.7, Part G)."""
         with self._store.atomic() as work:
-            rows = work.execute(
-                sa.select(T.c.record).where(
-                    T.c.tenant_id == tenant_id,
-                    T.c.subject_ref == subject_ref,
-                    T.c.predicate == predicate,
-                ).order_by(T.c.recorded_at)
-            ).fetchall()
+            stmt = sa.select(T.c.record).where(
+                T.c.tenant_id == tenant_id,
+                T.c.subject_ref == subject_ref,
+                T.c.predicate == predicate,
+            )
+            if known_at is not None:
+                stmt = stmt.where(T.c.recorded_at <= known_at)
+            rows = work.execute(stmt.order_by(T.c.recorded_at)).fetchall()
         return tuple(WorldVerification.from_dict(r[0]) for r in rows)
 
     def count_all(self) -> int:

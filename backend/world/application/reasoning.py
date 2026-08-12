@@ -158,13 +158,18 @@ class ReasoningLedger:
             recorded_at=recorded_at)
 
     def record_prediction(
-        self, *, tenant: TenantRef, prediction: Prediction, recorded_at: datetime
+        self, *, tenant: TenantRef, prediction: Prediction, recorded_at: datetime,
+        harness_version: Optional[str] = None,
     ) -> tuple[str, bool]:
         if not isinstance(prediction, Prediction):
             raise ReasoningRejected("record_prediction requires a Prediction")
+        # ``harness_version`` is stamped into the refs (not the record) so calibration
+        # (Phase 8.7) can stratify by runtime version without silently merging
+        # incompatible versions — the record document and identity are unchanged.
         refs = {"hypothesis_ref": prediction.hypothesis_ref,
                 "basis": list(prediction.basis),
-                "deadline": prediction.deadline.isoformat() if prediction.deadline else None}
+                "deadline": prediction.deadline.isoformat() if prediction.deadline else None,
+                "harness_version": harness_version}
         return self._record(
             tenant=tenant, kind=ReasoningKind.PREDICTION,
             subject_ref=prediction.subject_ref, predicate=prediction.predicate,

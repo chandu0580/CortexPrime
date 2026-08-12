@@ -169,7 +169,7 @@ class StubVerifier:
 class StubLedger:
     def __init__(self):
         self.predictions, self.evaluations = [], []
-    def record_prediction(self, *, tenant, prediction, recorded_at):
+    def record_prediction(self, *, tenant, prediction, recorded_at, harness_version=None):
         self.predictions.append(prediction)
         return ("wreason-p", True)
     def record_evaluation(self, *, tenant, subject_ref, evaluation, recorded_at, predicate=None):

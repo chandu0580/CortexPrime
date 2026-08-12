@@ -87,6 +87,16 @@ from backend.intelligence.application.episode import (
     StructuredExperienceRetrieval,
     derive_facets,
 )
+from backend.intelligence.application.calibration import (
+    CalibrationDatasetBuilder,
+    DriftDetector,
+    HumanAdjudicationPort,
+    PredictionRecordPort,
+    ReliabilityEstimator,
+    VerdictView,
+    VerificationRecordPort,
+    wilson_interval,
+)
 
 __all__ = [
     # 8.1 state machine
@@ -152,6 +162,15 @@ __all__ = [
     "ExperienceRetrievalPort",
     "StructuredExperienceRetrieval",
     "derive_facets",
+    # 8.7 empirical calibration
+    "CalibrationDatasetBuilder",
+    "ReliabilityEstimator",
+    "DriftDetector",
+    "VerdictView",
+    "PredictionRecordPort",
+    "VerificationRecordPort",
+    "HumanAdjudicationPort",
+    "wilson_interval",
     # 8.4 differential diagnosis
     "TestQuality",
     "EvidenceGap",

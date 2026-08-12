@@ -89,6 +89,21 @@ class SqlReasoningRepository:
             ).fetchall()
         return tuple(_to_record(r) for r in rows)
 
+    def list_by_kind(
+        self, *, tenant_id: str, kind: str, known_at: Optional[datetime] = None
+    ) -> tuple[ReasoningRecord, ...]:
+        """All reasoning records of one ``kind`` for a tenant, oldest first — the
+        calibration read (Phase 8.7). ``known_at`` gives an AS-KNOWN-AT-TIME cut
+        (only records recorded at or before it), so calibration can never use future
+        knowledge (Part G); ``None`` is the FINAL-EVALUATED view. Uses the existing
+        (tenant_id, kind) index; tenant-scoped, fail-closed."""
+        with self._store.atomic() as work:
+            stmt = sa.select(T).where(T.c.tenant_id == tenant_id, T.c.kind == kind)
+            if known_at is not None:
+                stmt = stmt.where(T.c.recorded_at <= known_at)
+            rows = work.execute(stmt.order_by(T.c.recorded_at)).fetchall()
+        return tuple(_to_record(r) for r in rows)
+
     def count_all(self) -> int:
         with self._store.atomic() as work:
             return int(work.execute(

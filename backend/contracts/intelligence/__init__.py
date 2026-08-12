@@ -42,6 +42,19 @@ from backend.contracts.intelligence.episode import (
     ExperienceQuality,
     InvestigationEpisode,
 )
+from backend.contracts.intelligence.calibration import (
+    AssuranceTier,
+    CalibrationDataset,
+    CalibrationEligibility,
+    CalibrationPolicy,
+    CalibrationSample,
+    CalibrationStatus,
+    DriftStatus,
+    OutcomeLabel,
+    PredictionClass,
+    ReliabilityEstimate,
+    ReliabilityInterval,
+)
 
 __all__ = [
     "AutonomyLevel",
@@ -64,4 +77,16 @@ __all__ = [
     "EpisodeHypothesis",
     "ExperienceQuality",
     "AssuranceStatus",
+    # 8.7 empirical calibration
+    "PredictionClass",
+    "CalibrationEligibility",
+    "OutcomeLabel",
+    "AssuranceTier",
+    "CalibrationStatus",
+    "DriftStatus",
+    "ReliabilityInterval",
+    "CalibrationSample",
+    "CalibrationPolicy",
+    "CalibrationDataset",
+    "ReliabilityEstimate",
 ]
