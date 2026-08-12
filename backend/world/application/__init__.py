@@ -34,6 +34,26 @@ from backend.world.application.fact_derivation import (
     fact_semantic_identity,
     fact_version_identity,
 )
+from backend.world.application.freshness import (
+    FreshnessPolicy,
+    FreshnessResult,
+    FreshnessRule,
+    FreshnessState,
+)
+from backend.world.application.authority import (
+    AuthorityAlternative,
+    AuthorityDecision,
+    AuthorityPolicy,
+    AuthorityRule,
+    AuthorityStatus,
+)
+from backend.world.application.world_query import (
+    FactVersionReader,
+    ObservationEvidence,
+    ObservationReader,
+    WorldQuery,
+    WorldQueryResult,
+)
 
 __all__ = [
     # observation ingestion (Phase 7.2)
@@ -61,4 +81,21 @@ __all__ = [
     "as_of_valid",
     "as_known",
     "history",
+    # freshness (Phase 7.4)
+    "FreshnessPolicy",
+    "FreshnessRule",
+    "FreshnessResult",
+    "FreshnessState",
+    # authority (Phase 7.4)
+    "AuthorityPolicy",
+    "AuthorityRule",
+    "AuthorityDecision",
+    "AuthorityAlternative",
+    "AuthorityStatus",
+    # world query (Phase 7.4)
+    "WorldQuery",
+    "WorldQueryResult",
+    "ObservationEvidence",
+    "FactVersionReader",
+    "ObservationReader",
 ]
