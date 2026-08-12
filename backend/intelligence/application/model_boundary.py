@@ -35,6 +35,7 @@ from backend.intelligence.application.proposal import (
     ModelSchemaRejected,
     ModelTraceUnavailable,
     ProposedHypothesis,
+    ProposedPrediction,
     ProposedTest,
 )
 
@@ -42,9 +43,11 @@ __all__ = [
     "InvestigationProposalSchema",
     "HypothesisProposalSchema",
     "TestProposalSchema",
+    "PredictionProposalSchema",
     "GovernedModelProposalPort",
     "ScriptedModelPort",
     "INVESTIGATION_SYSTEM_PROMPT",
+    "PREDICTION_SYSTEM_PROMPT",
 ]
 
 INVESTIGATION_SYSTEM_PROMPT = (
@@ -84,6 +87,34 @@ class TestProposalSchema(BaseModel):
     residual_uncertainty: str
     supports_value: Optional[Any] = None
     contradicts_value: Optional[Any] = None
+
+
+PREDICTION_SYSTEM_PROMPT = (
+    "You are a DevOps incident investigator. Given a SUPPORTED hypothesis, propose "
+    "ONE falsifiable prediction: the structured observation you expect the World to "
+    "show for a named subject/predicate if the hypothesis is correct, and a plain-"
+    "language condition. You may NOT declare an outcome, a success, a verification, "
+    "a confidence number, autonomy, a provider, a URL, or a shell command; you may "
+    "NOT say the prediction is true. Output strictly the JSON schema; any extra "
+    "field is rejected."
+)
+
+
+class PredictionProposalSchema(BaseModel):
+    """The ONLY shape a prediction proposal may take (Phase 8.5). A falsifiable
+    forward claim: expected observation + condition + window, tied to a hypothesis.
+    Any authoritative/self-declaring field (outcome/verified/success/confidence/
+    autonomy/provider/model/url/command/fact/belief) is an extra field and is
+    rejected — the model proposes a prediction, it never declares a result."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    hypothesis_ref: str
+    subject_ref: str
+    predicate: str
+    expected: Any
+    expected_condition: str = ""
+    evaluation_window_seconds: int = 300
 
 
 class InvestigationProposalSchema(BaseModel):
@@ -167,6 +198,43 @@ class GovernedModelProposalPort:
             proposed_test=_to_proposed_test(proposal_schema.test),
             proposed_tests=tuple(_to_proposed_test(t) for t in proposal_schema.tests),
             suggested_conclusion=None)
+
+    def propose_prediction(self, *, context, investigation, hypothesis_ref: str,
+                           now: datetime) -> ProposedPrediction:
+        """Obtain a strict, trace-recorded prediction proposal through the SAME
+        governed boundary (Phase 8.5). The firewall (extra='forbid') rejects any
+        outcome/verified/success/confidence/provider/url field; provider is stamped
+        from the span, never the model's JSON."""
+        from backend.harness.llm_boundary import InvalidModelOutput, TraceEvidenceMissing
+
+        prompt = json.dumps({"context": context.to_dict(), "hypothesis_ref": hypothesis_ref},
+                            sort_keys=True, default=str)
+        step = investigation.steps_taken
+        corr = compute_digest({"inv": investigation.investigation_ref,
+                               "predict": hypothesis_ref}).value[:16]
+        try:
+            schema, span = _run(self._boundary.propose(
+                schema=PredictionProposalSchema,
+                system_prompt=PREDICTION_SYSTEM_PROMPT, prompt=prompt,
+                mission_id=investigation.investigation_ref, iteration=step,
+                step_id=f"predict-{investigation.seq}", correlation_id=corr,
+                trace_id=corr, trace_span_id=f"{corr}-predict",
+                context_recipe={"context_digest": context.context_digest},
+                tools_available=list(_available_tools(context)),
+            ))
+        except InvalidModelOutput as exc:
+            raise ModelSchemaRejected(exc.reason) from exc
+        except TraceEvidenceMissing as exc:
+            raise ModelTraceUnavailable(exc.reason) from exc
+        except Exception as exc:  # provider errors, timeouts, auth failures
+            raise ModelProviderUnavailable(type(exc).__name__) from exc
+
+        provider = getattr(span, "model_provider", None) or self._provider_label
+        return ProposedPrediction(
+            hypothesis_ref=schema.hypothesis_ref, subject_ref=schema.subject_ref,
+            predicate=schema.predicate, expected=schema.expected,
+            expected_condition=schema.expected_condition,
+            evaluation_window_seconds=schema.evaluation_window_seconds, provider=provider)
 
 
 def _to_proposed_test(t) -> Optional[ProposedTest]:

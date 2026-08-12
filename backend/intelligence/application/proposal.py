@@ -22,6 +22,7 @@ from backend.platform.hashing import compute_digest
 __all__ = [
     "ProposedHypothesis",
     "ProposedTest",
+    "ProposedPrediction",
     "InvestigationProposal",
     "EvidenceRequest",
     "EvidenceResult",
@@ -157,7 +158,11 @@ class EvidenceRequest:
 @dataclass(frozen=True)
 class EvidenceResult:
     """The outcome of a governed read: an observation reference and the observed
-    world value (or an explicit failure). Never a model self-report."""
+    world value (or an explicit failure). Never a model self-report.
+
+    ``execution_ref`` (Phase 8.5) is the real governed-execution id that produced
+    the observation — it anchors any Outcome the World Plane derives, so an outcome
+    is grounded in a real execution, never in model text."""
 
     ok: bool
     subject_ref: str
@@ -166,7 +171,24 @@ class EvidenceResult:
     fact_ref: Optional[str] = None
     observed_value: Any = None
     source_ref: Optional[str] = None
+    execution_ref: Optional[str] = None
     reason: str = ""
+
+
+@dataclass(frozen=True)
+class ProposedPrediction:
+    """A model-proposed falsifiable prediction (Phase 8.5). A forward claim about
+    an observable future world value tied to a hypothesis — never a confidence
+    number, never an outcome, never a self-declared success. The platform validates
+    the structure and the platform (not the model) later compares it to reality."""
+
+    hypothesis_ref: str
+    subject_ref: str
+    predicate: str
+    expected: Any                 # the structured observation expected (not a number-as-confidence)
+    expected_condition: str       # human-readable falsifiable condition
+    evaluation_window_seconds: int = 300
+    provider: str = "scripted"    # platform-stamped identity, never model-supplied
 
 
 @dataclass(frozen=True)
