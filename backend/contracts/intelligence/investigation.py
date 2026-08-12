@@ -22,6 +22,7 @@ from backend.contracts.world import EpistemicStatus, HypothesisStatus, Provenanc
 __all__ = [
     "AutonomyLevel",
     "InvestigationStatus",
+    "InvestigationConclusion",
     "InvestigationEventKind",
     "TemporalFit",
     "HumanEventKind",
@@ -137,6 +138,28 @@ def legal_transitions_from(status: InvestigationStatus) -> frozenset[Investigati
 
 def is_legal_transition(src: InvestigationStatus, dst: InvestigationStatus) -> bool:
     return dst in LEGAL_TRANSITIONS[src]
+
+
+class InvestigationConclusion(str, Enum):
+    """The epistemic outcome an investigation reaches when it terminates — a
+    separate axis from the workflow ``InvestigationStatus``. Completion requires
+    platform evidence; a model can never declare one. UNKNOWN-shaped outcomes
+    (INSUFFICIENT_EVIDENCE / CONFLICTED) are never RESOLVED and never FALSE."""
+
+    RESOLVED = "resolved"
+    """A hypothesis is affirmed on admissible, verified evidence."""
+    UNRESOLVED = "unresolved"
+    """Investigated, no hypothesis affirmed; not a failure of the system."""
+    INSUFFICIENT_EVIDENCE = "insufficient_evidence"
+    """Not enough admissible evidence to adjudicate — 'we don't know'."""
+    CONFLICTED = "conflicted"
+    """Competing evidence, unresolved by authority — both paths preserved."""
+    ESCALATED = "escalated"
+    """Handed to a human for adjudication."""
+    BLOCKED = "blocked"
+    """A required governed read/action was refused or unavailable."""
+    FAILED = "failed"
+    """A structural failure (e.g. evidence retrieval failed)."""
 
 
 class InvestigationEventKind(str, Enum):
@@ -317,10 +340,22 @@ class Investigation(Contract):
     test_refs: tuple[str, ...] = ()
     prediction_refs: tuple[str, ...] = ()
     verification_refs: tuple[str, ...] = ()
+    # Phase 8.2 (additive): the epistemic conclusion (set only at terminal
+    # COMPLETED/FAILED via the platform), and durable budget counters so budgets
+    # survive resume (a model can neither set the conclusion nor reset counters).
+    conclusion: Optional[InvestigationConclusion] = None
+    steps_taken: int = 0
+    reads_taken: int = 0
 
     def __post_init__(self) -> None:
         for name in ("investigation_ref", "incident_ref", "policy_ref", "harness_version"):
             _req_str(getattr(self, name), name)
+        if self.conclusion is not None and not isinstance(self.conclusion, InvestigationConclusion):
+            raise ContractViolation("conclusion must be an InvestigationConclusion")
+        for name in ("steps_taken", "reads_taken"):
+            v = getattr(self, name)
+            if not isinstance(v, int) or v < 0:
+                raise ContractViolation(f"{name} must be a non-negative integer")
         if not isinstance(self.tenant, TenantRef):
             raise ContractViolation("tenant must be a TenantRef; scope is never inferred")
         if not isinstance(self.status, InvestigationStatus):

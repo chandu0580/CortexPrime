@@ -25,6 +25,7 @@ from backend.contracts.intelligence.investigation import (
     HumanEvent,
     HumanEventKind,
     Investigation,
+    InvestigationConclusion,
     InvestigationEventKind,
     InvestigationQuestion,
     InvestigationStatus,
@@ -38,6 +39,7 @@ from backend.contracts.intelligence.investigation import (
 __all__ = [
     "AutonomyLevel",
     "InvestigationStatus",
+    "InvestigationConclusion",
     "InvestigationEventKind",
     "TemporalFit",
     "HumanEventKind",

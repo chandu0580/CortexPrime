@@ -15,8 +15,36 @@ from backend.intelligence.application.investigation_service import (
     InvestigationService,
     InvestigationTransitionRefused,
 )
+from backend.intelligence.application.context import (
+    AssembledContext,
+    ContextAssembler,
+    ContextBudget,
+    ContextSection,
+    SECTION_ORDER,
+)
+from backend.intelligence.application.proposal import (
+    EvidenceAcquisitionPort,
+    EvidenceRequest,
+    EvidenceResult,
+    EvidenceSelectionPolicy,
+    InvestigationProposal,
+    ModelProposalPort,
+    ProposedHypothesis,
+    ProposedTest,
+    TestRejected,
+    ValidatedTest,
+    WorldReadPort,
+    test_identity,
+)
+from backend.intelligence.application.engine import (
+    InvestigationBudget,
+    InvestigationEngine,
+    StepOutcome,
+    StepResult,
+)
 
 __all__ = [
+    # 8.1 state machine
     "InvestigationService",
     "InvestigationRepository",
     "InvestigationRejected",
@@ -24,4 +52,28 @@ __all__ = [
     "AutonomyRefused",
     "InvestigationNotFound",
     "InvestigationConcurrencyError",
+    # 8.2 context assembly
+    "ContextAssembler",
+    "AssembledContext",
+    "ContextSection",
+    "ContextBudget",
+    "SECTION_ORDER",
+    # 8.2 proposals / ports / policy
+    "InvestigationProposal",
+    "ProposedHypothesis",
+    "ProposedTest",
+    "EvidenceRequest",
+    "EvidenceResult",
+    "ValidatedTest",
+    "TestRejected",
+    "EvidenceSelectionPolicy",
+    "ModelProposalPort",
+    "WorldReadPort",
+    "EvidenceAcquisitionPort",
+    "test_identity",
+    # 8.2 engine
+    "InvestigationEngine",
+    "InvestigationBudget",
+    "StepOutcome",
+    "StepResult",
 ]

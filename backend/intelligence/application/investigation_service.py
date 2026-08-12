@@ -31,6 +31,7 @@ from backend.contracts.intelligence import (
     HumanEvent,
     HumanEventKind,
     Investigation,
+    InvestigationConclusion,
     InvestigationEventKind,
     InvestigationQuestion,
     InvestigationStatus,
@@ -250,13 +251,56 @@ class InvestigationService:
                             from_status=investigation.status,
                             payload=human_event.to_dict(), now=now)
 
-    def checkpoint(self, *, investigation: Investigation, now: datetime) -> Investigation:
-        """An explicit durable checkpoint (the current snapshot). Resumption
-        restores this exactly; it never advances the workflow."""
-        return self._commit(self._advance(investigation, now),
-                            InvestigationEventKind.CHECKPOINT,
+    def checkpoint(
+        self, *, investigation: Investigation, now: datetime,
+        steps_delta: int = 0, reads_delta: int = 0,
+    ) -> Investigation:
+        """An explicit durable checkpoint (the current snapshot), optionally
+        advancing the platform budget counters. Resumption restores this exactly;
+        it never advances the workflow status. Counters are platform-maintained —
+        a model cannot reset them (there is no decrement path)."""
+        if steps_delta < 0 or reads_delta < 0:
+            raise InvestigationRejected("budget deltas must be non-negative")
+        advanced = self._advance(
+            investigation, now,
+            steps_taken=investigation.steps_taken + steps_delta,
+            reads_taken=investigation.reads_taken + reads_delta)
+        return self._commit(advanced, InvestigationEventKind.CHECKPOINT,
                             from_status=investigation.status,
-                            payload={"checkpoint_seq": investigation.seq}, now=now)
+                            payload={"checkpoint_seq": advanced.seq,
+                                     "steps_taken": advanced.steps_taken,
+                                     "reads_taken": advanced.reads_taken}, now=now)
+
+    def conclude(
+        self, *, investigation: Investigation, conclusion: InvestigationConclusion,
+        cause: str, now: datetime,
+    ) -> Investigation:
+        """Terminate the investigation with an epistemic conclusion. RESOLVED /
+        UNRESOLVED / INSUFFICIENT_EVIDENCE / CONFLICTED / ESCALATED complete it;
+        BLOCKED / FAILED fail it. Completion requires the platform to call this on
+        evidence — a model can never conclude, and the legal transition must
+        allow the terminal move (e.g. VERIFYING/INVESTIGATING → COMPLETED)."""
+        if not isinstance(conclusion, InvestigationConclusion):
+            raise InvestigationRejected("conclusion must be an InvestigationConclusion")
+        if is_terminal_status(investigation.status):
+            raise InvestigationTransitionRefused(
+                f"{investigation.status.value} is terminal; already concluded")
+        to = (InvestigationStatus.COMPLETED
+              if conclusion in (InvestigationConclusion.RESOLVED,
+                                InvestigationConclusion.UNRESOLVED,
+                                InvestigationConclusion.INSUFFICIENT_EVIDENCE,
+                                InvestigationConclusion.CONFLICTED,
+                                InvestigationConclusion.ESCALATED)
+              else InvestigationStatus.FAILED)
+        if not is_legal_transition(investigation.status, to):
+            raise InvestigationTransitionRefused(
+                f"cannot conclude from {investigation.status.value} to {to.value}")
+        advanced = self._advance(investigation, now, status=to, conclusion=conclusion)
+        return self._commit(advanced, InvestigationEventKind.TRANSITIONED,
+                            from_status=investigation.status,
+                            payload={"cause": cause, "conclusion": conclusion.value,
+                                     "from": investigation.status.value, "to": to.value},
+                            now=now)
 
     # -- transitions --------------------------------------------------------
 
