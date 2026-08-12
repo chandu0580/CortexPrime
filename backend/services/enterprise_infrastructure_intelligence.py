@@ -252,6 +252,19 @@ class KubernetesIntelligence:
     def track_pod(cluster_id: str, namespace: str, name: str, status: str = "running",
                   restarts: int = 0, container_statuses: Optional[List[Dict[str, Any]]] = None,
                   node_name: str = "", phase: str = "Running") -> Dict[str, Any]:
+        # Phase 7.2 strangler (ADR-064, Part P). This is a DESTRUCTIVE world-state
+        # upsert: it finds an existing pod and mutates it in place (status,
+        # restarts, updated_at overwritten), losing the prior observation, and
+        # rewrites the whole JSON file — exactly the pattern the Phase 7.0 audit
+        # named. It is now quarantined behind the legacy-execution flag and is
+        # non-authoritative by default: refused loudly unless a migration
+        # explicitly re-enables it. The governed replacement is the World Plane
+        # observation ingestion boundary (append-only, provenanced, tenant-
+        # scoped), which records what this destroyed. The old data is not
+        # migrated and the old path is not deleted — only made non-authoritative.
+        from backend.api.legacy_execution_boundary import guard_legacy_internal
+
+        guard_legacy_internal("world-state:KubernetesIntelligence.track_pod")
         pods = _load_json(_PODS_FILE)
         existing = next((p for p in pods if p.get("name") == name and p.get("namespace") == namespace), None)
         now = _now()

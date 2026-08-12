@@ -637,6 +637,58 @@ harness_trace_table = sa.Table(
 )
 
 
+world_observation_table = sa.Table(
+    "cw_observation",
+    DURABLE_METADATA,
+    # Phase 7.2, ADR-064. The World Plane's first durable ledger: raw external
+    # observations, append-only and immutable. An observation is NOT a fact —
+    # it carries no valid-time interval and no authority; deriving facts is a
+    # later phase. It never holds credential material (the ingestion boundary
+    # runs a field-aware secret firewall before this table sees a value).
+    #
+    # ``cw_`` (world) not ``cp_`` (platform/execution): a separate ledger the
+    # execution fabric neither reads nor writes. Same durable template — tenant
+    # NOT NULL, app-clock timestamps, digest identity — as the cp_* tables.
+    sa.Column("observation_id", sa.Text(), primary_key=True),
+    # Deterministic identity for idempotency: a digest over
+    # (tenant, source, subject, predicate, observed_at, value). A duplicate
+    # delivery of the same external observation collides here and is refused by
+    # the unique constraint rather than creating uncontrolled duplicate world
+    # state. At-least-once ingestion, deterministic identity — NOT exactly-once.
+    sa.Column("identity_digest", sa.String(128), nullable=False, unique=True),
+    sa.Column("tenant_id", sa.String(128), nullable=False),
+    # Source: an instrument reference (connector/probe/execution/human), never
+    # a model. The kind is validated against ObservationSourceKind, which has
+    # no MODEL member.
+    sa.Column("source_kind", sa.String(32), nullable=False),
+    sa.Column("source_ref", sa.Text(), nullable=False),
+    sa.Column("subject_ref", sa.Text(), nullable=False),
+    sa.Column("predicate", sa.Text(), nullable=False),
+    # SourceStatus (contracts.evidence): returned_data / returned_empty /
+    # unavailable / not_configured — empty is not unavailable is not
+    # not-configured.
+    sa.Column("status", sa.String(32), nullable=False),
+    # observed_at (when the world was in the observed state, per the instrument)
+    # is DISTINCT from recorded_at (when CortexPrime wrote the row). Both are
+    # app-clock, tz-aware. retrieved_at is when the instrument was queried.
+    sa.Column("observed_at", _TS, nullable=False),
+    sa.Column("retrieved_at", _TS, nullable=False),
+    sa.Column("recorded_at", _TS, nullable=False),
+    # The full Observation contract document (subject/predicate/value/status/
+    # instant/source/provenance) as its canonical to_dict — the authoritative
+    # record; the promoted columns above are for lookup. Redacted-at-ingestion:
+    # a value that carried a secret was refused before reaching here.
+    sa.Column("record", _DOC, nullable=False),
+    # Provenance producer label, promoted for lookup (references only, no
+    # secrets — enforced by the ProvenanceRef contract + the secret firewall).
+    sa.Column("produced_by", sa.Text(), nullable=False),
+    sa.Column("schema_version", sa.Integer(), nullable=False),
+    sa.Index("ix_cw_observation_tenant_subject", "tenant_id", "subject_ref"),
+    sa.Index("ix_cw_observation_observed_at", "observed_at"),
+    sa.Index("ix_cw_observation_source", "source_kind", "source_ref"),
+)
+
+
 #: Every durable table, in creation order. Used by the migration and by the
 #: bootstrap check that the schema a process needs is the schema it found.
 DURABLE_TABLES = (
@@ -656,4 +708,5 @@ DURABLE_TABLES = (
     audit_chain_table,
     audit_record_table,
     harness_trace_table,
+    world_observation_table,
 )

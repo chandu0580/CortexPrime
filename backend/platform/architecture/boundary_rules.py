@@ -43,6 +43,8 @@ __all__ = [
     "HarnessNoDynamicDispatchRule",
     "WorldCannotExecuteRule",
     "ModelCannotCreateFactRule",
+    "WorldApplicationPureRule",
+    "ObservationAppendOnlyRule",
     "default_boundary_rules",
     "BOUNDED_CONTEXTS",
 ]
@@ -1041,15 +1043,23 @@ class WorldCannotExecuteRule:
     rule_id: str = "BND-WORLD-CANNOT-EXECUTE"
     description: str = (
         "the World Plane imports no connector, gateway, adapter, transport, "
-        "credential, scheduler, or database implementation"
+        "credential carrier, harness, scheduler, or execution plane"
     )
     world_roots: tuple[str, ...] = ("backend.contracts.world", "backend.world")
+    #: The *execution* set — reaching a provider or acting. Persisting an
+    #: observation (``backend.database.durable``) is NOT executing, and detecting
+    #: secrets (``credentials.inspection`` / ``.redaction``) is the ingestion
+    #: firewall, not a credential — both are allowed, mirroring how
+    #: BND-HARNESS-CREDENTIALS permits the redactor while forbidding the carriers.
     forbidden_roots: tuple[str, ...] = (
         "backend.connectors",
         "backend.contexts.execution",
         "backend.platform.transport",
-        "backend.platform.credentials",
-        "backend.database",
+        "backend.platform.credentials.broker",
+        "backend.platform.credentials.vault",
+        "backend.platform.credentials.material",
+        "backend.platform.credentials.request",
+        "backend.platform.credentials.development",
         "backend.harness",
     )
     severity: Severity = Severity.ERROR
@@ -1163,6 +1173,130 @@ class ModelCannotCreateFactRule:
         )
 
 
+@dataclass(frozen=True)
+class WorldApplicationPureRule:
+    """The World Plane application layer persists through a port, not a database
+    (Phase 7.2, hexagonal boundary).
+
+    ``backend.world.application`` holds the ingestion service and the
+    repository *port* — it depends on the abstraction, not on a database
+    implementation. Only ``backend.world.infrastructure`` may import
+    ``backend.database``. Keeping the application database-free is what lets the
+    ingestion logic be tested and reasoned about without a store, and keeps the
+    dependency arrow pointing inward.
+    """
+
+    rule_id: str = "BND-WORLD-APPLICATION-PURE"
+    description: str = (
+        "the World Plane application layer imports no database implementation"
+    )
+    application_root: str = "backend.world.application"
+    forbidden_roots: tuple[str, ...] = ("backend.database",)
+    severity: Severity = Severity.ERROR
+
+    def evaluate(self, graph: ModuleGraph) -> RuleResult:
+        violations: list[Violation] = []
+        checked = 0
+        for module in graph.modules():
+            if not (module.name.startswith(self.application_root + ".")
+                    or module.name == self.application_root):
+                continue
+            checked += 1
+            for imported, line in module.imports:
+                if any(imported == f or imported.startswith(f + ".")
+                       for f in self.forbidden_roots):
+                    violations.append(
+                        Violation(
+                            rule_id=self.rule_id,
+                            severity=self.severity,
+                            module=module.name,
+                            line=line,
+                            offender=imported,
+                            detail=(
+                                f"the World Plane application imports {imported!r}; "
+                                "it depends on the ObservationRepository port, not "
+                                "a database — persistence belongs to "
+                                "backend.world.infrastructure (Phase 7.2)"
+                            ),
+                        )
+                    )
+        return RuleResult(
+            rule_id=self.rule_id,
+            description=self.description,
+            violations=tuple(violations),
+            modules_checked=checked,
+        )
+
+
+@dataclass(frozen=True)
+class ObservationAppendOnlyRule:
+    """World Plane observations are immutable — append-only (Phase 7.2, Part K).
+
+    An observation is evidence; a newer observation is a new row, never an
+    overwrite (the destructive-upsert the V1 infra JSON did is exactly what the
+    ledger replaces). So no module under ``backend/world`` may construct a
+    SQLAlchemy ``UPDATE`` or ``DELETE`` — the repository inserts and selects,
+    nothing more. A regression that added ``sa.update`` / ``sa.delete`` (or a
+    ``.update(`` / ``.delete(`` statement builder) would make world state
+    mutable, and this turns that red.
+    """
+
+    rule_id: str = "BND-OBSERVATION-APPEND-ONLY"
+    description: str = (
+        "the World Plane issues no UPDATE or DELETE — observations are immutable"
+    )
+    world_root: str = "backend.world"
+    severity: Severity = Severity.ERROR
+
+    def evaluate(self, graph: ModuleGraph) -> RuleResult:
+        import ast as _ast
+
+        violations: list[Violation] = []
+        checked = 0
+        for module in graph.modules():
+            if not (module.name.startswith(self.world_root + ".")
+                    or module.name == self.world_root):
+                continue
+            checked += 1
+            try:
+                tree = _ast.parse(module.path.read_text(encoding="utf-8"))
+            except (OSError, SyntaxError):
+                continue
+            for node in _ast.walk(tree):
+                if not isinstance(node, _ast.Call):
+                    continue
+                func = node.func
+                offender: Optional[str] = None
+                # sa.update(...) / sa.delete(...)
+                if (isinstance(func, _ast.Attribute)
+                        and func.attr in ("update", "delete")
+                        and isinstance(func.value, _ast.Name)
+                        and func.value.id in ("sa", "sqlalchemy")):
+                    offender = f"{func.value.id}.{func.attr}"
+                if offender is not None:
+                    violations.append(
+                        Violation(
+                            rule_id=self.rule_id,
+                            severity=self.severity,
+                            module=module.name,
+                            line=node.lineno,
+                            offender=offender,
+                            detail=(
+                                f"the World Plane builds a {offender} statement; "
+                                "observations are immutable append-only evidence — "
+                                "a newer observation is a new row, never an "
+                                "overwrite (Phase 7.2, Part K)"
+                            ),
+                        )
+                    )
+        return RuleResult(
+            rule_id=self.rule_id,
+            description=self.description,
+            violations=tuple(violations),
+            modules_checked=checked,
+        )
+
+
 def default_boundary_rules() -> tuple:
     """The boundary rules the Constitution defines."""
     return (
@@ -1181,4 +1315,6 @@ def default_boundary_rules() -> tuple:
         HarnessNoDynamicDispatchRule(),
         WorldCannotExecuteRule(),
         ModelCannotCreateFactRule(),
+        WorldApplicationPureRule(),
+        ObservationAppendOnlyRule(),
     )

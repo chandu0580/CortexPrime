@@ -53,12 +53,18 @@ class TestWorldCannotExecute:
         })
         assert not WorldCannotExecuteRule().evaluate(graph).passed
 
-    def test_world_importing_a_database_impl_fails(self, tmp_path) -> None:
+    def test_world_importing_the_durable_store_is_allowed(self, tmp_path) -> None:
+        """Superseded (Phase 7.2): in 7.1 the World Plane forbade all
+        ``backend.database`` imports (no persistence existed). 7.2 introduced
+        the observation ledger — persisting is not executing — so the world
+        infrastructure layer may import the durable store. The application layer
+        may not (BND-WORLD-APPLICATION-PURE), and the execution set stays
+        forbidden. This asserts the refined allow."""
         graph = write_tree(tmp_path / "backend", {
-            "contracts/world/leak.py":
+            "world/infrastructure/ok.py":
                 "from backend.database.durable.tables import x\n",
         })
-        assert not WorldCannotExecuteRule().evaluate(graph).passed
+        assert WorldCannotExecuteRule().evaluate(graph).passed
 
     def test_world_importing_the_harness_fails(self, tmp_path) -> None:
         graph = write_tree(tmp_path / "backend", {
