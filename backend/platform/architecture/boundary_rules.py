@@ -41,6 +41,8 @@ __all__ = [
     "HarnessCredentialIsolationRule",
     "HarnessNoExecutionRule",
     "HarnessNoDynamicDispatchRule",
+    "WorldCannotExecuteRule",
+    "ModelCannotCreateFactRule",
     "default_boundary_rules",
     "BOUNDED_CONTEXTS",
 ]
@@ -1022,6 +1024,145 @@ class HarnessNoDynamicDispatchRule:
         )
 
 
+@dataclass(frozen=True)
+class WorldCannotExecuteRule:
+    """The World Plane describes reality; it never acts on it (Phase 7.1, ADR-062).
+
+    The World Plane sits *below* execution authority — knowledge informs action
+    through Intelligence→Harness→Governance→Execution, never directly. So no
+    module under ``backend/contracts/world`` (and, as the World Plane grows,
+    ``backend/world``) may import a connector, the invocation gateway, a
+    provider adapter, the transport fabric, the credential fabric, the
+    scheduler/dispatcher, or a database implementation. A world contract that
+    could reach any of those would be a second execution path wearing an
+    epistemic type.
+    """
+
+    rule_id: str = "BND-WORLD-CANNOT-EXECUTE"
+    description: str = (
+        "the World Plane imports no connector, gateway, adapter, transport, "
+        "credential, scheduler, or database implementation"
+    )
+    world_roots: tuple[str, ...] = ("backend.contracts.world", "backend.world")
+    forbidden_roots: tuple[str, ...] = (
+        "backend.connectors",
+        "backend.contexts.execution",
+        "backend.platform.transport",
+        "backend.platform.credentials",
+        "backend.database",
+        "backend.harness",
+    )
+    severity: Severity = Severity.ERROR
+
+    def evaluate(self, graph: ModuleGraph) -> RuleResult:
+        violations: list[Violation] = []
+        checked = 0
+        for module in graph.modules():
+            if not any(module.name.startswith(r + ".") or module.name == r
+                       for r in self.world_roots):
+                continue
+            checked += 1
+            for imported, line in module.imports:
+                if any(imported == f or imported.startswith(f + ".")
+                       for f in self.forbidden_roots):
+                    violations.append(
+                        Violation(
+                            rule_id=self.rule_id,
+                            severity=self.severity,
+                            module=module.name,
+                            line=line,
+                            offender=imported,
+                            detail=(
+                                f"the World Plane imports {imported!r}; it "
+                                "describes reality and never executes — knowledge "
+                                "informs action through governance, never directly "
+                                "(ADR-062)"
+                            ),
+                        )
+                    )
+        return RuleResult(
+            rule_id=self.rule_id,
+            description=self.description,
+            violations=tuple(violations),
+            modules_checked=checked,
+        )
+
+
+@dataclass(frozen=True)
+class ModelCannotCreateFactRule:
+    """Model output never becomes a world Fact (Phase 7.1, ADR-062, Part Q).
+
+    The intelligence and harness planes — where model output lives — must not
+    import the World Plane's *grounded* record constructors (``Fact``,
+    ``Observation``). They may propose (``ModelProposal``, ``Hypothesis``), but
+    only the deterministic ingestion boundary (a later phase, outside these
+    planes) may construct a Fact or an Observation. This is the import-level
+    half of the firewall; the type level (no ``ModelProposal.to_fact``, no
+    ``Fact.from_text``, no MODEL observation source) is the other half.
+
+    Enforced by symbol: importing ``Fact`` or ``Observation`` (by name or via
+    the ``world`` package) from a model-plane module is the violation. Importing
+    the proposal/hypothesis types, or the whole package for type annotations in
+    a non-model plane, is fine.
+    """
+
+    rule_id: str = "BND-MODEL-CANNOT-CREATE-FACT"
+    description: str = (
+        "the intelligence/harness planes do not import the World Plane Fact or "
+        "Observation constructors"
+    )
+    model_roots: tuple[str, ...] = ("backend.harness", "backend.agents",
+                                    "backend.orchestration", "backend.orchestrator")
+    grounded_module: str = "backend.contracts.world.epistemic"
+    grounded_symbols: tuple[str, ...] = ("Fact", "Observation")
+    severity: Severity = Severity.ERROR
+
+    def evaluate(self, graph: ModuleGraph) -> RuleResult:
+        import ast as _ast
+
+        violations: list[Violation] = []
+        checked = 0
+        for module in graph.modules():
+            if not any(module.name.startswith(r + ".") or module.name == r
+                       for r in self.model_roots):
+                continue
+            checked += 1
+            try:
+                tree = _ast.parse(module.path.read_text(encoding="utf-8"))
+            except (OSError, SyntaxError):
+                continue
+            for node in _ast.walk(tree):
+                # from backend.contracts.world[.epistemic] import Fact/Observation
+                if isinstance(node, _ast.ImportFrom) and node.module in (
+                    self.grounded_module, "backend.contracts.world",
+                ):
+                    for alias in node.names:
+                        if alias.name in self.grounded_symbols:
+                            violations.append(
+                                Violation(
+                                    rule_id=self.rule_id,
+                                    severity=self.severity,
+                                    module=module.name,
+                                    line=node.lineno,
+                                    offender=alias.name,
+                                    detail=(
+                                        f"a model-plane module imports the "
+                                        f"grounded constructor {alias.name!r}; "
+                                        "model output becomes a ModelProposal or "
+                                        "Hypothesis, never a Fact/Observation — "
+                                        "only the ingestion boundary grounds "
+                                        "those (ADR-062, Part Q)"
+                                    ),
+                                )
+                            )
+        return RuleResult(
+            rule_id=self.rule_id,
+            description=self.description,
+            violations=tuple(violations),
+            modules_checked=checked,
+        )
+
+
 def default_boundary_rules() -> tuple:
     """The boundary rules the Constitution defines."""
     return (
@@ -1038,4 +1179,6 @@ def default_boundary_rules() -> tuple:
         HarnessCredentialIsolationRule(),
         HarnessNoExecutionRule(),
         HarnessNoDynamicDispatchRule(),
+        WorldCannotExecuteRule(),
+        ModelCannotCreateFactRule(),
     )
