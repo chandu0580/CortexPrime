@@ -29,8 +29,14 @@ from backend.contracts.world import HypothesisStatus, ProvenanceRef
 from backend.platform.hashing import compute_digest
 from backend.platform.identity.generators import prefixed_id
 from backend.intelligence.application.context import ContextAssembler, ContextBudget
+from backend.intelligence.application.differential import (
+    analyze_gaps,
+    select_test,
+    settle,
+)
 from backend.intelligence.application.investigation_service import InvestigationService
 from backend.intelligence.application.proposal import (
+    EvidenceResult,
     EvidenceSelectionPolicy,
     ModelProviderUnavailable,
     ModelSchemaRejected,
@@ -67,6 +73,7 @@ class StepResult:
     provider: str
     reason: str = ""
     evidence_ref: Optional[str] = None
+    gaps: tuple = ()   # deterministic evidence-gap analysis for this step (Part C)
 
 
 class InvestigationEngine:
@@ -136,6 +143,8 @@ class InvestigationEngine:
 
         inv = investigation
         # Record proposed hypotheses (platform records them as reasoning artifacts).
+        # A new OPEN hypothesis with no evidence carries an explicit evidence gap so
+        # the context and gap analysis can say WHY it is unresolved (Part C).
         for ph in proposal.proposed_hypotheses:
             if ph.hypothesis_ref not in {h.hypothesis_ref for h in inv.differential}:
                 inv = self._svc.upsert_hypothesis(
@@ -143,28 +152,46 @@ class InvestigationEngine:
                         hypothesis_ref=ph.hypothesis_ref, subject_ref=ph.subject_ref,
                         proposition=ph.proposition, status=HypothesisStatus.OPEN,
                         temporal_fit=_temporal(ph.temporal_fit),
+                        missing_evidence=(f"observation:{ph.subject_ref}",),
                         created_by=f"{proposal.provider}:model"))
 
-        # DECIDE: validate a discriminating test; refuse a bad one.
-        if proposal.proposed_test is None:
-            inv = self._svc.checkpoint(investigation=inv, now=now, steps_delta=1)
-            return StepResult(StepOutcome.NO_TEST, inv, context.context_digest,
-                              proposal.provider, reason="no test proposed",)
+        gaps = tuple(g.to_dict() for g in analyze_gaps(inv))
+
+        # DECIDE: the platform selects the most discriminating admissible test from
+        # the model's candidate(s) (Part D/N) — the model never dictates the order.
+        selection = select_test(candidates=proposal.candidate_tests(),
+                                 investigation=inv, available_tools=self._tools)
+        if selection.chosen is None:
+            # No admissible discriminating test remains. Settle honestly (Part P):
+            # the leading hypothesis (if any) with its residual uncertainty named —
+            # never a fabricated resolution, never FALSE for the open alternatives,
+            # never a claim of Assurance verification.
+            summary = settle(inv)
+            concluded = self._svc.conclude(
+                investigation=inv, conclusion=InvestigationConclusion(summary.conclusion),
+                cause=summary.residual_uncertainty, now=now)
+            return StepResult(StepOutcome.TERMINATED, concluded, context.context_digest,
+                              proposal.provider, reason=summary.residual_uncertainty, gaps=gaps)
+        chosen = selection.chosen
         try:
             validated = self._policy.validate(
-                investigation=inv, proposed=proposal.proposed_test, available_tools=self._tools)
+                investigation=inv, proposed=chosen, available_tools=self._tools)
         except TestRejected as exc:
             inv = self._svc.checkpoint(investigation=inv, now=now, steps_delta=1)
             return StepResult(StepOutcome.TEST_REJECTED, inv, context.context_digest,
-                              proposal.provider, reason=str(exc))
+                              proposal.provider, reason=str(exc), gaps=gaps)
 
-        # read budget guard
-        if inv.reads_taken >= budget.max_reads:
+        # EVIDENCE REUSE (Part F): if the World Plane already holds admissible, fresh
+        # evidence for this subject/predicate, reuse it — no second governed read.
+        # STALE / CONFLICTED / UNKNOWN are never reused (freshness != truth, conflict
+        # is preserved, unknown is not evidence); those fall through to a fresh read.
+        reused = self._reuse_existing_evidence(inv, validated, now)
+        if reused is None and inv.reads_taken >= budget.max_reads:
             concluded = self._svc.conclude(
                 investigation=inv, conclusion=InvestigationConclusion.INSUFFICIENT_EVIDENCE,
                 cause="read budget exhausted", now=now)
             return StepResult(StepOutcome.TERMINATED, concluded, context.context_digest,
-                              proposal.provider, reason="max_reads reached")
+                              proposal.provider, reason="max_reads reached", gaps=gaps)
 
         # record the test (with a deterministic identity for redundancy detection)
         tid = test_identity(discriminates=validated.discriminates_hypothesis, tool=validated.tool,
@@ -172,23 +199,25 @@ class InvestigationEngine:
         test = InvestigationTest(
             test_ref=f"wtest-{tid}", investigation_ref=inv.investigation_ref, tenant=inv.tenant,
             discriminates_hypothesis=validated.discriminates_hypothesis,
-            evidence_expected=proposal.proposed_test.evidence_expected,
-            supports_if=proposal.proposed_test.supports_if,
-            contradicts_if=proposal.proposed_test.contradicts_if,
-            residual_uncertainty=proposal.proposed_test.residual_uncertainty,
+            evidence_expected=chosen.evidence_expected, supports_if=chosen.supports_if,
+            contradicts_if=chosen.contradicts_if, residual_uncertainty=chosen.residual_uncertainty,
             created_by=f"{proposal.provider}:model",
             provenance=ProvenanceRef(produced_by=self._produced_by,
                                      parent_claim_ref=inv.investigation_ref))
         inv, _ = self._svc.add_test(investigation=inv, test=test, now=now)
 
-        # GOVERNED READ: acquire evidence (the ONLY new world contact, via the port).
-        result = self._evidence.acquire(tenant=inv.tenant, request=validated.request, now=now)
-        if not result.ok:
-            concluded = self._svc.conclude(
-                investigation=inv, conclusion=InvestigationConclusion.BLOCKED,
-                cause=f"evidence acquisition failed: {result.reason}", now=now)
-            return StepResult(StepOutcome.TERMINATED, concluded, context.context_digest,
-                              proposal.provider, reason="evidence blocked")
+        if reused is not None:
+            result, did_read = reused, False
+        else:
+            # GOVERNED READ: acquire evidence (the ONLY new world contact, via port).
+            result = self._evidence.acquire(tenant=inv.tenant, request=validated.request, now=now)
+            did_read = True
+            if not result.ok:
+                concluded = self._svc.conclude(
+                    investigation=inv, conclusion=InvestigationConclusion.BLOCKED,
+                    cause=f"evidence acquisition failed: {result.reason}", now=now)
+                return StepResult(StepOutcome.TERMINATED, concluded, context.context_digest,
+                                  proposal.provider, reason="evidence blocked", gaps=gaps)
 
         # link the observation and update the differential from the OBSERVED value.
         refs = tuple(r for r in (result.observation_ref, result.fact_ref) if r)
@@ -196,18 +225,20 @@ class InvestigationEngine:
             inv = self._svc.link_evidence(investigation=inv, evidence_refs=refs, now=now)
         inv = self._update_differential(inv, validated, result, now)
 
-        # CHECKPOINT: durable, budget-advancing.
-        inv = self._svc.checkpoint(investigation=inv, now=now, steps_delta=1, reads_delta=1)
+        # CHECKPOINT: durable, budget-advancing (a reuse does not spend read budget).
+        inv = self._svc.checkpoint(investigation=inv, now=now, steps_delta=1,
+                                   reads_delta=1 if did_read else 0)
 
         # TERMINATE?
         terminal = self._maybe_conclude(inv, now)
+        reason = "differential updated" if did_read else "differential updated (evidence reused)"
         if terminal is not None:
             return StepResult(StepOutcome.TERMINATED, terminal, context.context_digest,
                               proposal.provider, reason=terminal.conclusion.value,
-                              evidence_ref=result.observation_ref)
+                              evidence_ref=result.observation_ref, gaps=gaps)
         return StepResult(StepOutcome.ADVANCED, inv, context.context_digest,
-                          proposal.provider, reason="differential updated",
-                          evidence_ref=result.observation_ref)
+                          proposal.provider, reason=reason,
+                          evidence_ref=result.observation_ref, gaps=gaps)
 
     def run(self, *, investigation: Investigation, budget: InvestigationBudget,
             clock: Callable[[int], datetime]) -> Investigation:
@@ -238,6 +269,30 @@ class InvestigationEngine:
             if ev:
                 out.append(ev)
         return tuple(out)
+
+    def _reuse_existing_evidence(self, inv: Investigation, validated, now: datetime):
+        """Part F: reuse existing World evidence instead of a new governed read,
+        but ONLY when it is concrete (backed by an observation), AFFIRMED, and FRESH.
+        STALE/CONFLICTED/UNKNOWN return None (freshness != truth; a conflict is
+        preserved, never overwritten; unknown is not evidence). Consumes WorldQuery's
+        verdicts (via the world-read port) — it never reclassifies them itself."""
+        ev = self._world.evidence_for(tenant=inv.tenant, subject_ref=validated.subject_ref,
+                                      predicate=validated.predicate, now=now)
+        if not isinstance(ev, dict):
+            return None
+        evidence_items = ev.get("evidence") or ()
+        if not evidence_items:
+            return None
+        status = str(ev.get("status", "")).lower()
+        freshness = str(ev.get("freshness", "")).lower()
+        if status != "affirmed" or freshness != "fresh":
+            return None
+        first = evidence_items[0]
+        obs_ref = first.get("observation_id") if isinstance(first, dict) else None
+        return EvidenceResult(
+            ok=True, subject_ref=validated.subject_ref, predicate=validated.predicate,
+            observation_ref=obs_ref, observed_value=ev.get("value"),
+            source_ref=ev.get("source_ref"))
 
     def _update_differential(self, inv: Investigation, validated, result, now: datetime) -> Investigation:
         """Deterministic: compare the OBSERVED value to the test's structured
@@ -274,12 +329,8 @@ class InvestigationEngine:
         return None  # keep investigating
 
     def _budget_conclusion(self, inv: Investigation) -> InvestigationConclusion:
-        supported = [h for h in inv.differential if h.status is HypothesisStatus.SUPPORTED]
-        if len(supported) == 1:
-            return InvestigationConclusion.RESOLVED
-        if not inv.differential:
-            return InvestigationConclusion.INSUFFICIENT_EVIDENCE
-        return InvestigationConclusion.UNRESOLVED
+        # One honest terminal read shared with the no-more-tests path (Part P).
+        return InvestigationConclusion(settle(inv).conclusion)
 
 
 def _temporal(value: str) -> TemporalFit:

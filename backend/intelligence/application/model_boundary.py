@@ -89,13 +89,18 @@ class TestProposalSchema(BaseModel):
 class InvestigationProposalSchema(BaseModel):
     """The ONLY shape the model may propose. Any authoritative field
     (success/verified/status/autonomy/outcome/provider/model/url/command) is an
-    extra field and is rejected — that is the model-output firewall."""
+    extra field and is rejected — that is the model-output firewall.
+
+    ``tests`` (Phase 8.4) lets the model offer several candidate discriminating
+    tests; the platform selects the most discriminating admissible one. ``test`` is
+    the legacy single-test field — both are honoured, the platform always chooses."""
 
     model_config = ConfigDict(extra="forbid")
 
     interpretation: str = ""
     hypotheses: list[HypothesisProposalSchema] = []
     test: Optional[TestProposalSchema] = None
+    tests: list[TestProposalSchema] = []
 
 
 def _run(coro: Awaitable[Any]) -> Any:
@@ -159,18 +164,21 @@ class GovernedModelProposalPort:
                 ProposedHypothesis(hypothesis_ref=h.ref, proposition=h.proposition,
                                    subject_ref=h.subject_ref, temporal_fit=h.temporal_fit)
                 for h in proposal_schema.hypotheses),
-            proposed_test=(ProposedTest(
-                discriminates_hypothesis=proposal_schema.test.discriminates,
-                tool=proposal_schema.test.tool, subject_ref=proposal_schema.test.subject_ref,
-                predicate=proposal_schema.test.predicate,
-                evidence_expected=proposal_schema.test.evidence_expected,
-                supports_if=proposal_schema.test.supports_if,
-                contradicts_if=proposal_schema.test.contradicts_if,
-                residual_uncertainty=proposal_schema.test.residual_uncertainty,
-                supports_value=proposal_schema.test.supports_value,
-                contradicts_value=proposal_schema.test.contradicts_value)
-                if proposal_schema.test is not None else None),
+            proposed_test=_to_proposed_test(proposal_schema.test),
+            proposed_tests=tuple(_to_proposed_test(t) for t in proposal_schema.tests),
             suggested_conclusion=None)
+
+
+def _to_proposed_test(t) -> Optional[ProposedTest]:
+    """Map a validated TestProposalSchema to the engine's ProposedTest (or None)."""
+    if t is None:
+        return None
+    return ProposedTest(
+        discriminates_hypothesis=t.discriminates, tool=t.tool, subject_ref=t.subject_ref,
+        predicate=t.predicate, evidence_expected=t.evidence_expected,
+        supports_if=t.supports_if, contradicts_if=t.contradicts_if,
+        residual_uncertainty=t.residual_uncertainty,
+        supports_value=t.supports_value, contradicts_value=t.contradicts_value)
 
 
 def _available_tools(context) -> tuple[str, ...]:

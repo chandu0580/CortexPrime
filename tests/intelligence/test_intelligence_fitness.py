@@ -12,6 +12,7 @@ import textwrap
 from pathlib import Path
 
 from backend.platform.architecture.boundary_rules import (
+    IntelligenceCannotBypassWorldRule,
     IntelligenceCannotExecuteRule,
     ModelCannotCreateFactRule,
     NoV1IntelligenceImportRule,
@@ -35,8 +36,38 @@ class TestCurrentIntelligencePasses:
         graph = ModuleGraph.build(REPO_BACKEND)
         assert IntelligenceCannotExecuteRule().evaluate(graph).passed
         assert NoV1IntelligenceImportRule().evaluate(graph).passed
+        assert IntelligenceCannotBypassWorldRule().evaluate(graph).passed
         assert ModelCannotCreateFactRule().evaluate(graph).passed
         assert ObservationAppendOnlyRule().evaluate(graph).passed
+
+
+class TestIntelligenceCannotBypassWorld:
+    """Phase 8.4 (Part T): the Intelligence Plane reads reality only through the
+    World application layer — never the World's storage."""
+
+    def test_importing_world_infrastructure_fails(self, tmp_path):
+        graph = write_tree(tmp_path / "backend", {
+            "intelligence/application/rogue.py":
+                "from backend.world.infrastructure import SqlFactRepository\n"})
+        assert not IntelligenceCannotBypassWorldRule().evaluate(graph).passed
+
+    def test_importing_a_world_sql_repo_module_fails(self, tmp_path):
+        graph = write_tree(tmp_path / "backend", {
+            "intelligence/application/rogue.py":
+                "from backend.world.infrastructure.sql_fact import SqlFactRepository\n"})
+        assert not IntelligenceCannotBypassWorldRule().evaluate(graph).passed
+
+    def test_world_application_query_is_allowed(self, tmp_path):
+        graph = write_tree(tmp_path / "backend", {
+            "intelligence/application/ok.py":
+                "from backend.world.application import WorldQuery, BeliefFormation\n"})
+        assert IntelligenceCannotBypassWorldRule().evaluate(graph).passed
+
+    def test_own_investigation_ledger_is_allowed(self, tmp_path):
+        graph = write_tree(tmp_path / "backend", {
+            "intelligence/infrastructure/ok.py":
+                "from backend.database.durable.tables import world_investigation_table\n"})
+        assert IntelligenceCannotBypassWorldRule().evaluate(graph).passed
 
 
 class TestIntelligenceCannotExecute:

@@ -48,6 +48,7 @@ __all__ = [
     "AssuranceCannotExecuteRule",
     "IntelligenceCannotExecuteRule",
     "NoV1IntelligenceImportRule",
+    "IntelligenceCannotBypassWorldRule",
     "default_boundary_rules",
     "BOUNDED_CONTEXTS",
 ]
@@ -1512,6 +1513,64 @@ class NoV1IntelligenceImportRule:
             violations=tuple(violations), modules_checked=checked)
 
 
+@dataclass(frozen=True)
+class IntelligenceCannotBypassWorldRule:
+    """The Intelligence Plane reads reality only through the World application layer
+    (Phase 8.4).
+
+    ``IntelligenceCannotExecuteRule`` forbids acting; it does not forbid reaching
+    the World's *storage*. A reasoning plane that imported ``backend.world.infrastructure``
+    (the World's SQL fact/observation repositories) could read raw fact rows and
+    re-derive freshness / authority / corroboration / bitemporal truth itself —
+    reintroducing the exact V1 hazard where an intelligence layer computes its own
+    parallel notion of what is true. So no module under ``backend/intelligence`` may
+    import ``backend.world.infrastructure``: evidence is obtained only through the
+    World application layer (``WorldQuery`` / ``BeliefFormation``), supplied by
+    composition as a read port. The Intelligence Plane consumes World verdicts; it
+    never reconstructs them (ADR-075).
+    """
+
+    rule_id: str = "BND-INTELLIGENCE-CANNOT-BYPASS-WORLD"
+    description: str = (
+        "the Intelligence Plane imports no World storage (backend.world.infrastructure); "
+        "it consumes evidence only through the World application layer / read ports"
+    )
+    intelligence_root: str = "backend.intelligence"
+    forbidden_roots: tuple[str, ...] = (
+        "backend.world.infrastructure",
+    )
+    severity: Severity = Severity.ERROR
+
+    def evaluate(self, graph: ModuleGraph) -> RuleResult:
+        violations: list[Violation] = []
+        checked = 0
+        for module in graph.modules():
+            if not (module.name.startswith(self.intelligence_root + ".")
+                    or module.name == self.intelligence_root):
+                continue
+            checked += 1
+            for imported, line in module.imports:
+                if any(imported == f or imported.startswith(f + ".")
+                       for f in self.forbidden_roots):
+                    violations.append(
+                        Violation(
+                            rule_id=self.rule_id, severity=self.severity,
+                            module=module.name, line=line, offender=imported,
+                            detail=(
+                                f"the Intelligence Plane imports World storage "
+                                f"{imported!r}; it must read reality through the World "
+                                "application layer (WorldQuery/BeliefFormation) as a "
+                                "read port, never the raw fact/observation repositories "
+                                "— it consumes World verdicts, never reconstructs them "
+                                "(ADR-075)"
+                            ),
+                        )
+                    )
+        return RuleResult(
+            rule_id=self.rule_id, description=self.description,
+            violations=tuple(violations), modules_checked=checked)
+
+
 def default_boundary_rules() -> tuple:
     """The boundary rules the Constitution defines."""
     return (
@@ -1535,4 +1594,5 @@ def default_boundary_rules() -> tuple:
         AssuranceCannotExecuteRule(),
         IntelligenceCannotExecuteRule(),
         NoV1IntelligenceImportRule(),
+        IntelligenceCannotBypassWorldRule(),
     )

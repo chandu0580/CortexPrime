@@ -111,14 +111,36 @@ class ProposedTest:
 @dataclass(frozen=True)
 class InvestigationProposal:
     """One validated model proposal. A model may suggest a conclusion, but it has
-    NO authority — the platform decides from evidence."""
+    NO authority — the platform decides from evidence.
+
+    ``proposed_tests`` (Phase 8.4) lets the model offer several candidate tests; the
+    platform selects the most discriminating admissible one (``differential.select_test``).
+    ``proposed_test`` is the legacy single-test field — the engine considers both,
+    so the platform always owns the choice, never the model's ordering."""
 
     provider: str
     proposal_digest: str
     interpretation: str = ""
     proposed_hypotheses: tuple[ProposedHypothesis, ...] = ()
     proposed_test: Optional[ProposedTest] = None
+    proposed_tests: tuple[ProposedTest, ...] = ()
     suggested_conclusion: Optional[str] = None   # advisory only; never authoritative
+
+    def candidate_tests(self) -> tuple[ProposedTest, ...]:
+        """All proposed tests, de-duplicated by identity — the candidate pool the
+        platform selects from. The model proposes; the platform decides."""
+        seen: set = set()
+        out: list[ProposedTest] = []
+        for t in tuple(self.proposed_tests) + (
+            (self.proposed_test,) if self.proposed_test is not None else ()
+        ):
+            key = test_identity(discriminates=t.discriminates_hypothesis, tool=t.tool,
+                                subject_ref=t.subject_ref, predicate=t.predicate)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(t)
+        return tuple(out)
 
 
 @dataclass(frozen=True)

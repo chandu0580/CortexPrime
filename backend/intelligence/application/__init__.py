@@ -46,6 +46,17 @@ from backend.intelligence.application.model_boundary import (
     InvestigationProposalSchema,
     ScriptedModelPort,
 )
+from backend.intelligence.application.differential import (
+    DiagnosticSummary,
+    EvidenceGap,
+    TestQuality,
+    TestSelection,
+    analyze_gaps,
+    classify_test,
+    live_hypotheses,
+    select_test,
+    settle,
+)
 from backend.intelligence.application.engine import (
     InvestigationBudget,
     InvestigationEngine,
@@ -95,4 +106,14 @@ __all__ = [
     "InvestigationBudget",
     "StepOutcome",
     "StepResult",
+    # 8.4 differential diagnosis
+    "TestQuality",
+    "EvidenceGap",
+    "TestSelection",
+    "DiagnosticSummary",
+    "analyze_gaps",
+    "classify_test",
+    "select_test",
+    "settle",
+    "live_hypotheses",
 ]
