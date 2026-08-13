@@ -66,6 +66,10 @@ from backend.contracts.intelligence.autonomy import (
     CircuitBreakerConfig,
     EmergencyStopState,
 )
+from backend.contracts.intelligence.capability_profile import (
+    CapabilityProfile,
+    VerificationRequirement,
+)
 
 __all__ = [
     "AutonomyLevel",
@@ -110,4 +114,7 @@ __all__ = [
     "CircuitBreakerConfig",
     "EmergencyStopState",
     "BreakerTrip",
+    # 9.1 capability bridge
+    "CapabilityProfile",
+    "VerificationRequirement",
 ]
