@@ -707,6 +707,18 @@ class WorkerRuntime:
             completed_at=result.completed_at,
             failure_reason=(result.failure.reason if result.failure else None),
             detail={
+                # Phase 9.2 (ADR-082): the adapter's bounded, secret-free
+                # provider evidence — the declared top-level scalars the
+                # operation spec extracted (never a body, never a header) —
+                # survives onto the aggregate so the observation leg reads what
+                # actually traversed the pipeline instead of reconstructing it.
+                # One key, deliberately: the rest of the adapter detail stays
+                # where it is recorded (the attempt's own record).
+                **(
+                    {"provider_evidence": dict(result.detail["provider_evidence"])}
+                    if isinstance((result.detail or {}).get("provider_evidence"), dict)
+                    else {}
+                ),
                 "binding_id": result.binding_id,
                 "worker_outcome": result.outcome.value,
                 "outcome_known": result.outcome_is_known,

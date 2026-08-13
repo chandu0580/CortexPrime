@@ -290,6 +290,7 @@ def build_adapter(
     channel: Optional[Any] = None,
     invoker: Optional[Any] = None,
     translator: Optional[Any] = None,
+    normalizer: Optional[Any] = None,
     preflight: Optional[Any] = None,
     metrics: Optional[Any] = None,
 ) -> Any:
@@ -328,7 +329,10 @@ def build_adapter(
         return seam(invoker=invoker, **common)
     if kind is WorkerKind.MCP:
         return seam(catalog=catalog, channel=channel, **common)
-    return seam(catalog=catalog, channel=channel, translator=translator, **common)
+    return seam(
+        catalog=catalog, channel=channel, translator=translator,
+        normalizer=normalizer, **common,
+    )
 
 
 class DirectoryAdapterPreflight:
@@ -585,6 +589,87 @@ def build_grafana_connector(
         catalog=catalog,
         channel=channel,
         translator=GrafanaResponseTranslator(),
+        preflight=preflight,
+        metrics=metrics,
+    )
+    return WorkerEntry(implementation=implementation), adapter, catalog
+
+
+def build_kubernetes_connector(
+    *,
+    transport_broker: Any,
+    connection_policy: Any,
+    environment: ExecutionEnvironment,
+    base_url: str,
+    worker_id: str = "kubernetes-connector",
+    preflight: Optional[Any] = None,
+    metrics: Optional[Any] = None,
+    isolation: Optional[Any] = None,
+) -> tuple:
+    """The REAL governed Kubernetes read connector (Phase 9.2, ADR-082).
+    Returns ``(entry, adapter, catalog)`` — the same contract as the GitHub and
+    Grafana builders: the entry is returned at REGISTERED/UNVERIFIED/UNAVAILABLE,
+    construction contacts nothing, and the same deliberate acts stand between
+    this and real work.
+
+    The catalog is the Phase 9.2 real exposure — exactly ONE read operation
+    (``kubernetes.pods.list``) — and the adapter is the generic
+    ``ConnectorAdapter``: catalog + translator + normalizer + channel, no
+    Kubernetes SDK, no second HTTP client, no connector-owned credential. The
+    ``base_url`` is deployment configuration with deliberately no default: no
+    universal Kubernetes address exists. Isolation is ``CONTAINED`` with the
+    same stated in-process gap as GitHub/Grafana (ADR-059).
+    """
+    from backend.contracts.connector import IsolationTier
+    from backend.contexts.execution import (
+        WorkerEntry,
+        WorkerInterface,
+        WorkerScope,
+    )
+    from backend.contexts.execution.infrastructure.adapters.connectors.kubernetes import (
+        KUBERNETES_PROVIDER,
+        KUBERNETES_PROVIDER_ID,
+        KubernetesReadNormalizer,
+        KubernetesResponseTranslator,
+        build_kubernetes_channel,
+        kubernetes_real_read_catalog,
+    )
+
+    catalog = kubernetes_real_read_catalog()
+    channel = build_kubernetes_channel(
+        broker=transport_broker,
+        policy=connection_policy,
+        environment=environment,
+        base_url=base_url,
+    )
+    implementation = WorkerImplementation(
+        worker_id=worker_id,
+        worker_kind=WorkerKind.CONNECTOR,
+        interface=WorkerInterface.CONNECTOR,
+        implementation=(
+            "backend.contexts.execution.infrastructure.adapters.connector."
+            "ConnectorAdapter+connectors.kubernetes"
+        ),
+        implementation_version="1.0.0",
+        isolation=isolation or IsolationTier.CONTAINED,
+        scope=WorkerScope.PLATFORM,
+        supported_environments=frozenset({environment}),
+        supported_effects=frozenset(
+            {spec.effect_semantics for spec in _catalog_specs(catalog)}
+        ),
+        supported_providers=frozenset({KUBERNETES_PROVIDER_ID}),
+        supported_operations=frozenset(catalog.operations),
+        # The API server reads no idempotency key; reads need none. Declared
+        # honestly, exactly as for GitHub/Grafana.
+        supports_provider_idempotency=False,
+    )
+    adapter = build_adapter(
+        implementation,
+        provider=KUBERNETES_PROVIDER,
+        catalog=catalog,
+        channel=channel,
+        translator=KubernetesResponseTranslator(),
+        normalizer=KubernetesReadNormalizer(),
         preflight=preflight,
         metrics=metrics,
     )

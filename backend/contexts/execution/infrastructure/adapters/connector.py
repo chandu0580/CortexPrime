@@ -72,6 +72,7 @@ from backend.contexts.execution.infrastructure.adapters.channel import (
 __all__ = [
     "ConnectorAdapter",
     "ProviderResponseTranslator",
+    "ProviderBodyNormalizer",
     "HttpStatusTranslator",
     "DEFAULT_STATUS_FAILURES",
 ]
@@ -130,6 +131,30 @@ class ProviderResponseTranslator(Protocol):
         ...
 
 
+@runtime_checkable
+class ProviderBodyNormalizer(Protocol):
+    """Where a provider's *envelope* is understood. The second narrow port.
+
+    Some providers nest the very fields an operation declares as its bounded
+    evidence — Kubernetes carries the list continuity token as
+    ``metadata.resourceVersion``, while the governed evidence extractor reads
+    top-level scalars only (by design; raw payloads are not evidence). A
+    normalizer lifts declared fields into the top-level shape the operation
+    spec names, in the provider's own module, so the generic adapter stays
+    generic.
+
+    A normalizer **cannot** authorize, cannot change the operation, cannot
+    choose a destination, cannot fabricate provider state (a missing source
+    field stays missing — the shape check then refuses the answer), and runs
+    only on a *successful* classification: failure bodies keep the provider's
+    own dialect for the translator to describe.
+    """
+
+    def normalize(self, spec: ProviderOperationSpec, body: Any) -> Any:
+        """The normalized body. Pure; raises if the envelope is not understood."""
+        ...
+
+
 class HttpStatusTranslator:
     """The default translator: status codes and nothing provider-specific.
 
@@ -185,6 +210,7 @@ class ConnectorAdapter(AdapterSeam):
         catalog: Optional[OperationCatalog] = None,
         channel: Optional[ProviderChannel] = None,
         translator: Optional[ProviderResponseTranslator] = None,
+        normalizer: Optional[ProviderBodyNormalizer] = None,
         preflight: Optional[AdapterPreflight] = None,
         metrics: Optional[Any] = None,
     ) -> None:
@@ -212,6 +238,7 @@ class ConnectorAdapter(AdapterSeam):
         self._catalog = catalog
         self._channel = channel
         self._translator = translator or HttpStatusTranslator()
+        self._normalizer = normalizer
 
     # ------------------------------------------------------------------
     # Identity
@@ -375,6 +402,25 @@ class ConnectorAdapter(AdapterSeam):
                 ambiguous=failure.is_ambiguous,
                 **common,
             )
+
+        # -- the provider's envelope, normalized -------------------------
+        # Only a *successful* answer is normalized: failure bodies keep the
+        # provider's dialect for the translator above. A normalizer that
+        # cannot make sense of the envelope refuses the answer as malformed —
+        # it never invents the fields the shape check below will require.
+        if self._normalizer is not None:
+            try:
+                body = self._normalizer.normalize(spec, body)
+            except Exception as problem:  # noqa: BLE001 — any surprise is a shape refusal
+                return ProviderOutcome(
+                    ambiguous=True,
+                    provider_failure=ProviderFailure.MALFORMED_RESPONSE,
+                    error_message=(
+                        f"the provider's response envelope was not understood: "
+                        f"{type(problem).__name__}: {problem}"
+                    )[:400],
+                    **common,
+                )
 
         # -- the shape of the answer ------------------------------------
         shape = spec.response_problems(body)

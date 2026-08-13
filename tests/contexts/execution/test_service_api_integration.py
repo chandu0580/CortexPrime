@@ -375,13 +375,25 @@ class TestWorkerPool:
         # inside the context that decides what may execute.
         assert getattr(ExecutionWorker, "_is_protocol", False)
         root = pathlib.Path("backend/contexts/execution")
+        # The docker/kubernetes markers are import-shaped: a governed capability's
+        # *name* legitimately contains the provider id ("kubernetes.pods.list" in
+        # the declared catalog, Phase 9.1) — the invariant is that no SDK is
+        # imported or driven here, which BND-PROVIDER-SDK also enforces with an
+        # AST pass over the whole backend.
         offenders = [
             str(path)
             for path in root.rglob("*.py")
             if "__pycache__" not in path.parts
             and any(
                 marker in path.read_text(encoding="utf-8")
-                for marker in ("subprocess.", "docker.", "kubernetes.", "playwright")
+                for marker in (
+                    "subprocess.",
+                    "import docker",
+                    "from docker",
+                    "import kubernetes",
+                    "from kubernetes import",
+                    "playwright",
+                )
             )
         ]
         assert offenders == [], offenders

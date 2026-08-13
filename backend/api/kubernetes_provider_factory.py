@@ -26,10 +26,24 @@ from backend.contexts.execution.infrastructure.adapters.connectors.kubernetes im
     KUBERNETES_PROVIDER_ID, kubernetes_read_catalog,
 )
 
-__all__ = ["kubernetes_scripted_extension", "KUBERNETES_PROVIDER_ID"]
+__all__ = [
+    "kubernetes_scripted_extension",
+    "kubernetes_real_extension",
+    "KUBERNETES_PROVIDER_ID",
+]
 
 _ENABLE = "CORTEX_KUBERNETES_SCRIPTED"
 _TENANT = "CORTEX_CONTROLLED_TENANT"
+
+#: Phase 9.2 (ADR-082): the REAL adapter's deployment configuration. The API
+#: server address and the ServiceAccount bearer token the operator provisions —
+#: the same trust shape as ``CORTEX_GRAFANA_TOKEN`` (CortexPrime's own
+#: credential to a piece of its deployment infrastructure, entering once, at
+#: composition, in the composition layer). The connector itself NEVER reads the
+#: environment; only this factory does, and only here.
+_REAL_URL = "CORTEX_KUBERNETES_URL"
+_REAL_TOKEN = "CORTEX_KUBERNETES_TOKEN"
+_REAL_TENANT = "CORTEX_KUBERNETES_TENANT"
 
 
 def _responder(authority: Any):
@@ -92,6 +106,68 @@ def _build_kubernetes_connector(
         allow_non_production=True, responder=_responder,
         environments=frozenset({environment}), preflight=preflight, metrics=metrics)
     return WorkerEntry(implementation=implementation), adapter, catalog
+
+
+def kubernetes_real_extension(environment: Any) -> Optional[dict]:
+    """Contribute the REAL governed Kubernetes read connector (Phase 9.2).
+
+    Enabled only when BOTH ``CORTEX_KUBERNETES_URL`` and
+    ``CORTEX_KUBERNETES_TOKEN`` are configured — a deployment that names this
+    factory but provisions neither gets a process without Kubernetes rather
+    than a Kubernetes that cannot authenticate. Refuses to coexist with the
+    scripted extension: one provider id, one execution path, never a fallback
+    (Part U — a process where both answered would have a scripted answer
+    shadowing a real cluster or vice versa).
+
+    The token is handed to a ``DevelopmentCredentialProvider``, which refuses
+    PRODUCTION four ways over — so this factory cannot quietly become the
+    production credential path (Phase 5.5 remains blocked and untouched).
+    """
+    url = (os.getenv(_REAL_URL) or "").strip()
+    token = (os.getenv(_REAL_TOKEN) or "").strip()
+    if not url or not token:
+        return None
+    if (os.getenv(_ENABLE) or "").strip().lower() in {"1", "true", "yes", "on"}:
+        raise RuntimeError(
+            "CORTEX_KUBERNETES_SCRIPTED and CORTEX_KUBERNETES_URL are both "
+            "configured; the scripted and real Kubernetes providers share one "
+            "provider id and must never compose together — a dual path is a "
+            "fallback, and fallbacks are forbidden (Phase 9.2 Part U)"
+        )
+
+    from backend.api.capability_execution_composition import build_kubernetes_connector
+    from backend.platform.credentials import DevelopmentCredentialProvider
+
+    tenant_id = (os.getenv(_REAL_TENANT) or "dev").strip()
+
+    def connector_builder(
+        *,
+        transport_broker: Any,
+        connection_policy: Any,
+        environment: Any,
+        preflight: Any = None,
+        metrics: Any = None,
+    ) -> tuple:
+        return build_kubernetes_connector(
+            transport_broker=transport_broker,
+            connection_policy=connection_policy,
+            environment=environment,
+            base_url=url,
+            preflight=preflight,
+            metrics=metrics,
+        )
+
+    return {
+        "connectors": [connector_builder],
+        "credential_providers": [
+            DevelopmentCredentialProvider(
+                provider_id=KUBERNETES_PROVIDER_ID,
+                secrets={tenant_id: token},
+                allow_non_production=True,
+                environments=frozenset({environment}),
+            )
+        ],
+    }
 
 
 def kubernetes_scripted_extension(environment: Any) -> Optional[dict]:

@@ -398,6 +398,14 @@ def build_governed_runtime(
             allow_private_destinations=environment
             is not ExecutionEnvironment.PRODUCTION,
             allow_plaintext=environment is not ExecutionEnvironment.PRODUCTION,
+            # Transport policy, not a credential: a CA bundle *path* for
+            # deployments whose provider endpoints present a private-CA
+            # certificate (a local k3d/kind API server). Verification is never
+            # disabled — this only states which authority to verify against
+            # (TlsPolicy.ca_bundle_path → httpx verify=<path>; there is no
+            # verify=False anywhere in the transport).
+            ca_bundle_path=(os.getenv("CORTEX_TLS_CA_BUNDLE") or "").strip()
+            or None,
         ),
         resolution_service=resolution,
         authorization_service=authorization,
