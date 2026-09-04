@@ -178,7 +178,8 @@ def observability_authority_policy():
 
 
 def observability_freshness_policy(*, metric_horizon_seconds: float = 120.0,
-                                   cluster_horizon_seconds: float = 300.0):
+                                   cluster_horizon_seconds: float = 300.0,
+                                   deployment_horizon_seconds: float = 3600.0):
     """How long each kind of evidence stays FRESH.
 
     Two horizons, because the two instruments go stale for different reasons and
@@ -205,6 +206,27 @@ def observability_freshness_policy(*, metric_horizon_seconds: float = 120.0,
                           source_kind=_METRIC_SOURCE_KIND,
                           predicate="state",
                           horizon_seconds=cluster_horizon_seconds),
+            # Phase 9.5 (ADR-085): the predicates an incident investigation reads.
+            # Each is stated rather than left to the UNKNOWN default, because an
+            # investigator that cannot tell fresh evidence from old cannot refuse
+            # to reuse the old — and refusing is the behaviour that matters.
+            #
+            # Two different horizons on purpose. A pod's phase changes second to
+            # second while it crashloops; a deployment's revision changes only
+            # when somebody deploys, so evidence about it stays useful far longer.
+            FreshnessRule(name="pod-state", source_kind=_METRIC_SOURCE_KIND,
+                          predicate="pod_state",
+                          horizon_seconds=cluster_horizon_seconds),
+            FreshnessRule(name="pod-last-termination", source_kind=_METRIC_SOURCE_KIND,
+                          predicate="last_termination",
+                          horizon_seconds=cluster_horizon_seconds),
+            FreshnessRule(name="container-memory-pressure",
+                          source_kind=_METRIC_SOURCE_KIND,
+                          predicate="memory_pressure",
+                          horizon_seconds=metric_horizon_seconds),
+            FreshnessRule(name="deployed-revision", source_kind=_METRIC_SOURCE_KIND,
+                          predicate="deployed_revision",
+                          horizon_seconds=deployment_horizon_seconds),
         ),
     )
 

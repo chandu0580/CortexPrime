@@ -121,7 +121,16 @@ KUBERNETES_WATCH_OPERATION = "kubernetes.pods.watch"
 #: governed list produced, so exposing one without the other would expose a
 #: stream with no honest way to start it. The remaining four stay declared
 #: contract, real-exposed only when a later phase decides to.
-KUBERNETES_REAL_READ_OPERATIONS = ("kubernetes.pods.list", KUBERNETES_WATCH_OPERATION)
+KUBERNETES_REAL_READ_OPERATIONS = (
+    "kubernetes.pods.list", KUBERNETES_WATCH_OPERATION,
+    # Phase 9.5 (ADR-085): the two reads a CrashLoopBackOff differential actually
+    # discriminates on. A pod's last termination (exit code + reason) separates an
+    # OOM kill from an application failure; a deployment's revision and image
+    # separate a regression from a long-standing fault. Both were declared in 9.1
+    # and are only now exposed, which is the point of declaring a contract ahead
+    # of exposing it.
+    "kubernetes.pod.get", "kubernetes.deployment.get",
+)
 
 #: The event types Kubernetes sends on a watch stream. A closed set on purpose —
 #: an event type outside it is a protocol this normalizer does not understand, and
@@ -224,7 +233,12 @@ def kubernetes_read_catalog() -> OperationCatalog:
             _read("kubernetes.pod.get", "/api/v1/namespaces/{namespace}/pods/{name}",
                   parameters=(_NS, _NAME),
                   evidence=(_RV, "kind", "name", "namespace", "phase", "restartCount",
-                            "waitingReason")),
+                            "waitingReason",
+                            # Phase 9.5: how the container LAST DIED. exitCode 137
+                            # with reason OOMKilled is a resource failure; exit 1
+                            # with reason Error is not. Nothing else in a pod's
+                            # status separates those two as cleanly.
+                            "lastExitCode", "lastTerminationReason")),
             _read("kubernetes.pod.logs", "/api/v1/namespaces/{namespace}/pods/{name}/log",
                   parameters=(_NS, _NAME), evidence=("name", "lineCount"),
                   required=()),   # log body is text; no envelope / no resourceVersion
@@ -236,7 +250,11 @@ def kubernetes_read_catalog() -> OperationCatalog:
                   "/apis/apps/v1/namespaces/{namespace}/deployments/{name}",
                   parameters=(_NS, _NAME),
                   evidence=(_RV, "kind", "name", "namespace", "replicas", "readyReplicas",
-                            "availableReplicas")),
+                            "availableReplicas",
+                            # Phase 9.5: what is actually deployed. A revision
+                            # change is the observable a regression hypothesis
+                            # stands or falls on.
+                            "revision", "image")),
             _read("kubernetes.events.list", "/api/v1/namespaces/{namespace}/events",
                   parameters=(_NS, _LIMIT),
                   evidence=(_RV, "kind", "apiVersion", "eventCount")),
@@ -450,8 +468,24 @@ class KubernetesReadNormalizer:
                     out["restartCount"] = restarts
                 if waiting is not None:
                     out["waitingReason"] = waiting
+                code, reason = self._last_termination(status)
+                if code is not None:
+                    out["lastExitCode"] = code
+                if reason is not None:
+                    out["lastTerminationReason"] = reason
         elif op == "kubernetes.deployment.get":
             self._lift_identity(out, meta)
+            if isinstance(meta, Mapping):
+                annotations = meta.get("annotations")
+                if isinstance(annotations, Mapping):
+                    revision = annotations.get("deployment.kubernetes.io/revision")
+                    if isinstance(revision, str) and revision:
+                        # Kept as the opaque string Kubernetes wrote. It is an
+                        # identifier, not a quantity to compare arithmetically.
+                        out["revision"] = revision
+            image = self._first_container_image(body)
+            if image is not None:
+                out["image"] = image
             wanted = body.get("spec")
             if isinstance(wanted, Mapping) and isinstance(wanted.get("replicas"), int):
                 out["replicas"] = wanted["replicas"]
@@ -626,6 +660,51 @@ class KubernetesReadNormalizer:
                 value = meta.get(field)
                 if isinstance(value, str) and value:
                     out[field] = value
+
+    @staticmethod
+    def _last_termination(status: Mapping) -> Tuple[Optional[int], Optional[str]]:
+        """How the container last died - ``lastState.terminated`` (Phase 9.5).
+
+        The first container's last termination, copied exactly. A pod that has
+        never terminated contributes nothing rather than a zero: exit code 0 means
+        "exited cleanly", and inventing it for a container that never exited would
+        assert something no instrument reported.
+        """
+        statuses = status.get("containerStatuses")
+        if not isinstance(statuses, list) or not statuses:
+            return None, None
+        first = statuses[0]
+        if not isinstance(first, Mapping):
+            return None, None
+        last = first.get("lastState")
+        if not isinstance(last, Mapping):
+            return None, None
+        terminated = last.get("terminated")
+        if not isinstance(terminated, Mapping):
+            return None, None
+        code = terminated.get("exitCode")
+        reason = terminated.get("reason")
+        return (code if isinstance(code, int) and not isinstance(code, bool) else None,
+                reason if isinstance(reason, str) and reason else None)
+
+    @staticmethod
+    def _first_container_image(body: Mapping) -> Optional[str]:
+        """The image the deployment declares for its first container."""
+        spec = body.get("spec")
+        if not isinstance(spec, Mapping):
+            return None
+        template = spec.get("template")
+        if not isinstance(template, Mapping):
+            return None
+        pod_spec = template.get("spec")
+        if not isinstance(pod_spec, Mapping):
+            return None
+        containers = pod_spec.get("containers")
+        if not isinstance(containers, list) or not containers:
+            return None
+        first = containers[0]
+        image = first.get("image") if isinstance(first, Mapping) else None
+        return image if isinstance(image, str) and image else None
 
     @staticmethod
     def _container_signal(status: Mapping) -> Tuple[Optional[int], Optional[str]]:

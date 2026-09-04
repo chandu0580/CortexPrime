@@ -132,3 +132,5 @@ frontend/lib/agent-sdk/
 # Phase 9.4 (ADR-084) disposable evidence environment.
 .phase94.env
 .phase94/
+.phase95.env
+.phase95/

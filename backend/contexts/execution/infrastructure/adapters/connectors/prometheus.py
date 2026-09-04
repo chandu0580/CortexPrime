@@ -88,6 +88,8 @@ __all__ = [
     "PROMETHEUS_READ_OPERATIONS",
     "POD_RESTARTS_OPERATION",
     "PROMETHEUS_SELF_OPERATION",
+    "POD_MEMORY_OPERATION",
+    "INSTRUMENT_KUBELET",
     "INSTRUMENT_KUBE_STATE_METRICS",
     "INSTRUMENT_PROMETHEUS_SELF",
     "PROMETHEUS_MAX_SERIES",
@@ -104,8 +106,14 @@ _POLICY_VERSION = "prometheus-read-policy/1"
 
 POD_RESTARTS_OPERATION = "prometheus.pod_restarts"
 PROMETHEUS_SELF_OPERATION = "prometheus.self_build_info"
+#: Phase 9.5 (ADR-085): the observable that FALSIFIES a resource-exhaustion
+#: hypothesis. A container crashlooping under a memory limit is exactly the shape
+#: an OOM kill takes, so "it might be OOM" is a legitimate thing to suspect --
+#: and working-set bytes far below the limit is what rules it out.
+POD_MEMORY_OPERATION = "prometheus.pod_memory_bytes"
 
-PROMETHEUS_READ_OPERATIONS = (POD_RESTARTS_OPERATION, PROMETHEUS_SELF_OPERATION)
+PROMETHEUS_READ_OPERATIONS = (POD_RESTARTS_OPERATION, PROMETHEUS_SELF_OPERATION,
+                              POD_MEMORY_OPERATION)
 
 #: The instrument identifiers that reach an Observation's ``source_ref``.
 #:
@@ -118,6 +126,10 @@ PROMETHEUS_READ_OPERATIONS = (POD_RESTARTS_OPERATION, PROMETHEUS_SELF_OPERATION)
 #: the Kubernetes API it is being compared against.
 INSTRUMENT_KUBE_STATE_METRICS = "prometheus:kube-state-metrics"
 INSTRUMENT_PROMETHEUS_SELF = "prometheus:self"
+#: Container memory comes from the kubelet's own cAdvisor, which reads the
+#: container runtime directly rather than the API server. A DIFFERENT origin from
+#: the cluster's API, and the lineage policy says so.
+INSTRUMENT_KUBELET = "prometheus:kubelet-cadvisor"
 
 #: The most series one query may return. A larger answer is refused rather than
 #: trimmed — a silently truncated result set is a partial view of the world
@@ -346,6 +358,20 @@ def prometheus_read_catalog(*, namespace: str) -> OperationCatalog:
                 operation=PROMETHEUS_SELF_OPERATION,
                 promql="prometheus_build_info",
                 record_fields=("version", "branch", "value", "timestamp"),
+            ),
+            # Working-set bytes per container — Phase 9.5's falsifier for a
+            # resource-exhaustion hypothesis. kube-state-metrics does not export
+            # this: it comes from the kubelet's cAdvisor, which measures the
+            # container runtime directly rather than re-reading the API server,
+            # and is therefore a genuinely different origin from the cluster API.
+            _instant_query(
+                operation=POD_MEMORY_OPERATION,
+                promql=(
+                    "max by (pod, namespace, container) "
+                    "(container_memory_working_set_bytes"
+                    f'{{namespace="{namespace}", container!=""}})'
+                ),
+                record_fields=("pod", "namespace", "container", "value", "timestamp"),
             ),
         ),
     )

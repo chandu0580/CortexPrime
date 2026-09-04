@@ -134,8 +134,10 @@ class TestWatchDeclaration:
         assert spec.side_effect_class is SideEffectClass.READ
         assert spec.effect_semantics is EffectSemantics.READ_ONLY
         assert spec.method == "GET"
-        assert set(KUBERNETES_REAL_READ_OPERATIONS) == {
-            "kubernetes.pods.list", KUBERNETES_WATCH_OPERATION}
+        # The watch is one of the real exposures; 9.5 added two more reads.
+        # What matters here is that the watch is among them and is a READ.
+        assert KUBERNETES_WATCH_OPERATION in KUBERNETES_REAL_READ_OPERATIONS
+        assert "kubernetes.pods.list" in KUBERNETES_REAL_READ_OPERATIONS
 
     def test_the_window_cannot_outlive_the_transport_read_timeout(self):
         from backend.platform.transport.policy import TimeoutPolicy

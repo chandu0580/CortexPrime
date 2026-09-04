@@ -227,13 +227,21 @@ class TestConnectorAdapterNormalization:
 
 
 class TestRealExposure:
-    def test_the_real_exposure_is_exactly_list_plus_watch(self):
-        # 9.2 exposed one operation; 9.3 adds exactly one more, and only because
-        # a watch has no honest way to start without the list's resourceVersion.
+    def test_the_real_exposure_grows_only_deliberately(self):
+        # Each exposure was added for a named reason, and the set is pinned so a
+        # sixth does not appear by habit: 9.2 the list, 9.3 the watch that
+        # continues it, 9.5 the two reads a CrashLoopBackOff differential turns
+        # on (how the container died; what revision is deployed). The other two
+        # declared operations stay contract-only.
         catalog = kubernetes_real_read_catalog()
         assert set(catalog.operations) == set(KUBERNETES_REAL_READ_OPERATIONS)
         assert set(KUBERNETES_REAL_READ_OPERATIONS) == {
-            "kubernetes.pods.list", "kubernetes.pods.watch"}
+            "kubernetes.pods.list", "kubernetes.pods.watch",
+            "kubernetes.pod.get", "kubernetes.deployment.get"}
+        assert set(kubernetes_read_catalog().operations) - set(
+            KUBERNETES_REAL_READ_OPERATIONS) == {
+            "kubernetes.pod.logs", "kubernetes.deployments.list",
+            "kubernetes.events.list"}
 
     def test_real_specs_are_the_declared_contract(self):
         full, real = kubernetes_read_catalog(), kubernetes_real_read_catalog()
