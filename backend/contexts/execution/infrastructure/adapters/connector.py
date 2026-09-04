@@ -74,6 +74,7 @@ __all__ = [
     "ProviderResponseTranslator",
     "ProviderBodyNormalizer",
     "ProviderBodyDecoder",
+    "ProviderBodyBuilder",
     "HttpStatusTranslator",
     "DEFAULT_STATUS_FAILURES",
 ]
@@ -183,6 +184,37 @@ class ProviderBodyDecoder(Protocol):
         ...
 
 
+@runtime_checkable
+class ProviderBodyBuilder(Protocol):
+    """Where a provider's *request* shape is understood. The fourth narrow port.
+
+    ``ProviderRequestPlan`` bodies are flat: ``plan()`` writes one key per declared
+    BODY parameter. That was right for every write up to now — GitHub's issue is
+    ``{title, body, labels}``, Grafana's folder is ``{title, uid}`` — and it is
+    wrong for Kubernetes, where every mutation is a nested document several levels
+    deep.
+
+    The obvious fix is the dangerous one. Letting a caller pass a nested object as
+    a parameter value would mean one approved capability could carry *any* spec
+    mutation, which is the arbitrary-patch hole the whole operation model exists to
+    close. So the nesting is not caller input: the provider's own module builds the
+    document, from the payload the operation already validated.
+
+    A builder **cannot** authorize, cannot change the operation, cannot choose a
+    destination, cannot set a header, cannot see a credential, and cannot read a
+    clock — it is a pure function of the spec, the validated payload and the
+    platform's idempotency key. It runs only after ``input_problems`` passed, so it
+    never sees a value the operation did not declare.
+    """
+
+    def build(
+        self, spec: ProviderOperationSpec, payload: Mapping[str, Any],
+        *, idempotency_key: Optional[str],
+    ) -> Optional[Mapping[str, Any]]:
+        """The request body. Pure; ``None`` means the operation sends none."""
+        ...
+
+
 class HttpStatusTranslator:
     """The default translator: status codes and nothing provider-specific.
 
@@ -240,6 +272,7 @@ class ConnectorAdapter(AdapterSeam):
         translator: Optional[ProviderResponseTranslator] = None,
         normalizer: Optional[ProviderBodyNormalizer] = None,
         decoder: Optional[ProviderBodyDecoder] = None,
+        body_builder: Optional[ProviderBodyBuilder] = None,
         preflight: Optional[AdapterPreflight] = None,
         metrics: Optional[Any] = None,
     ) -> None:
@@ -269,6 +302,7 @@ class ConnectorAdapter(AdapterSeam):
         self._translator = translator or HttpStatusTranslator()
         self._normalizer = normalizer
         self._decoder = decoder
+        self._body_builder = body_builder
 
     # ------------------------------------------------------------------
     # Identity
@@ -348,6 +382,22 @@ class ConnectorAdapter(AdapterSeam):
             return ProviderOutcome.refused(
                 ProviderFailure.VALIDATION_FAILURE, str(refusal)[:400]
             )
+
+        if self._body_builder is not None:
+            # The provider's own request dialect, built from the ALREADY-VALIDATED
+            # payload. Anything it raises is a refusal, not a request: a body the
+            # provider module could not construct is not one to send and guess at.
+            try:
+                from dataclasses import replace as _replace
+
+                built = self._body_builder.build(
+                    spec, authority.payload, idempotency_key=authority.idempotency_key)
+                plan = _replace(plan, body=built)
+            except Exception as problem:  # noqa: BLE001 — any surprise is a refusal
+                return ProviderOutcome.refused(
+                    ProviderFailure.VALIDATION_FAILURE,
+                    f"the provider request body could not be built: "
+                    f"{type(problem).__name__}: {problem}"[:400])
 
         exchange = self._channel.send(
             authority,

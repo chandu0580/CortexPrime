@@ -83,6 +83,10 @@ __all__ = [
     "KubernetesReadNormalizer",
     "KubernetesResponseTranslator",
     "KubernetesWatchDecoder",
+    "KubernetesRestartBodyBuilder",
+    "ROLLOUT_RESTART_OPERATION",
+    "RESTART_ANNOTATION",
+    "kubernetes_write_profiles",
     "KUBERNETES_WATCH_OPERATION",
     "KUBERNETES_WATCH_EVENT_TYPES",
     "KUBERNETES_WATCH_MUTATION_TYPES",
@@ -114,6 +118,19 @@ KUBERNETES_READ_OPERATIONS = (
 #: The Phase 9.3 WATCH operation (ADR-083). A READ: it observes and cannot act.
 KUBERNETES_WATCH_OPERATION = "kubernetes.pods.watch"
 
+#: The Phase 9.6 WRITE (ADR-086). The FIRST and ONLY Kubernetes mutation this
+#: platform can perform, and it is deliberately the smallest useful one.
+ROLLOUT_RESTART_OPERATION = "kubernetes.workload.rollout_restart"
+
+#: The annotation a restart stamps on the pod template.
+#:
+#: A CortexPrime-owned key, not ``kubectl.kubernetes.io/restartedAt``. Writing
+#: kubectl's annotation would make a platform action indistinguishable from a
+#: human running kubectl, and "who restarted this workload, and why" is the first
+#: question asked afterwards. The value is the platform's own action identity, so
+#: the annotation answers it.
+RESTART_ANNOTATION = "cortexprime.io/restarted-by-action"
+
 #: Phase 9.2 exposed exactly ONE real operation (Part E): the smallest read that
 #: proves the whole governed chain against a live API server. Phase 9.3 adds
 #: exactly one more (ADR-083) — the WATCH that continues that LIST. The pair is
@@ -130,6 +147,11 @@ KUBERNETES_REAL_READ_OPERATIONS = (
     # and are only now exposed, which is the point of declaring a contract ahead
     # of exposing it.
     "kubernetes.pod.get", "kubernetes.deployment.get",
+    # Phase 9.6's write is deliberately ABSENT. It is declared (see
+    # ``kubernetes_write_catalog``) but not exposed: an IRREVERSIBLE_WRITE may
+    # not be performed by a CONTAINED in-process worker, so putting it in the
+    # real read exposure would offer an operation this worker must refuse
+    # (ADR-086). It joins a real exposure when a SEALED tier exists.
 )
 
 #: The event types Kubernetes sends on a watch stream. A closed set on purpose —
@@ -261,6 +283,133 @@ def kubernetes_read_catalog() -> OperationCatalog:
             _watch(),
         ),
     )
+
+
+def kubernetes_write_catalog() -> OperationCatalog:
+    """The read catalog PLUS the one declared write (Phase 9.6).
+
+    Kept separate from :func:`kubernetes_read_catalog` deliberately. A write does
+    not belong in a function named "read": every existing caller — the read
+    harnesses, the investigator's tool registry, the provider factory — asks for
+    the read catalog and must keep getting exactly reads, so that a write can
+    never reach them by having been quietly added to a set they already trust.
+    A caller that wants the write has to name it here.
+
+    Composing this catalog is NOT the same as being able to run the write. The
+    operation it adds is an ``IRREVERSIBLE_WRITE``, which no CONTAINED worker may
+    perform and which cannot be registered as a capability against one; see
+    ADR-086.
+    """
+    reads = kubernetes_read_catalog()
+    return OperationCatalog(
+        KUBERNETES_PROVIDER_ID,
+        tuple(reads.require(op) for op in reads.operations) + (_rollout_restart(),),
+    )
+
+
+def _rollout_restart() -> ProviderOperationSpec:
+    """One workload rollout restart — the first governed Kubernetes write.
+
+    Honest classification, and why it is not what it is usually called
+    ------------------------------------------------------------------
+    This is an ``IRREVERSIBLE_WRITE``. It is commonly described as safe or
+    reversible, and by the definition this codebase uses — *"a declared inverse
+    fully restores the prior state"* — it is neither. Stamping the pod template
+    changes the template hash, which creates a new ReplicaSet and a new entry in
+    the rollout history. Nothing removes that. ``kubectl rollout undo`` does not
+    undo it; it appends another revision.
+
+    What IS true, and is the narrower claim made instead: the **declared workload
+    configuration is preserved**. Image, command, environment, replicas,
+    resources, probes and volumes are untouched; the only field this operation
+    writes is one platform-owned annotation on the pod template. That is a real
+    safety property and it is not reversibility.
+
+    Classifying it honestly costs nothing and buys the right behaviour: the
+    autonomy policy's reversibility gate then forces HUMAN_APPROVAL_REQUIRED at
+    A3 with no delegated autonomy, so A4 is unreachable for this operation by
+    construction rather than by a rule somebody remembered to write.
+
+    Blast radius is a property of the declaration
+    ----------------------------------------------
+    Two required path parameters — one namespace, one name — and nothing else.
+    There is no label selector, no list, no wildcard, no ``--all``, and no field
+    through which a second workload could be named. One call restarts one
+    workload, because the operation cannot express anything larger.
+
+    Non-idempotent, stated
+    ------------------------
+    Repeating it with a *different* action identity stamps a different annotation
+    and triggers a second rollout. Repeating it with the SAME identity is a no-op
+    at the API server, because the annotation already holds that value — which is
+    why the value is the platform's idempotency key rather than a clock.
+    """
+    return ProviderOperationSpec(
+        operation=ROLLOUT_RESTART_OPERATION,
+        method="PATCH",
+        path_template="/apis/apps/v1/namespaces/{namespace}/deployments/{name}",
+        side_effect_class=SideEffectClass.IRREVERSIBLE_WRITE,
+        # Honest: the same authorized action repeated is safe (the annotation
+        # already holds that value), but a *retry with a new identity* is a second
+        # rollout. Execution must not blind-retry this, and NON_IDEMPOTENT is what
+        # tells it so.
+        effect_semantics=EffectSemantics.NON_IDEMPOTENT_WRITE,
+        parameters=(_NS, _NAME),
+        static_headers={
+            **_K8S_HEADERS,
+            # A strategic merge patch: the API server merges this document into
+            # the existing object rather than replacing it, so the rest of the pod
+            # template is preserved by the SERVER, not by our hoping the body was
+            # complete. Set here so the channel's JSON default cannot win.
+            "content-type": "application/strategic-merge-patch+json",
+        },
+        success_statuses=(200,),
+        response_required_fields=(_RV, "kind"),
+        response_evidence_fields=(_RV, "kind", "name", "namespace", "revision",
+                                  "image", "restartedByAction"),
+        provider_timeout_seconds=_TIMEOUT,
+        max_response_bytes=1024 * 1024,
+    )
+
+
+class KubernetesRestartBodyBuilder:
+    """Builds the one request body this platform may send to Kubernetes.
+
+    The whole document is a constant except for a single leaf, and that leaf is
+    the platform's own action identity — never caller input, never a model's
+    output, never a clock. There is no code path here that can produce any other
+    shape: the dictionary below is written literally.
+
+    Why the idempotency key and not a timestamp: ``plan()`` is documented as
+    deterministic — *"Nothing here reads a clock, a counter, an attempt number or
+    a random source"* — because "same authority, same request" is what makes an
+    approval binding and a replay inert. A timestamp would break that on every
+    call. The action identity keeps it, and additionally makes a re-run of the
+    SAME authorized action a no-op at the API server rather than a second rollout.
+    """
+
+    def build(self, spec: Any, payload: Any, *, idempotency_key: Optional[str]) -> Any:
+        if spec.operation != ROLLOUT_RESTART_OPERATION:
+            # The builder is attached to the whole adapter; every other operation
+            # keeps the flat body the spec declares.
+            return None
+        if not idempotency_key or not str(idempotency_key).strip():
+            raise ValueError(
+                "a rollout restart needs the platform's action identity to stamp; "
+                "without one the request would either be non-deterministic or "
+                "indistinguishable from a previous restart"
+            )
+        return {
+            "spec": {
+                "template": {
+                    "metadata": {
+                        "annotations": {
+                            RESTART_ANNOTATION: str(idempotency_key)[:63],
+                        }
+                    }
+                }
+            }
+        }
 
 
 def _watch() -> ProviderOperationSpec:
@@ -473,7 +622,7 @@ class KubernetesReadNormalizer:
                     out["lastExitCode"] = code
                 if reason is not None:
                     out["lastTerminationReason"] = reason
-        elif op == "kubernetes.deployment.get":
+        elif op in ("kubernetes.deployment.get", ROLLOUT_RESTART_OPERATION):
             self._lift_identity(out, meta)
             if isinstance(meta, Mapping):
                 annotations = meta.get("annotations")
@@ -486,6 +635,9 @@ class KubernetesReadNormalizer:
             image = self._first_container_image(body)
             if image is not None:
                 out["image"] = image
+            stamped = self._restart_annotation(body)
+            if stamped is not None:
+                out["restartedByAction"] = stamped
             wanted = body.get("spec")
             if isinstance(wanted, Mapping) and isinstance(wanted.get("replicas"), int):
                 out["replicas"] = wanted["replicas"]
@@ -688,6 +840,29 @@ class KubernetesReadNormalizer:
                 reason if isinstance(reason, str) and reason else None)
 
     @staticmethod
+    def _restart_annotation(body: Mapping) -> Optional[str]:
+        """The action identity a governed restart stamped on the pod template.
+
+        Lifted so a read-back can confirm that the action the platform authorized
+        is the action the cluster actually carries — not merely that *a* restart
+        happened. An annotation somebody else wrote answers a different question.
+        """
+        spec = body.get("spec")
+        if not isinstance(spec, Mapping):
+            return None
+        template = spec.get("template")
+        if not isinstance(template, Mapping):
+            return None
+        meta = template.get("metadata")
+        if not isinstance(meta, Mapping):
+            return None
+        annotations = meta.get("annotations")
+        if not isinstance(annotations, Mapping):
+            return None
+        value = annotations.get(RESTART_ANNOTATION)
+        return value if isinstance(value, str) and value else None
+
+    @staticmethod
     def _first_container_image(body: Mapping) -> Optional[str]:
         """The image the deployment declares for its first container."""
         spec = body.get("spec")
@@ -782,6 +957,45 @@ def _profile(operation: str, resource_scope: str) -> CapabilityProfile:
         verification_requirement=VerificationRequirement.NONE,
         resource_scope=resource_scope, reversible=True, timeout_seconds=_TIMEOUT,
         policy_version=_POLICY_VERSION)
+
+
+def kubernetes_write_profiles() -> dict:
+    """The capability-bridge profile for the one governed Kubernetes write.
+
+    Every field here is a claim the platform has to live with:
+
+    * ``reversible=False`` — there is no inverse (see ``_rollout_restart``). This
+      is what makes the autonomy policy's gate 9 fire and force human approval.
+    * ``verification_requirement=INDEPENDENT_READBACK`` — the contract refuses a
+      mutating capability that requires no verification, and rightly: an action
+      whose effect nobody checks is an action nobody can be held to.
+    * ``autonomy_ceiling=A3`` — approved action. Never A4; the platform may not
+      delegate this to itself.
+    * ``resource_scope="deployment"`` and ``resource_count=1`` — one workload.
+    * ``RiskLevel.HIGH`` — a production-shaped workload restart is not routine
+      for a platform doing it on its own initiative, and HIGH is what routes it
+      through ``REQUIRE_APPROVAL`` in the governed policy.
+    """
+    factors = RiskFactors(side_effect_class=SideEffectClass.IRREVERSIBLE_WRITE,
+                          environment="development", resource_count=1,
+                          reversible=False)
+    return {
+        ROLLOUT_RESTART_OPERATION: CapabilityProfile(
+            capability_ref=f"platform.{ROLLOUT_RESTART_OPERATION}",
+            provider=KUBERNETES_PROVIDER_ID, operation=ROLLOUT_RESTART_OPERATION,
+            side_effect_class=SideEffectClass.IRREVERSIBLE_WRITE,
+            effect_semantics=EffectSemantics.NON_IDEMPOTENT_WRITE,
+            risk=RiskClassification(
+                level=RiskLevel.HIGH, factors=factors,
+                rationale=(
+                    "restarts one workload's pods; preserves the declared "
+                    "configuration but stamps the pod template and creates a new "
+                    "revision, which no inverse removes")),
+            autonomy_ceiling=AutonomyLevel.A3_APPROVED_ACTION,
+            verification_requirement=VerificationRequirement.INDEPENDENT_READBACK,
+            resource_scope="deployment", reversible=False,
+            timeout_seconds=_TIMEOUT, policy_version=_POLICY_VERSION),
+    }
 
 
 def kubernetes_read_profiles() -> dict:

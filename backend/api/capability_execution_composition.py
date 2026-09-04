@@ -78,6 +78,7 @@ import logging
 import time
 from typing import Any, Mapping, Optional
 
+from backend.contracts.errors import ContractViolation
 from backend.contracts.execution import ExecutionEnvironment
 from backend.contracts.policy import PolicyEffect
 from backend.contexts.connectivity import CapabilityBinding
@@ -119,6 +120,7 @@ __all__ = [
     "SelectingRequestFactory",
     "ADAPTER_SEAMS",
     "GovernedCapabilityReader",
+    "GovernedCapabilityWriter",
     "build_prometheus_connector",
 ]
 
@@ -295,6 +297,7 @@ def build_adapter(
     translator: Optional[Any] = None,
     normalizer: Optional[Any] = None,
     decoder: Optional[Any] = None,
+    body_builder: Optional[Any] = None,
     preflight: Optional[Any] = None,
     metrics: Optional[Any] = None,
 ) -> Any:
@@ -335,7 +338,8 @@ def build_adapter(
         return seam(catalog=catalog, channel=channel, **common)
     return seam(
         catalog=catalog, channel=channel, translator=translator,
-        normalizer=normalizer, decoder=decoder, **common,
+        normalizer=normalizer, decoder=decoder, body_builder=body_builder,
+        **common,
     )
 
 
@@ -616,8 +620,13 @@ def build_kubernetes_connector(
     construction contacts nothing, and the same deliberate acts stand between
     this and real work.
 
-    The catalog is the Phase 9.2 real exposure — exactly ONE read operation
-    (``kubernetes.pods.list``) — and the adapter is the generic
+    The catalog is the real exposure, which has only ever grown deliberately:
+    the list (9.2), the watch that continues it (9.3), and the two reads a
+    CrashLoopBackOff differential turns on (9.5). The declared write
+    (``kubernetes.workload.rollout_restart``) is **deliberately not in it**: an
+    ``IRREVERSIBLE_WRITE`` may not be performed by a CONTAINED in-process worker,
+    so composing it here would offer an operation this worker must refuse
+    (ADR-086). The adapter is the generic
     ``ConnectorAdapter``: catalog + translator + normalizer + channel, no
     Kubernetes SDK, no second HTTP client, no connector-owned credential. The
     ``base_url`` is deployment configuration with deliberately no default: no
@@ -635,6 +644,7 @@ def build_kubernetes_connector(
         KUBERNETES_PROVIDER_ID,
         KubernetesReadNormalizer,
         KubernetesResponseTranslator,
+        KubernetesRestartBodyBuilder,
         KubernetesWatchDecoder,
         build_kubernetes_channel,
         kubernetes_real_read_catalog,
@@ -679,6 +689,10 @@ def build_kubernetes_connector(
         # dispatches on the operation's own declaration (static_query watch=true)
         # and hands every other operation straight to the JSON path.
         decoder=KubernetesWatchDecoder(),
+        # Phase 9.6: every Kubernetes mutation is a nested document, which the
+        # flat body a spec declares cannot express. The builder constructs the ONE
+        # document this platform may send, from the already-validated payload.
+        body_builder=KubernetesRestartBodyBuilder(),
         preflight=preflight,
         metrics=metrics,
     )
@@ -1369,7 +1383,31 @@ class GovernedCapabilityReader:
         node_id: Optional[str] = None,
         workflow_id: Optional[str] = None,
     ) -> GovernedReadOutcome:
-        """Perform one governed read. Returns facts; raises only on misuse."""
+        """Perform one governed READ. Refuses anything that mutates.
+
+        The assertion is not ceremony. This object is handed to the investigator
+        and to the evidence-acquisition port, and the one thing neither may ever
+        do is change the world through a door labelled "read"."""
+        definition = self._definitions.get(operation)
+        if definition is not None and definition.contract.side_effect_class.mutates:
+            raise ContractViolation(
+                f"{operation!r} is a {definition.contract.side_effect_class.value} "
+                "and cannot be performed through the read path; a mutation goes "
+                "through GovernedCapabilityWriter, which requires an approval")
+        return self._perform(context, operation=operation, payload=payload,
+                             node_id=node_id, workflow_id=workflow_id)
+
+    def _perform(
+        self,
+        context: Any,
+        *,
+        operation: str,
+        payload: Mapping[str, Any],
+        node_id: Optional[str] = None,
+        workflow_id: Optional[str] = None,
+        approval_artifact_id: Optional[str] = None,
+    ) -> GovernedReadOutcome:
+        """The one governed chain. Both doors above lead here and nowhere else."""
         from backend.contexts.connectivity.domain.authorization import (
             AuthorizationRequest, CapabilityOperation,
         )
@@ -1400,6 +1438,10 @@ class GovernedCapabilityReader:
             capability_ref=definition.reference,
             operation=CapabilityOperation.INVOKE,
             expected_digest=definition.digest, environment=environment,
+            # Carried, never invented. A capability whose policy says
+            # REQUIRE_APPROVAL is allowed only when the approval presented here
+            # is valid for this tenant, this operation and this digest.
+            approval_artifact_id=approval_artifact_id,
         ))
         if not getattr(decision, "allowed", False):
             return GovernedReadOutcome(
@@ -1493,3 +1535,45 @@ class GovernedCapabilityReader:
             status if isinstance(status, int) else None,
             getattr(attempt, "failure_reason", None),
         )
+
+
+class GovernedCapabilityWriter(GovernedCapabilityReader):
+    """The typed door for a governed MUTATION — Phase 9.6 (ADR-086).
+
+    It is a subclass and not a second implementation on purpose: there is exactly
+    one governed chain, and a write that took a different route to the provider
+    would be a second execution authority however carefully it was written. What
+    this adds is a door that knows what it is for.
+
+    Two things it asserts that the read door does not:
+
+    * the operation must actually mutate — a read performed through the write
+      path would carry an approval that describes an action nobody took;
+    * an approval artifact id is carried through to authorization, where the
+      existing approval facts decide whether it covers this tenant, this
+      operation and this exact input digest. This class does not decide that and
+      holds no approval state.
+    """
+
+    def write(
+        self,
+        context: Any,
+        *,
+        operation: str,
+        payload: Mapping[str, Any],
+        approval_artifact_id: Optional[str] = None,
+        node_id: Optional[str] = None,
+        workflow_id: Optional[str] = None,
+    ) -> Any:
+        definition = self._definitions.get(operation)
+        if definition is None:
+            raise ContractViolation(
+                f"{operation!r} is not a capability this writer was given")
+        if not definition.contract.side_effect_class.mutates:
+            raise ContractViolation(
+                f"{operation!r} is a read; performing it through the write path "
+                "would attach an approval to an action that changes nothing")
+        return self._perform(
+            context, operation=operation, payload=payload, node_id=node_id,
+            workflow_id=workflow_id or f"remediate-{operation}",
+            approval_artifact_id=approval_artifact_id)

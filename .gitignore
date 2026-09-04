@@ -134,3 +134,5 @@ frontend/lib/agent-sdk/
 .phase94/
 .phase95.env
 .phase95/
+.phase96.env
+.phase96/
