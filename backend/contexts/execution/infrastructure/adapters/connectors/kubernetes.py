@@ -1,4 +1,4 @@
-"""The governed Kubernetes READ capability — Phase 9.1 (ADR-081).
+"""The governed Kubernetes READ capability — Phase 9.1/9.2/9.3 (ADR-081/082/083).
 
 Kubernetes becomes a *governed capability of CortexPrime*, not a connector: a
 declared, read-only ``OperationCatalog`` of `ProviderOperationSpec`s modelling the
@@ -20,13 +20,39 @@ not the execution event). So the provider adapter NORMALIZES a Kubernetes respon
 — lifting ``metadata.resourceVersion`` to a top-level ``resourceVersion`` evidence
 field — and every LIST/GET spec keeps ``resourceVersion`` in its
 ``response_evidence_fields``. A governed read's resourceVersion therefore survives
-into the Observation, establishing the data contract a future LIST→WATCH continuity
-(Phase 9.2/9.3) needs. resourceVersion is never fabricated: if the provider omits
-it, it is simply absent (Part F). WATCH is deliberately NOT implemented here.
+into the Observation, establishing the data contract LIST→WATCH continuity needs.
+resourceVersion is never fabricated: if the provider omits it, it is simply absent
+(Part F).
+
+WATCH (Phase 9.3, ADR-083)
+----------------------------
+``kubernetes.pods.watch`` is declared here as another READ, and it reaches the API
+server through the same one governed path — the same adapter, channel, broker and
+transport. Three things make that possible without a second transport:
+
+* **The window is bounded.** ``timeoutSeconds`` makes each watch an ordinary
+  one-shot request whose body is that window's events. The governed transport
+  refuses server-sent events by design, and this is the shape that does not need
+  them. Continuity across windows is exact: the next window starts from the
+  resourceVersion the last event carried, copied verbatim.
+* **``watch=true`` is declared, not passed.** It lives in ``static_query``, so a
+  watch is a *different operation* from a list rather than a list a caller asked
+  to keep open, and the difference is in the operation's digest.
+* **The answer is NDJSON**, decoded by ``KubernetesWatchDecoder`` and normalized
+  into declared, bounded per-event records (``RecordEvidenceSpec``) — the same
+  scalars-only, declared-in-advance discipline as flat evidence, one level down.
+
+Fail-closed throughout: an unknown event type, an event with no resourceVersion,
+a mutation identifying no resource, an unparseable line, a truncated window and a
+window over the declared event cap are each a refusal. A refused window leaves the
+stream position untouched and Kubernetes re-delivers — at-least-once, never a
+silently accepted gap. A 410 (as an HTTP status or as an in-stream ``Status``) is
+surfaced, never converted into success.
 """
 
 from __future__ import annotations
 
+import json
 from typing import Any, Mapping, Optional, Tuple
 
 from backend.contracts.execution import (
@@ -41,6 +67,7 @@ from backend.contracts.intelligence.capability_profile import (
 )
 from backend.contexts.execution.domain.provider_operation import (
     OperationCatalog, ParameterKind, ParameterLocation, ParameterSpec, ProviderOperationSpec,
+    RecordEvidenceSpec,
 )
 from backend.contexts.execution.infrastructure.adapters.channel import ProviderChannel
 from backend.contexts.execution.infrastructure.adapters.connector import (
@@ -55,6 +82,12 @@ __all__ = [
     "KUBERNETES_REAL_READ_OPERATIONS",
     "KubernetesReadNormalizer",
     "KubernetesResponseTranslator",
+    "KubernetesWatchDecoder",
+    "KUBERNETES_WATCH_OPERATION",
+    "KUBERNETES_WATCH_EVENT_TYPES",
+    "KUBERNETES_WATCH_MUTATION_TYPES",
+    "WATCH_WINDOW_SECONDS",
+    "WATCH_MAX_EVENTS",
     "kubernetes_read_catalog",
     "kubernetes_real_read_catalog",
     "kubernetes_read_profiles",
@@ -64,11 +97,6 @@ __all__ = [
 KUBERNETES_PROVIDER_ID = "kubernetes"
 KUBERNETES_PROVIDER = ProviderRef(provider_id=KUBERNETES_PROVIDER_ID)
 _POLICY_VERSION = "k8s-read-policy/1"
-
-#: Phase 9.2 exposes exactly ONE real operation (Part E): the smallest read that
-#: proves the whole governed chain against a live API server. The other five
-#: remain declared contract, real-exposed only when a later phase decides to.
-KUBERNETES_REAL_READ_OPERATIONS = ("kubernetes.pods.list",)
 
 #: The smallest read-only set for the first incident-investigation vertical
 #: (Phase 9.0 §8: CrashLoopBackOff / deployment-failure). Deriving cause from pods,
@@ -80,7 +108,46 @@ KUBERNETES_READ_OPERATIONS = (
     "kubernetes.deployments.list",
     "kubernetes.deployment.get",
     "kubernetes.events.list",
+    "kubernetes.pods.watch",
 )
+
+#: The Phase 9.3 WATCH operation (ADR-083). A READ: it observes and cannot act.
+KUBERNETES_WATCH_OPERATION = "kubernetes.pods.watch"
+
+#: Phase 9.2 exposed exactly ONE real operation (Part E): the smallest read that
+#: proves the whole governed chain against a live API server. Phase 9.3 adds
+#: exactly one more (ADR-083) — the WATCH that continues that LIST. The pair is
+#: deliberate and minimal: a watch is only meaningful from a resourceVersion a
+#: governed list produced, so exposing one without the other would expose a
+#: stream with no honest way to start it. The remaining four stay declared
+#: contract, real-exposed only when a later phase decides to.
+KUBERNETES_REAL_READ_OPERATIONS = ("kubernetes.pods.list", KUBERNETES_WATCH_OPERATION)
+
+#: The event types Kubernetes sends on a watch stream. A closed set on purpose —
+#: an event type outside it is a protocol this normalizer does not understand, and
+#: an event nobody understands must not become world state (fail closed).
+KUBERNETES_WATCH_EVENT_TYPES = ("ADDED", "MODIFIED", "DELETED", "BOOKMARK", "ERROR")
+
+#: The mutation types. ``BOOKMARK`` is deliberately absent: it advances the stream
+#: position and asserts nothing about a resource. ``ERROR`` is absent because it is
+#: the stream failing, not a resource changing.
+KUBERNETES_WATCH_MUTATION_TYPES = ("ADDED", "MODIFIED", "DELETED")
+
+#: How long one governed watch window stays open, in seconds.
+#:
+#: Bounded, and bounded *below the transport's read timeout* (``TimeoutPolicy.
+#: read_seconds`` = 30.0). A quiet cluster sends no bytes at all, so a window
+#: longer than that read timeout would be killed by httpx as a ReadTimeout — an
+#: ambiguous outcome — every time nothing happened, which is most of the time.
+#: At 20 seconds the API server closes the window first and a quiet window is an
+#: ordinary, successful, empty answer.
+WATCH_WINDOW_SECONDS = 20
+
+#: The most events one window may carry. A window with more is REFUSED, not
+#: trimmed: the driver then re-watches from the same position and Kubernetes
+#: redelivers, whereas a trimmed window would advance the stream position past
+#: events nobody recorded — a hole in world state that looks like continuity.
+WATCH_MAX_EVENTS = 64
 
 # Shared parameter shapes — all references, never a URL or shell fragment.
 _NS = ParameterSpec(name="namespace", kind=ParameterKind.RESOURCE_SEGMENT,
@@ -91,6 +158,20 @@ _LABEL = ParameterSpec(name="labelSelector", kind=ParameterKind.STRING,
                        location=ParameterLocation.QUERY, max_length=512, required=False)
 _LIMIT = ParameterSpec(name="limit", kind=ParameterKind.INTEGER,
                        location=ParameterLocation.QUERY, required=False)
+
+#: The watch continuation point. REQUIRED, and required for a reason: a watch
+#: without a resourceVersion means "start from now, and also send me the current
+#: state of everything", which is a different operation with a different cost and
+#: no continuity with what was already observed. The value is opaque text the
+#: driver read from a durable Observation — never minted, never incremented,
+#: never interpreted as a number here or anywhere.
+_WATCH_RV = ParameterSpec(name="resourceVersion", kind=ParameterKind.STRING,
+                          location=ParameterLocation.QUERY, max_length=128)
+#: The window length. Bounded by declaration so no caller can ask for a window
+#: that outlives the transport's read timeout (see ``WATCH_WINDOW_SECONDS``).
+_WATCH_TIMEOUT = ParameterSpec(name="timeoutSeconds", kind=ParameterKind.INTEGER,
+                               location=ParameterLocation.QUERY,
+                               min_value=1, max_value=WATCH_WINDOW_SECONDS)
 
 # resourceVersion (lifted to top-level by the adapter) is kept in the bounded
 # scalar evidence of every read (Part F). Evidence fields are top-level scalars —
@@ -145,7 +226,59 @@ def kubernetes_read_catalog() -> OperationCatalog:
             _read("kubernetes.events.list", "/api/v1/namespaces/{namespace}/events",
                   parameters=(_NS, _LIMIT),
                   evidence=(_RV, "kind", "apiVersion", "eventCount")),
+            _watch(),
         ),
+    )
+
+
+def _watch() -> ProviderOperationSpec:
+    """One governed WATCH window over the pods of a namespace — Phase 9.3 (ADR-083).
+
+    Same path as ``pods.list``; ``watch=true`` is what makes it a different
+    operation, and it is declared here rather than passed in. That distinction is
+    load-bearing: if ``watch`` were a caller parameter, the caller — not the
+    capability — would decide whether an authorized read is one request or an open
+    stream, and the approval would have covered neither specifically.
+
+    ``allowWatchBookmarks=true`` is likewise part of what this operation is. A
+    bookmark lets the API server advance our stream position during a quiet
+    period without inventing a resource change, which is the difference between
+    holding a position honestly and letting it go stale until it expires.
+
+    The answer is newline-delimited JSON, decoded by ``KubernetesWatchDecoder``
+    and normalized into declared, bounded per-event records. It is still a READ:
+    a watch observes, and there is no field on this spec through which it could
+    do anything else.
+    """
+    return ProviderOperationSpec(
+        operation=KUBERNETES_WATCH_OPERATION,
+        method="GET",
+        path_template="/api/v1/namespaces/{namespace}/pods",
+        side_effect_class=SideEffectClass.READ,
+        effect_semantics=EffectSemantics.READ_ONLY,
+        parameters=(_NS, _WATCH_RV, _WATCH_TIMEOUT, _LABEL),
+        static_query={"watch": "true", "allowWatchBookmarks": "true"},
+        success_statuses=(200,),
+        # An empty window is a legitimate, successful answer (nothing happened),
+        # so the only field a valid answer must always carry is the count.
+        response_required_fields=("eventCount",),
+        response_evidence_fields=(
+            "eventCount", "lastResourceVersion", "bookmarkCount",
+            "streamErrorCode", "streamErrorReason",
+        ),
+        response_evidence_records=RecordEvidenceSpec(
+            field_name="events",
+            fields=("type", "kind", "namespace", "name", "uid", _RV),
+            max_records=WATCH_MAX_EVENTS,
+        ),
+        static_headers=_K8S_HEADERS,
+        # Must outlive the window the server is holding open, and stays under the
+        # transport's own read timeout regime; the channel takes the minimum of
+        # this, the policy, and the remaining authority window regardless.
+        provider_timeout_seconds=float(WATCH_WINDOW_SECONDS) + 8.0,
+        # Narrower than a list: a window is a handful of events, and a window
+        # that overran this budget is refused rather than half-read.
+        max_response_bytes=1024 * 1024,
     )
 
 
@@ -177,6 +310,77 @@ class KubernetesResponseTranslator(HttpStatusTranslator):
         return code, reason
 
 
+class KubernetesWatchDecoder:
+    """Decodes what Kubernetes actually puts on the wire for a watch.
+
+    A watch response is **newline-delimited JSON**: HTTP 200, then one complete
+    JSON object per line, for as long as the window stays open. It is not a JSON
+    document, so ``ProviderExchange.json()`` — which is right for every other
+    operation — would refuse it.
+
+    Dispatch is by declaration, not by name: this decoder switches on
+    ``spec.static_query["watch"]``, so an operation is decoded as a stream
+    because its contract says it is one.
+
+    Everything it will not do:
+
+    * **No partial windows.** A truncated body is refused before parsing, exactly
+      as ``json()`` refuses one. NDJSON is the shape where half an answer parses
+      perfectly — every complete line is a complete event — and a window that
+      silently lost its tail would advance the stream position past events that
+      were never recorded.
+    * **No skipping.** One unparseable line refuses the whole window. Dropping it
+      and continuing would leave a gap the position then claims was covered.
+    * **No invention.** An empty body is an empty window (a quiet cluster), which
+      is a true and ordinary answer — not an error, and not a fabricated event.
+    """
+
+    def decode(self, spec: Any, exchange: Any) -> Tuple[Any, Optional[str]]:
+        if str(spec.static_query.get("watch", "")).lower() != "true":
+            return exchange.json()
+        if exchange.status_code not in spec.success_statuses:
+            # A *failed* watch is not a stream. Kubernetes answers a refused
+            # watch with an ordinary ``Status`` JSON document, and decoding that
+            # as NDJSON would wrap it in an events envelope the translator can no
+            # longer recognise — so the operator would get "status 410" instead
+            # of the cluster's own "too old resource version: 4 (99)".
+            #
+            # Same rule the normalizer already follows: a failure body keeps the
+            # provider's own dialect for the translator to describe.
+            return exchange.json()
+        if exchange.truncated:
+            return None, (
+                "the watch window hit the transport budget and was truncated; "
+                "every complete line of a partial NDJSON window still parses, "
+                "which is exactly why a partial window must not be accepted"
+            )
+        raw = exchange.body
+        if raw is None:
+            return None, "no watch response body was returned"
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return None, "the watch response is not valid UTF-8"
+        events = []
+        for number, line in enumerate(text.splitlines(), start=1):
+            if not line.strip():
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                return None, (
+                    f"watch line {number} is not valid JSON; the window is "
+                    "refused rather than partially accepted"
+                )
+            if not isinstance(event, Mapping):
+                return None, (
+                    f"watch line {number} is a {type(event).__name__}, not a "
+                    "watch event object"
+                )
+            events.append(event)
+        return {"events": events}, None
+
+
 class KubernetesReadNormalizer:
     """Lifts the declared evidence scalars out of the Kubernetes envelope
     (Part G). This is the code the 9.1 docstring promised and 9.2 makes real.
@@ -201,6 +405,8 @@ class KubernetesReadNormalizer:
                 f"{spec.operation}: expected a JSON object envelope, "
                 f"got {type(body).__name__}"
             )
+        if spec.operation == KUBERNETES_WATCH_OPERATION:
+            return self._normalize_watch(body)
         out = dict(body)
         meta = body.get("metadata")
         if isinstance(meta, Mapping):
@@ -239,6 +445,133 @@ class KubernetesReadNormalizer:
                     if isinstance(status.get(field), int):
                         out[field] = status[field]
         return out
+
+    @classmethod
+    def _normalize_watch(cls, body: Mapping) -> dict:
+        """One decoded watch window → declared, bounded per-event records.
+
+        Fail-closed everywhere it matters. Every refusal below raises, and the
+        adapter turns that into ``MALFORMED_RESPONSE`` — the window is rejected,
+        the stream position does not move, and the driver re-watches from where
+        it was. That is always safer than accepting an event nobody understood.
+
+        * An **unknown event type** is refused (Part K). The set is closed.
+        * A mutation event with **no resourceVersion** is refused. That value is
+          the whole continuity mechanism; a mutation without one cannot be
+          resumed from and must never be silently given someone else's.
+        * A mutation event with **no name and no uid** is refused: an observation
+          about an unidentifiable resource asserts nothing and can never be
+          corroborated or superseded.
+        * A **BOOKMARK** is kept, and kept distinct. It advances position and is
+          not a mutation — no Observation about a resource may be built from one.
+        * An **ERROR** terminates the window. Events before it are real and are
+          kept; the error is surfaced as scalars (``streamErrorCode`` — 410 is
+          the one that matters) and never as an event record. Nothing after it is
+          read, because after an ERROR the server has stopped talking about this
+          stream position.
+
+        ``lastResourceVersion`` is the resourceVersion of the last event actually
+        kept — copied exactly, opaque, never the largest, never computed. If no
+        event carried one it stays absent, and the driver keeps the position it
+        already had.
+        """
+        raw = body.get("events")
+        if not isinstance(raw, list):
+            raise ValueError("a decoded watch window must carry an events list")
+
+        records: list = []
+        bookmarks = 0
+        last_version: Optional[str] = None
+        error_code: Optional[int] = None
+        error_reason: Optional[str] = None
+
+        for index, event in enumerate(raw):
+            if not isinstance(event, Mapping):
+                raise ValueError(f"watch event {index} is not an object")
+            kind = event.get("type")
+            if not isinstance(kind, str) or kind not in KUBERNETES_WATCH_EVENT_TYPES:
+                raise ValueError(
+                    f"watch event {index} has type {kind!r}, which this "
+                    f"normalizer does not understand; the understood set is "
+                    f"{', '.join(KUBERNETES_WATCH_EVENT_TYPES)}"
+                )
+            obj = event.get("object")
+            if not isinstance(obj, Mapping):
+                raise ValueError(f"watch event {index} ({kind}) carries no object")
+
+            if kind == "ERROR":
+                error_code, error_reason = cls._stream_error(obj)
+                break
+
+            version = cls._event_version(obj)
+            if version is None:
+                raise ValueError(
+                    f"watch event {index} ({kind}) has no "
+                    "metadata.resourceVersion; continuity cannot be resumed "
+                    "from an event that does not say where it sits"
+                )
+
+            if kind == "BOOKMARK":
+                bookmarks += 1
+                records.append({"type": kind, _RV: version})
+                last_version = version
+                continue
+
+            record = {"type": kind, _RV: version}
+            obj_kind = obj.get("kind")
+            if isinstance(obj_kind, str) and obj_kind:
+                record["kind"] = obj_kind
+            meta = obj.get("metadata")
+            if isinstance(meta, Mapping):
+                for field_name in ("name", "namespace", "uid"):
+                    value = meta.get(field_name)
+                    if isinstance(value, str) and value:
+                        record[field_name] = value
+            if not record.get("name") and not record.get("uid"):
+                raise ValueError(
+                    f"watch event {index} ({kind}) identifies no resource "
+                    "(neither metadata.name nor metadata.uid); an observation "
+                    "about nothing in particular is not an observation"
+                )
+            records.append(record)
+            last_version = version
+
+        out: dict = {"events": records, "eventCount": len(records),
+                     "bookmarkCount": bookmarks}
+        if last_version is not None:
+            out["lastResourceVersion"] = last_version
+        if error_code is not None:
+            out["streamErrorCode"] = error_code
+        if error_reason:
+            out["streamErrorReason"] = error_reason
+        return out
+
+    @staticmethod
+    def _event_version(obj: Mapping) -> Optional[str]:
+        """``metadata.resourceVersion``, exactly as returned. Opaque text: not
+        parsed, not compared, not ordered, not converted."""
+        meta = obj.get("metadata")
+        if not isinstance(meta, Mapping):
+            return None
+        version = meta.get("resourceVersion")
+        return version if isinstance(version, str) and version else None
+
+    @staticmethod
+    def _stream_error(obj: Mapping) -> Tuple[Optional[int], Optional[str]]:
+        """The cluster's own account of why the stream stopped.
+
+        ``code`` 410 is the load-bearing one — the watch resourceVersion is no
+        longer retained and continuity is genuinely lost. It arrives here, inside
+        a 200 response, at least as often as it arrives as an HTTP 410.
+        """
+        code = obj.get("code")
+        reason = obj.get("reason")
+        message = obj.get("message")
+        text = reason if isinstance(reason, str) and reason else None
+        if isinstance(message, str) and message.strip():
+            text = f"{text}: {message.strip()}" if text else message.strip()
+        return (code if isinstance(code, int) else None,
+                text[:200] if isinstance(text, str) else None)
 
     @staticmethod
     def _lift_identity(out: dict, meta: Any) -> None:
@@ -330,5 +663,6 @@ def kubernetes_read_profiles() -> dict:
     """The capability-bridge profiles for each Kubernetes read operation (Part B/C)."""
     scope = {"kubernetes.pods.list": "namespace", "kubernetes.pod.get": "pod",
              "kubernetes.pod.logs": "pod", "kubernetes.deployments.list": "namespace",
-             "kubernetes.deployment.get": "deployment", "kubernetes.events.list": "namespace"}
+             "kubernetes.deployment.get": "deployment", "kubernetes.events.list": "namespace",
+             KUBERNETES_WATCH_OPERATION: "namespace"}
     return {op: _profile(op, scope[op]) for op in KUBERNETES_READ_OPERATIONS}

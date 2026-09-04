@@ -75,6 +75,7 @@ migration infrastructure — never imported into a context.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Mapping, Optional
 
 from backend.contracts.execution import ExecutionEnvironment
@@ -117,6 +118,7 @@ __all__ = [
     "StoredBindingSource",
     "SelectingRequestFactory",
     "ADAPTER_SEAMS",
+    "GovernedCapabilityReader",
 ]
 
 log = logging.getLogger(__name__)
@@ -291,6 +293,7 @@ def build_adapter(
     invoker: Optional[Any] = None,
     translator: Optional[Any] = None,
     normalizer: Optional[Any] = None,
+    decoder: Optional[Any] = None,
     preflight: Optional[Any] = None,
     metrics: Optional[Any] = None,
 ) -> Any:
@@ -331,7 +334,7 @@ def build_adapter(
         return seam(catalog=catalog, channel=channel, **common)
     return seam(
         catalog=catalog, channel=channel, translator=translator,
-        normalizer=normalizer, **common,
+        normalizer=normalizer, decoder=decoder, **common,
     )
 
 
@@ -631,6 +634,7 @@ def build_kubernetes_connector(
         KUBERNETES_PROVIDER_ID,
         KubernetesReadNormalizer,
         KubernetesResponseTranslator,
+        KubernetesWatchDecoder,
         build_kubernetes_channel,
         kubernetes_real_read_catalog,
     )
@@ -670,6 +674,10 @@ def build_kubernetes_connector(
         channel=channel,
         translator=KubernetesResponseTranslator(),
         normalizer=KubernetesReadNormalizer(),
+        # Phase 9.3: the watch window is newline-delimited JSON. The decoder
+        # dispatches on the operation's own declaration (static_query watch=true)
+        # and hands every other operation straight to the JSON path.
+        decoder=KubernetesWatchDecoder(),
         preflight=preflight,
         metrics=metrics,
     )
@@ -1224,3 +1232,182 @@ def build_execution_lifecycle(
         clock=clock,
     )
     return dispatcher, recovery
+
+
+class GovernedCapabilityReader:
+    """Runs one declared READ operation through the whole governed path.
+
+    Lives here rather than beside ``GovernedReadObserver`` because running a
+    governed capability means touching BOTH contexts — Connectivity authorizes
+    and resolves, Execution starts and dispatches — and this is one of the five
+    named modules permitted to import two contexts. The observer, which needs
+    neither, stays out of the composition root.
+
+    Every gate runs, in the order it exists in: authorize → start → resolve and
+    seal the binding → the scheduler dispatches → the adapter re-reads the
+    directory → the channel dials once → the answer is classified, normalized and
+    shape-checked. This class adds none of that and skips none of it; it is the
+    caller that a long-running observer needs and that until now only a harness
+    had.
+
+    It is deliberately **not** a second executor. It starts an execution and
+    ticks the existing scheduler. It cannot dispatch, cannot lease, cannot record
+    an outcome, and cannot conclude anything the scheduler did not conclude.
+    """
+
+    def __init__(
+        self,
+        *,
+        runtime: Any,
+        capability_definitions: Mapping[str, Any],
+        principal: Any,
+        environment: Any = None,
+        max_ticks: int = 450,
+        tick_seconds: float = 0.1,
+    ) -> None:
+        if not capability_definitions:
+            raise ContractViolation(
+                "a governed reader needs the capability definitions it may run; "
+                "with none it could only refuse, and a reader that refuses "
+                "everything hides a wiring mistake behind a plausible answer"
+            )
+        self._runtime = runtime
+        self._definitions = dict(capability_definitions)
+        self._principal = principal
+        self._environment = environment
+        self._max_ticks = max_ticks
+        self._tick_seconds = tick_seconds
+
+    def read(
+        self,
+        context: Any,
+        *,
+        operation: str,
+        payload: Mapping[str, Any],
+        node_id: Optional[str] = None,
+        workflow_id: Optional[str] = None,
+    ) -> GovernedReadOutcome:
+        """Perform one governed read. Returns facts; raises only on misuse."""
+        from backend.contexts.connectivity.domain.authorization import (
+            AuthorizationRequest, CapabilityOperation,
+        )
+        from backend.contexts.connectivity.domain.contract import CapabilityEnvironment
+        from backend.contexts.connectivity.domain.identifiers import (
+            CapabilityId, CapabilityVersion,
+        )
+        from backend.contexts.connectivity.domain.resolution import (
+            ResolutionRequest, VersionSelection,
+        )
+        from backend.contexts.execution.application.commands import (
+            RegisterWorker, StartExecution,
+        )
+        from backend.api.governed_read_observer import GovernedReadOutcome
+
+        definition = self._definitions.get(operation)
+        if definition is None:
+            raise ContractViolation(
+                f"{operation!r} is not a capability this reader was given; an "
+                "operation nobody declared is not one this may run"
+            )
+        node = node_id or operation.replace(".", "-")
+        environment = self._environment or CapabilityEnvironment.DEVELOPMENT
+        started_at = time.monotonic()
+
+        decision = self._runtime.authorization.authorize(context, AuthorizationRequest(
+            tenant_id=context.tenant_id, principal=self._principal,
+            capability_ref=definition.reference,
+            operation=CapabilityOperation.INVOKE,
+            expected_digest=definition.digest, environment=environment,
+        ))
+        if not getattr(decision, "allowed", False):
+            return GovernedReadOutcome(
+                operation=operation, execution_id="", node_state=None,
+                succeeded=False, evidence={},
+                failure_reason=f"authorization refused: "
+                               f"{getattr(decision, 'reason', None)}",
+                duration_seconds=time.monotonic() - started_at,
+            )
+
+        started = self._runtime.executions.start(context, StartExecution(
+            workflow_id=workflow_id or f"observe-{operation}",
+            workflow_digest=f"observe-{operation}-digest",
+            mission_id="world-observation",
+            nodes=(
+                {"node_id": node, "worker_kind": "connector",
+                 "side_effect": definition.contract.side_effect_class.value,
+                 "max_attempts": 1, "input": dict(payload)},
+            ),
+            requested_by="world-observer",
+        ))
+        execution_id = str(started.execution.execution_id)
+        self._runtime.executions.register_worker(RegisterWorker(
+            worker_id=f"dispatcher:{execution_id}", kinds=("connector",),
+            lease_seconds=300))
+
+        outcome = self._runtime.resolution.resolve(context, ResolutionRequest(
+            tenant_id=context.tenant_id, principal=self._principal,
+            capability_id=CapabilityId.parse(str(definition.capability_id)),
+            operation=CapabilityOperation.INVOKE, authorization=decision,
+            version=CapabilityVersion(1), version_selection=VersionSelection.EXACT,
+            environment=environment, execution_id=execution_id, node_id=node,
+        ))
+        if not outcome.resolved:
+            return GovernedReadOutcome(
+                operation=operation, execution_id=execution_id, node_state=None,
+                succeeded=False, evidence={},
+                failure_reason=f"resolution refused: {outcome.result}",
+                duration_seconds=time.monotonic() - started_at,
+            )
+
+        state = self._drive(context, execution_id, node)
+        evidence, status, reason = self._aggregate(context, execution_id, node)
+        return GovernedReadOutcome(
+            operation=operation, execution_id=execution_id, node_state=state,
+            succeeded=state == "succeeded", evidence=evidence, status=status,
+            failure_reason=reason, duration_seconds=time.monotonic() - started_at,
+        )
+
+    # ------------------------------------------------------------------
+
+    def _drive(self, context: Any, execution_id: str, node_id: str) -> Optional[str]:
+        """Tick the existing scheduler until the node is terminal.
+
+        Not a second scheduler: this calls ``tick`` on the one that already
+        exists, which is the same thing the runtime's own background loop does.
+        A process that is not the scheduler leader ticks and does nothing, which
+        is the correct behaviour and is why the budget outlives one lease."""
+        self._runtime.scheduler.track(execution_id)
+        terminal = {"succeeded", "failed", "unknown", "skipped"}
+        for _ in range(self._max_ticks):
+            self._runtime.scheduler.tick(context)
+            stream = self._runtime.executions.stream_state(context, execution_id)
+            states = {n["node_id"]: n["state"] for n in stream.get("nodes", ())}
+            if states.get(node_id) in terminal:
+                return states.get(node_id)
+            time.sleep(self._tick_seconds)
+        return None
+
+    def _aggregate(
+        self, context: Any, execution_id: str, node_id: str
+    ) -> tuple[dict, Optional[int], Optional[str]]:
+        """Read what actually traversed the pipeline, from the aggregate.
+
+        The aggregate, not a reconstruction: what is recorded is what happened,
+        and rebuilding it from the request would describe what we intended.
+        """
+        from backend.contexts.execution.application.commands import GetExecution
+
+        execution = self._runtime.executions.get(
+            context, GetExecution(execution_id=execution_id))
+        run = execution.run_for(node_id)
+        if run is None or not run.attempts:
+            return {}, None, "the node recorded no attempt"
+        attempt = run.attempts[-1]
+        detail = dict(attempt.result.detail) if attempt.result is not None else {}
+        evidence = detail.get("provider_evidence")
+        status = detail.get("provider_status")
+        return (
+            dict(evidence) if isinstance(evidence, dict) else {},
+            status if isinstance(status, int) else None,
+            getattr(attempt, "failure_reason", None),
+        )

@@ -130,6 +130,38 @@ class SqlObservationRepository:
             ).fetchall()
         return tuple(Observation.from_dict(r[0]) for r in rows)
 
+    def latest_for_subject(
+        self, *, tenant_id: str, subject_ref: str, predicate: str
+    ) -> Optional["Observation"]:
+        """The most recently *recorded* observation for a (subject, predicate).
+
+        Added for Phase 9.3 (ADR-083), and it is a read — no new table, no new
+        column, no new authority. A provider stream's position is recoverable
+        from the ledger that already holds it, so the ledger stays the one place
+        that knows.
+
+        Ordered by ``recorded_at``, deliberately, not by ``observed_at`` and
+        never by the value: ``observed_at`` is the instrument's clock and a
+        resourceVersion is opaque text with no order at all. "The last position
+        this process durably committed" is a question about when CortexPrime
+        wrote, which is exactly what ``recorded_at`` is. ``observation_id`` is
+        the tie-break — a ULID, so it is monotonic within a millisecond.
+
+        Tenant-predicated like every read here: another tenant's stream position
+        is not visible, and a cross-tenant read returns ``None`` rather than
+        widening.
+        """
+        from backend.contracts.world import Observation
+        with self._store.atomic() as work:
+            row = work.execute(
+                sa.select(T.c.record).where(
+                    T.c.tenant_id == tenant_id,
+                    T.c.subject_ref == subject_ref,
+                    T.c.predicate == predicate,
+                ).order_by(T.c.recorded_at.desc(), T.c.observation_id.desc()).limit(1)
+            ).fetchone()
+        return Observation.from_dict(row[0]) if row is not None else None
+
     def count_for_subject(self, *, tenant_id: str, subject_ref: str) -> int:
         with self._store.atomic() as work:
             return int(work.execute(

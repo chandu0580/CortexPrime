@@ -100,7 +100,9 @@ class TestKubernetesCatalog:
     def test_catalog_declares_the_smallest_read_set(self):
         cat = kubernetes_read_catalog()
         assert set(cat.operations) == set(KUBERNETES_READ_OPERATIONS)
-        assert len(KUBERNETES_READ_OPERATIONS) == 6
+        # Six reads for the first incident vertical (9.1), plus the WATCH that
+        # continues the list (9.3). Pinned so a seventh does not appear by habit.
+        assert len(KUBERNETES_READ_OPERATIONS) == 7
 
     def test_catalog_is_read_only_by_construction(self):
         cat = kubernetes_read_catalog()
@@ -124,6 +126,12 @@ class TestKubernetesCatalog:
             spec = cat.require(op)
             if op == "kubernetes.pod.logs":
                 assert "resourceVersion" not in spec.response_evidence_fields
+            elif op == "kubernetes.pods.watch":
+                # A watch window has no single envelope version: the position is
+                # the LAST event's, and each event keeps its own. Both are
+                # declared, so continuity still survives into evidence (9.3).
+                assert "lastResourceVersion" in spec.response_evidence_fields
+                assert "resourceVersion" in spec.response_evidence_records.fields
             else:
                 assert "resourceVersion" in spec.response_evidence_fields
                 assert "resourceVersion" in spec.response_required_fields

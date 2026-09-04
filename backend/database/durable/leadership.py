@@ -126,6 +126,29 @@ class LeadershipRole(str, Enum):
     deduplicates) but wasteful, and the recovery-driven target list must be
     computed once."""
 
+    WORLD_WATCH = "world_watch"
+    """Advancing a provider observation stream — Phase 9.3 (ADR-083).
+
+    Here because it is the "once", not the "once per item" case, and for a
+    reason specific to what a stream is: the position is a *single* place in a
+    provider's history, and two processes advancing it independently both read
+    from the same point and both move it forward. Neither is wrong about any
+    single window; together they produce a position that skips whatever the
+    other one consumed. There is no per-item claim to express that as, because
+    the item does not exist until the position is used to fetch it.
+
+    Scoped to the tenant, like every tenant-scoped role. That is deliberately
+    coarser than one holder per (tenant, provider, resource): the phase exposes
+    one stream per tenant, and encoding a compound identity into ``scope`` would
+    break the property that makes ``scope`` safe — that it is a tenant id or the
+    platform sentinel, and nothing a caller can shape into either.
+
+    Note what a lost lease does and does not mean, as with every other role: a
+    watcher that loses it stops *advancing the stream*. Observations already
+    recorded are immutable and stay; the successor resumes from the last
+    position that was durably written, and re-reads whatever was in flight.
+    That is at-least-once, which is what this system claims."""
+
 
 class LeadershipStatus(str, Enum):
     HELD = "held"

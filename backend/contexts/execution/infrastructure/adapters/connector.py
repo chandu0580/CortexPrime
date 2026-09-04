@@ -73,6 +73,7 @@ __all__ = [
     "ConnectorAdapter",
     "ProviderResponseTranslator",
     "ProviderBodyNormalizer",
+    "ProviderBodyDecoder",
     "HttpStatusTranslator",
     "DEFAULT_STATUS_FAILURES",
 ]
@@ -155,6 +156,33 @@ class ProviderBodyNormalizer(Protocol):
         ...
 
 
+@runtime_checkable
+class ProviderBodyDecoder(Protocol):
+    """Where a provider's *wire encoding* is understood. The third narrow port.
+
+    ``ProviderExchange.json()`` decodes JSON, which is what every operation up to
+    Phase 9.2 returns. A Kubernetes WATCH window is newline-delimited JSON — a
+    real, ordinary Kubernetes media type, not an oddity — and a body this port
+    cannot decode is refused as malformed rather than half-parsed.
+
+    Placed here rather than solved with a branch for the same reason the other
+    two ports exist: "Kubernetes speaks NDJSON on watch" is a fact about
+    Kubernetes and belongs in the module about Kubernetes.
+
+    A decoder **cannot** authorize, cannot change the operation, cannot choose a
+    destination, cannot see the credential, and cannot turn a failure into a
+    success — it runs after delivery is settled and returns ``(value, problem)``
+    exactly as ``ProviderExchange.json()`` does, so a decoder that refuses
+    produces the same ``MALFORMED_RESPONSE`` an undecodable JSON body produces.
+    """
+
+    def decode(self, spec: ProviderOperationSpec, exchange: ProviderExchange) -> Tuple[
+        Any, Optional[str]
+    ]:
+        """``(value, problem)``. Never raises; a problem is a refusal."""
+        ...
+
+
 class HttpStatusTranslator:
     """The default translator: status codes and nothing provider-specific.
 
@@ -211,6 +239,7 @@ class ConnectorAdapter(AdapterSeam):
         channel: Optional[ProviderChannel] = None,
         translator: Optional[ProviderResponseTranslator] = None,
         normalizer: Optional[ProviderBodyNormalizer] = None,
+        decoder: Optional[ProviderBodyDecoder] = None,
         preflight: Optional[AdapterPreflight] = None,
         metrics: Optional[Any] = None,
     ) -> None:
@@ -239,6 +268,7 @@ class ConnectorAdapter(AdapterSeam):
         self._channel = channel
         self._translator = translator or HttpStatusTranslator()
         self._normalizer = normalizer
+        self._decoder = decoder
 
     # ------------------------------------------------------------------
     # Identity
@@ -371,7 +401,19 @@ class ConnectorAdapter(AdapterSeam):
             )
 
         # -- the body -----------------------------------------------------
-        body, decode_problem = exchange.json()
+        # JSON unless the provider declared a decoder for its own wire encoding
+        # (Phase 9.3). A decoder that raises is treated exactly as one that
+        # refused: an undecodable answer, never a partial one.
+        if self._decoder is not None:
+            try:
+                body, decode_problem = self._decoder.decode(spec, exchange)
+            except Exception as problem:  # noqa: BLE001 — any surprise is a refusal
+                body, decode_problem = None, (
+                    f"the provider's response encoding was not understood: "
+                    f"{type(problem).__name__}: {problem}"
+                )[:400]
+        else:
+            body, decode_problem = exchange.json()
         if decode_problem is not None:
             # Delivered and unreadable. The provider may well have applied the
             # change, so this is ambiguous rather than failed -- what is missing

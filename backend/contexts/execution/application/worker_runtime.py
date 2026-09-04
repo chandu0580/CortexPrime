@@ -719,6 +719,17 @@ class WorkerRuntime:
                     if isinstance((result.detail or {}).get("provider_evidence"), dict)
                     else {}
                 ),
+                # Phase 9.3 (ADR-083): the provider's HTTP status, one bounded
+                # scalar already recorded on the worker result. A *failed*
+                # provider answer carries no evidence, so without this the only
+                # thing distinguishing "the watch resourceVersion expired, take a
+                # fresh governed LIST" from "403, stop and fail closed" would be
+                # substring-matching a failure message — which is not evidence.
+                **(
+                    {"provider_status": result.detail["provider_status"]}
+                    if isinstance((result.detail or {}).get("provider_status"), int)
+                    else {}
+                ),
                 "binding_id": result.binding_id,
                 "worker_outcome": result.outcome.value,
                 "outcome_known": result.outcome_is_known,

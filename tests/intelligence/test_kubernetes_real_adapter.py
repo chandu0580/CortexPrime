@@ -222,9 +222,13 @@ class TestConnectorAdapterNormalization:
 
 
 class TestRealExposure:
-    def test_exactly_one_real_operation(self):
+    def test_the_real_exposure_is_exactly_list_plus_watch(self):
+        # 9.2 exposed one operation; 9.3 adds exactly one more, and only because
+        # a watch has no honest way to start without the list's resourceVersion.
         catalog = kubernetes_real_read_catalog()
-        assert tuple(catalog.operations) == KUBERNETES_REAL_READ_OPERATIONS == ("kubernetes.pods.list",)
+        assert set(catalog.operations) == set(KUBERNETES_REAL_READ_OPERATIONS)
+        assert set(KUBERNETES_REAL_READ_OPERATIONS) == {
+            "kubernetes.pods.list", "kubernetes.pods.watch"}
 
     def test_real_specs_are_the_declared_contract(self):
         full, real = kubernetes_read_catalog(), kubernetes_real_read_catalog()
@@ -283,13 +287,21 @@ class TestProviderEvidenceSurfacing:
              "provider_status": 200})
         assert projected.detail["provider_evidence"] == {
             "resourceVersion": "424242", "podCount": 2}
-        # One key, deliberately — the rest of the adapter detail stays on the
-        # attempt record.
-        assert "provider_status" not in projected.detail
+        # Two keys, deliberately. ``provider_status`` joined it in 9.3 (ADR-083):
+        # a failed provider answer carries no evidence, so without the status the
+        # only thing separating an expired watch position (410) from a refused
+        # one (403) would be substring-matching a message. The rest of the
+        # adapter detail still stays on the attempt record.
+        assert projected.detail["provider_status"] == 200
+        assert "provider_delivery" not in projected.detail
 
     def test_absent_evidence_stays_absent(self):
         projected = self._project({"provider_status": 200})
         assert "provider_evidence" not in projected.detail
+
+    def test_a_non_integer_status_is_not_lifted(self):
+        projected = self._project({"provider_status": "200"})
+        assert "provider_status" not in projected.detail
 
     def test_non_mapping_evidence_is_not_lifted(self):
         projected = self._project({"provider_evidence": "not-a-dict"})

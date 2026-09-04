@@ -54,6 +54,7 @@ __all__ = [
     "ParameterKind",
     "ParameterLocation",
     "ParameterSpec",
+    "RecordEvidenceSpec",
     "ProviderOperationSpec",
     "OperationCatalog",
     "ProviderRequestPlan",
@@ -279,6 +280,149 @@ class ProviderRequestPlan:
 
 
 @dataclass(frozen=True)
+class RecordEvidenceSpec:
+    """Declared, bounded, *repeating* evidence — Phase 9.3 (ADR-083).
+
+    Why this exists at all
+    ------------------------
+    ``response_evidence_fields`` keeps top-level scalars, and for every operation
+    up to Phase 9.2 that was the whole answer: a read returns one thing and the
+    facts worth keeping about it are a handful of scalars.
+
+    A Kubernetes WATCH window is the first operation whose *answer is a sequence*.
+    One window carries N events, and each event's type, resource identity and own
+    ``resourceVersion`` are exactly the facts the World Plane must record — not a
+    summary of them. A flat scalar map cannot express that, so without this the
+    events could not reach an Observation at all.
+
+    What it is NOT
+    ----------------
+    It is **not** a door for raw payloads. ADR-042 §56 is unchanged: a provider
+    body is unbounded, can carry the caller's own data back, and does not belong
+    in an execution event. Every property that made scalar evidence safe is kept,
+    one level down:
+
+    * **Declared before the invocation existed.** The list field and every
+      per-record field are named in the catalog. An undeclared field is dropped,
+      exactly as at the top level.
+    * **Scalars only.** ``int``/``float``/``bool`` kept; ``str`` truncated. A
+      nested object or list inside a record is dropped, never flattened.
+    * **Hard-bounded.** ``max_records`` is a cap the *operation* declares, and an
+      answer that exceeds it is refused rather than trimmed — a silently
+      truncated event sequence is a gap in world state that looks like continuity.
+    * **In the digest.** This spec enters ``identity_payload``, so widening it is
+      contract drift and a running binding refuses rather than accommodates it.
+
+    The bound is therefore bigger than it was, and still a bound.
+    """
+
+    field_name: str
+    """The top-level list field on the normalized body, e.g. ``"events"``."""
+
+    fields: Tuple[str, ...]
+    """The per-record scalar fields to keep. Everything else is dropped."""
+
+    max_records: int = 64
+    """The most records this operation will ever accept in one answer. An answer
+    with more is ``MALFORMED_RESPONSE``: refusing a too-large window costs a
+    re-read from the same position, while trimming it would lose events the
+    stream position then claims were seen."""
+
+    max_string_length: int = 256
+    """Same truncation as top-level scalar evidence."""
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.field_name, str) or not self.field_name.strip():
+            raise ContractViolation("record evidence must name a field")
+        if not isinstance(self.fields, tuple) or not self.fields:
+            raise ContractViolation(
+                f"record evidence for {self.field_name!r} declares no fields; "
+                "undeclared record evidence would be an unbounded payload with "
+                "a cap on it, which is the thing this is not"
+            )
+        for name in self.fields:
+            if not isinstance(name, str) or not name.strip():
+                raise ContractViolation("record evidence field names must be text")
+        if len(set(self.fields)) != len(self.fields):
+            raise ContractViolation(
+                f"record evidence for {self.field_name!r} declares a field twice"
+            )
+        if not isinstance(self.max_records, int) or not 1 <= self.max_records <= 1024:
+            raise ContractViolation(
+                "max_records must be between 1 and 1024; an unbounded record "
+                "count is an unbounded payload"
+            )
+        if (
+            not isinstance(self.max_string_length, int)
+            or not 1 <= self.max_string_length <= _MAX_STRING_LENGTH
+        ):
+            raise ContractViolation("max_string_length is out of range")
+
+    def to_dict(self) -> dict:
+        return {
+            "field_name": self.field_name,
+            "fields": sorted(self.fields),
+            "max_records": self.max_records,
+            "max_string_length": self.max_string_length,
+        }
+
+    def problems(self, body: Any) -> Tuple[str, ...]:
+        """Whether the answer's record sequence is one this operation accepts.
+
+        Absent is fine — an operation may legitimately answer with no records
+        (an empty watch window). Present but not a list, or longer than the
+        declared cap, is a refusal.
+        """
+        if not isinstance(body, Mapping) or self.field_name not in body:
+            return ()
+        records = body[self.field_name]
+        if not isinstance(records, list):
+            return (
+                f"{self.field_name!r} must be a list of records, got "
+                f"{type(records).__name__}",
+            )
+        if len(records) > self.max_records:
+            return (
+                f"{self.field_name!r} carries {len(records)} records and this "
+                f"operation declares at most {self.max_records}; the answer is "
+                "refused rather than trimmed",
+            )
+        for index, record in enumerate(records):
+            if not isinstance(record, Mapping):
+                return (
+                    f"{self.field_name}[{index}] is a "
+                    f"{type(record).__name__}, not a record",
+                )
+        return ()
+
+    def extract(self, body: Any) -> Tuple[dict, ...]:
+        """The declared scalar fields of each record. Pure; assumes ``problems``
+        already passed, and drops rather than raises on anything unexpected."""
+        if not isinstance(body, Mapping):
+            return ()
+        records = body.get(self.field_name)
+        if not isinstance(records, list):
+            return ()
+        picked: list = []
+        for record in records[: self.max_records]:
+            if not isinstance(record, Mapping):
+                continue
+            kept: dict = {}
+            for name in self.fields:
+                if name not in record:
+                    continue
+                value = record[name]
+                if isinstance(value, bool) or isinstance(value, (int, float)):
+                    kept[name] = value
+                elif isinstance(value, str):
+                    kept[name] = value[: self.max_string_length]
+                # Anything else — a nested object, a list — is dropped. Evidence
+                # is scalars; a structure here would be the payload coming back.
+            picked.append(kept)
+        return tuple(picked)
+
+
+@dataclass(frozen=True)
 class ProviderOperationSpec:
     """One named operation a provider adapter can perform, completely declared."""
 
@@ -309,6 +453,13 @@ class ProviderOperationSpec:
     """The small, non-sensitive fields worth keeping as evidence — an id, a
     number, a URL. Everything else is digested and dropped."""
 
+    response_evidence_records: Optional[RecordEvidenceSpec] = None
+    """Declared, bounded, repeating evidence — for the operations whose answer is
+    a *sequence* rather than one thing (Phase 9.3: a WATCH window). ``None``, the
+    default, is the ordinary case and keeps evidence flat. See
+    :class:`RecordEvidenceSpec` for why this is an extension of the bound rather
+    than a hole in it."""
+
     supports_idempotency_key: bool = False
     idempotency_header: Optional[str] = None
     """The header the provider reads a key from, when it has one. Absent means
@@ -316,6 +467,18 @@ class ProviderOperationSpec:
     sent to a provider that ignores it is a key that did nothing."""
 
     static_headers: Mapping[str, str] = field(default_factory=dict)
+
+    static_query: Mapping[str, str] = field(default_factory=dict)
+    """Query parameters that are part of *what this operation is*, not input to
+    it — Phase 9.3 (ADR-083). ``watch=true`` is the motivating case: a watch is a
+    different operation from a list, and expressing that as a caller-supplied
+    parameter would mean the caller decides whether the authorized read is a
+    one-shot or an open stream. Declared here it enters the digest, cannot be
+    varied per invocation, and cannot be overridden by a parameter of the same
+    name (``plan`` refuses that at construction).
+
+    Mirrors ``static_headers`` deliberately: same shape, same reasoning."""
+
     provider_timeout_seconds: Optional[float] = None
     max_response_bytes: Optional[int] = None
 
@@ -386,6 +549,31 @@ class ProviderOperationSpec:
                     "template never uses; it would be validated and discarded"
                 )
 
+        for name, value in self.static_query.items():
+            if not isinstance(name, str) or not name.strip():
+                raise ContractViolation("static query names must be text")
+            if not isinstance(value, str):
+                raise ContractViolation(
+                    f"static query {name!r} must be text; a value the operation "
+                    "declares is a constant, not something to be formatted"
+                )
+        collisions = sorted(
+            {p.wire_name for p in self.parameters if p.location is ParameterLocation.QUERY}
+            & set(self.static_query)
+        )
+        if collisions:
+            raise ContractViolation(
+                f"operation {self.operation!r} declares {', '.join(collisions)} both "
+                "as static query and as a caller parameter; the point of a static "
+                "query value is that the caller cannot choose it"
+            )
+        if self.response_evidence_records is not None and not isinstance(
+            self.response_evidence_records, RecordEvidenceSpec
+        ):
+            raise ContractViolation(
+                "response_evidence_records must be a RecordEvidenceSpec"
+            )
+
     # ------------------------------------------------------------------
     # Identity
     # ------------------------------------------------------------------
@@ -403,6 +591,12 @@ class ProviderOperationSpec:
             "supports_idempotency_key": self.supports_idempotency_key,
             "idempotency_header": self.idempotency_header,
             "static_headers": dict(sorted(self.static_headers.items())),
+            "static_query": dict(sorted(self.static_query.items())),
+            "response_evidence_records": (
+                self.response_evidence_records.to_dict()
+                if self.response_evidence_records is not None
+                else None
+            ),
             "pinned_capability_digests": sorted(self.pinned_capability_digests),
         }
 
@@ -531,7 +725,10 @@ class ProviderOperationSpec:
             )
 
         path = self.path_template
-        query: dict = {}
+        # The operation's own constants first. A caller parameter cannot
+        # overwrite one: __post_init__ refuses a spec where the two names
+        # collide, so this seeding is unconditional rather than defensive.
+        query: dict = dict(self.static_query)
         body: dict = {}
         for spec in self.parameters:
             if spec.name not in payload or payload[spec.name] is None:
@@ -573,17 +770,18 @@ class ProviderOperationSpec:
         rather than failed: the operation may well have been applied, and only
         the account of it is untrustworthy.
         """
+        records = self.response_evidence_records
         if not self.response_required_fields:
-            return ()
+            return records.problems(body) if records is not None else ()
         if not isinstance(body, Mapping):
             return (
                 f"expected a {self.operation!r} object, got "
                 f"{type(body).__name__}",
             )
         missing = [f for f in self.response_required_fields if f not in body]
-        return (
-            (f"the response is missing {', '.join(sorted(missing))}",) if missing else ()
-        )
+        if missing:
+            return (f"the response is missing {', '.join(sorted(missing))}",)
+        return records.problems(body) if records is not None else ()
 
     def evidence(self, body: Any) -> dict:
         """The bounded, non-sensitive facts worth keeping from a response.
@@ -604,6 +802,13 @@ class ProviderOperationSpec:
                 picked[name] = value
             elif isinstance(value, str):
                 picked[name] = value[:256]
+        # Declared repeating evidence, under the same discipline one level down
+        # (Phase 9.3). Absent unless the operation declares it, so every
+        # operation written before this one keeps exactly the evidence it had.
+        if self.response_evidence_records is not None:
+            records = self.response_evidence_records.extract(body)
+            if records:
+                picked[self.response_evidence_records.field_name] = list(records)
         return picked
 
 
