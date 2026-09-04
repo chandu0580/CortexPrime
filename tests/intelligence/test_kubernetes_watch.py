@@ -329,13 +329,20 @@ class TestRecordEvidence:
     def test_records_are_absent_from_evidence_when_the_window_is_empty(self):
         assert "events" not in _spec().evidence({"eventCount": 0, "events": []})
 
-    def test_every_pre_watch_operation_keeps_flat_evidence(self):
+    def test_record_evidence_stays_the_exception_not_the_rule(self):
+        # Only the two operations whose answer is genuinely a SEQUENCE declare
+        # record evidence: a watch window (9.3) and a pod list (9.4). Every other
+        # read keeps flat scalar evidence, and only the watch carries a static
+        # query. Pinned so record evidence does not spread by habit.
+        with_records, with_query = set(), set()
         for name in kubernetes_read_catalog().operations:
             spec = kubernetes_read_catalog().require(name)
-            if name == KUBERNETES_WATCH_OPERATION:
-                continue
-            assert spec.response_evidence_records is None
-            assert spec.static_query == {}
+            if spec.response_evidence_records is not None:
+                with_records.add(name)
+            if spec.static_query:
+                with_query.add(name)
+        assert with_records == {KUBERNETES_WATCH_OPERATION, "kubernetes.pods.list"}
+        assert with_query == {KUBERNETES_WATCH_OPERATION}
 
 
 # ---------------------------------------------------------------------------

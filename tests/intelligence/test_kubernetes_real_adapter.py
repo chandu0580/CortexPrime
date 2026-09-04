@@ -94,10 +94,15 @@ class TestNormalizer:
         body = _pod_list_body(items=[_running_pod()])
         out = KubernetesReadNormalizer().normalize(_pods_list_spec(), body)
         evidence = _pods_list_spec().evidence(out)
-        assert evidence == {
+        # The declared scalars, unchanged since 9.2...
+        assert {k: v for k, v in evidence.items() if k != "pods"} == {
             "resourceVersion": "424242", "kind": "PodList", "apiVersion": "v1",
             "podCount": 1, "crashLoopCount": 0,
         }
+        # ...plus the per-pod records 9.4 added (ADR-084). Counts alone are enough
+        # to notice something is wrong and not enough to say anything about a
+        # PARTICULAR pod, so a list could not corroborate a metric that names one.
+        assert [record["name"] for record in evidence["pods"]] == ["web-1"]
 
     def test_raw_kubernetes_body_fails_shape_without_normalizer(self):
         # The lift is load-bearing: the raw envelope does not satisfy the

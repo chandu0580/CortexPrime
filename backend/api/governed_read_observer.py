@@ -121,6 +121,15 @@ class ObservationLeg:
     predicate: str
     value: Mapping[str, Any]
     observed_at: Optional[datetime] = None
+    retrieved_at: Optional[datetime] = None
+    """When the instrument was queried, when the caller must say so itself.
+
+    Normally the observer's own moment is right. It is not right when the
+    provider states its own observation time from its own clock: two clocks
+    disagree, and a provider whose clock runs a second ahead would otherwise
+    produce ``observed_at > retrieved_at`` — which the temporal contract refuses,
+    correctly, because a fetch cannot precede the moment it observed. The caller
+    that knows about the skew reconciles it and says so here."""
 
 
 class GovernedReadObserver:
@@ -187,7 +196,7 @@ class GovernedReadObserver:
                 # For a watch event that is the moment the event was observed;
                 # for a plain read it is the retrieval moment, said so.
                 observed_at=leg.observed_at or moment,
-                retrieved_at=moment,
+                retrieved_at=leg.retrieved_at or moment,
                 produced_by=self._produced_by,
                 execution_ref=outcome.execution_id,
                 trace_ref=trace_ref,

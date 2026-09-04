@@ -128,3 +128,7 @@ frontend/lib/agent-sdk/
 .phase93-kubeconfig
 .phase93-ca.crt
 .phase93-ca.crt.server
+
+# Phase 9.4 (ADR-084) disposable evidence environment.
+.phase94.env
+.phase94/

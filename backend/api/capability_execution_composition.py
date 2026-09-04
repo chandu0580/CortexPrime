@@ -119,6 +119,7 @@ __all__ = [
     "SelectingRequestFactory",
     "ADAPTER_SEAMS",
     "GovernedCapabilityReader",
+    "build_prometheus_connector",
 ]
 
 log = logging.getLogger(__name__)
@@ -678,6 +679,87 @@ def build_kubernetes_connector(
         # dispatches on the operation's own declaration (static_query watch=true)
         # and hands every other operation straight to the JSON path.
         decoder=KubernetesWatchDecoder(),
+        preflight=preflight,
+        metrics=metrics,
+    )
+    return WorkerEntry(implementation=implementation), adapter, catalog
+
+
+def build_prometheus_connector(
+    *,
+    transport_broker: Any,
+    connection_policy: Any,
+    environment: ExecutionEnvironment,
+    base_url: str,
+    namespace: str,
+    worker_id: str = "prometheus-connector",
+    preflight: Optional[Any] = None,
+    metrics: Optional[Any] = None,
+    isolation: Optional[Any] = None,
+) -> tuple:
+    """The governed Prometheus READ connector (Phase 9.4, ADR-084).
+
+    Returns ``(entry, adapter, catalog)`` — the same contract as the GitHub,
+    Grafana and Kubernetes builders: the entry is returned at
+    REGISTERED/UNVERIFIED/UNAVAILABLE, construction contacts nothing, and the
+    same deliberate acts stand between this and real work.
+
+    The adapter is the generic ``ConnectorAdapter``: catalog + translator +
+    normalizer + channel. No Prometheus client, no second HTTP client, no
+    connector-owned credential. ``base_url`` and ``namespace`` are both
+    deployment configuration with deliberately no default — there is no universal
+    Prometheus and no universal namespace to observe.
+    """
+    from backend.contracts.connector import IsolationTier
+    from backend.contexts.execution import (
+        WorkerEntry,
+        WorkerInterface,
+        WorkerScope,
+    )
+    from backend.contexts.execution.infrastructure.adapters.connectors.prometheus import (
+        PROMETHEUS_PROVIDER,
+        PROMETHEUS_PROVIDER_ID,
+        PrometheusResponseTranslator,
+        PrometheusVectorNormalizer,
+        build_prometheus_channel,
+        prometheus_read_catalog,
+    )
+
+    catalog = prometheus_read_catalog(namespace=namespace)
+    channel = build_prometheus_channel(
+        broker=transport_broker,
+        policy=connection_policy,
+        environment=environment,
+        base_url=base_url,
+    )
+    implementation = WorkerImplementation(
+        worker_id=worker_id,
+        worker_kind=WorkerKind.CONNECTOR,
+        interface=WorkerInterface.CONNECTOR,
+        implementation=(
+            "backend.contexts.execution.infrastructure.adapters.connector."
+            "ConnectorAdapter+connectors.prometheus"
+        ),
+        implementation_version="1.0.0",
+        isolation=isolation or IsolationTier.CONTAINED,
+        scope=WorkerScope.PLATFORM,
+        supported_environments=frozenset({environment}),
+        supported_effects=frozenset(
+            {spec.effect_semantics for spec in _catalog_specs(catalog)}
+        ),
+        supported_providers=frozenset({PROMETHEUS_PROVIDER_ID}),
+        supported_operations=frozenset(catalog.operations),
+        # Prometheus reads no idempotency key, and a read needs none. Declared
+        # honestly, exactly as for every other provider.
+        supports_provider_idempotency=False,
+    )
+    adapter = build_adapter(
+        implementation,
+        provider=PROMETHEUS_PROVIDER,
+        catalog=catalog,
+        channel=channel,
+        translator=PrometheusResponseTranslator(),
+        normalizer=PrometheusVectorNormalizer(),
         preflight=preflight,
         metrics=metrics,
     )

@@ -186,14 +186,27 @@ _K8S_HEADERS = {
 
 
 def _read(operation: str, path_template: str, *, parameters, evidence,
-          required=(_RV,)) -> ProviderOperationSpec:
+          required=(_RV,), records=None) -> ProviderOperationSpec:
     return ProviderOperationSpec(
         operation=operation, method="GET", path_template=path_template,
         side_effect_class=SideEffectClass.READ, effect_semantics=EffectSemantics.READ_ONLY,
         parameters=parameters, success_statuses=(200,),
         response_required_fields=required, response_evidence_fields=evidence,
+        response_evidence_records=records,
         static_headers=_K8S_HEADERS,
         provider_timeout_seconds=_TIMEOUT, max_response_bytes=4 * 1024 * 1024)
+
+
+#: Per-pod evidence on a list (Phase 9.4, ADR-084). Until now a pods.list kept
+#: only counts, which is enough to notice something is wrong and not enough to
+#: say anything about a *particular* pod — so it could not corroborate a metric
+#: that names one. Declared, bounded and scalars-only, exactly like every other
+#: record evidence; the cap is the same one the watch window uses.
+_POD_RECORDS = RecordEvidenceSpec(
+    field_name="pods",
+    fields=("name", "namespace", "uid", "phase", "restartCount", "waitingReason"),
+    max_records=WATCH_MAX_EVENTS,
+)
 
 
 def kubernetes_read_catalog() -> OperationCatalog:
@@ -206,7 +219,8 @@ def kubernetes_read_catalog() -> OperationCatalog:
         (
             _read("kubernetes.pods.list", "/api/v1/namespaces/{namespace}/pods",
                   parameters=(_NS, _LABEL, _LIMIT),
-                  evidence=(_RV, "kind", "apiVersion", "podCount", "crashLoopCount")),
+                  evidence=(_RV, "kind", "apiVersion", "podCount", "crashLoopCount"),
+                  records=_POD_RECORDS),
             _read("kubernetes.pod.get", "/api/v1/namespaces/{namespace}/pods/{name}",
                   parameters=(_NS, _NAME),
                   evidence=(_RV, "kind", "name", "namespace", "phase", "restartCount",
@@ -418,6 +432,8 @@ class KubernetesReadNormalizer:
         if op == "kubernetes.pods.list" and isinstance(items, list):
             out["podCount"] = len(items)
             out["crashLoopCount"] = sum(1 for pod in items if self._is_crashloop(pod))
+            out["pods"] = [self._pod_record(pod) for pod in items
+                           if isinstance(pod, Mapping)]
         elif op == "kubernetes.deployments.list" and isinstance(items, list):
             out["deploymentCount"] = len(items)
         elif op == "kubernetes.events.list" and isinstance(items, list):
@@ -445,6 +461,36 @@ class KubernetesReadNormalizer:
                     if isinstance(status.get(field), int):
                         out[field] = status[field]
         return out
+
+    @classmethod
+    def _pod_record(cls, pod: Mapping) -> dict:
+        """The declared per-pod scalars of one list item (Phase 9.4).
+
+        Every field is copied, never computed. ``restartCount`` in particular is
+        the container statuses' total exactly as the API server reports it — the
+        same number kube-state-metrics re-exports, which is what makes the two
+        comparable at all. A pod with no container statuses yet contributes no
+        restart count rather than a zero: not-observed and observed-zero are
+        different claims.
+        """
+        record: dict = {}
+        meta = pod.get("metadata")
+        if isinstance(meta, Mapping):
+            for field_name in ("name", "namespace", "uid"):
+                value = meta.get(field_name)
+                if isinstance(value, str) and value:
+                    record[field_name] = value
+        status = pod.get("status")
+        if isinstance(status, Mapping):
+            phase = status.get("phase")
+            if isinstance(phase, str) and phase:
+                record["phase"] = phase
+            restarts, waiting = cls._container_signal(status)
+            if restarts is not None:
+                record["restartCount"] = restarts
+            if waiting is not None:
+                record["waitingReason"] = waiting
+        return record
 
     @classmethod
     def _normalize_watch(cls, body: Mapping) -> dict:
