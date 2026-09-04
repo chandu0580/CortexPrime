@@ -40,6 +40,7 @@ from datetime import datetime, timezone
 from typing import Any, Mapping, Optional
 
 from backend.contracts.errors import ContractViolation
+from backend.contracts.connector import CodeTrust
 from backend.contracts.execution import (
     EffectSemantics,
     ExecutionEnvironment,
@@ -87,6 +88,13 @@ class BoundCapability:
 
     side_effect_class: SideEffectClass
     effect_semantics: EffectSemantics
+    code_trust: CodeTrust
+    """Which class of computation the authorized capability performs (ADR-088).
+
+    Projected from the contract rather than chosen here, and required for the
+    same reason ``environment`` is mandatory in practice: worker selection reads
+    it to decide what boundary this must run behind, and an unstated code trust
+    cannot be read as a safe one."""
 
     environment: Optional[ExecutionEnvironment] = None
     """Where this is to be performed. Optional in the type and **mandatory in

@@ -352,7 +352,7 @@ def incompatibilities(
     # -- effects and isolation ---------------------------------------------
     if binding.effect_semantics not in implementation.supported_effects:
         reasons.append(WorkerRefusal.EFFECT_UNSUPPORTED)
-    if not implementation.permits_side_effect(binding.side_effect_class):
+    if not implementation.permits(binding.code_trust, binding.side_effect_class):
         reasons.append(WorkerRefusal.ISOLATION_INSUFFICIENT)
 
     # -- environment --------------------------------------------------------

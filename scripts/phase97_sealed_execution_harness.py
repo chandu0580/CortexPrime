@@ -180,10 +180,14 @@ def probe_contract() -> None:
     from backend.contracts.connector import IsolationTier
     from backend.contracts.execution import SideEffectClass
 
-    # Whitespace-normalized: the sentence wraps across a line in the source, so
-    # a raw substring test would silently miss the very clause this phase turns on.
-    doc = " ".join(((IsolationTier.__doc__ or "")
-                    + (IsolationTier.SEALED.__doc__ or "")).split())
+    # Read from source, whitespace-normalized. Enum members do not carry their
+    # own ``__doc__`` -- they inherit the class's -- and the sentence wraps
+    # across a line, so a naive substring test would silently miss the very
+    # clause this phase turns on. ADR-088 moved this text onto the SEALED member
+    # without altering a word of it, which is what this check confirms.
+    import inspect
+
+    doc = " ".join(inspect.getsource(IsolationTier).split())
     # The tier's own words are the specification this phase is measured against.
     sealed_text = "Arbitrary commands or code. Full virtualization, no ambient credentials."
     REPORT["measurements"]["sealed_definition"] = sealed_text
@@ -193,13 +197,26 @@ def probe_contract() -> None:
           "excludes shared-kernel containers" in doc,
           "IsolationTier docstring, Constitution S6")
 
+    # SUPERSEDED BY ADR-088 (ratified 2026-09-04). This harness proved that the
+    # tier this machine cannot provide was required for a typed two-parameter
+    # PATCH. That routing is what the ratification changed. The environmental
+    # finding below is untouched and still stands: SEALED remains unobtainable
+    # here, and is still required -- for arbitrary code, which is what it was
+    # always written for.
+    from backend.contracts.connector import CodeTrust, minimum_isolation
+
     irreversible = SideEffectClass.IRREVERSIBLE_WRITE
     check("B3. AMBIENT is insufficient for an irreversible write",
-          irreversible not in IsolationTier.AMBIENT.minimum_for)
-    check("B4. CONTAINED is insufficient for an irreversible write",
-          irreversible not in IsolationTier.CONTAINED.minimum_for)
-    check("B5. ONLY SEALED is sufficient — the tier this machine cannot provide",
-          irreversible in IsolationTier.SEALED.minimum_for)
+          not IsolationTier.AMBIENT.satisfies(
+              minimum_isolation(CodeTrust.FIXED, irreversible)))
+    check("B4. a FIXED irreversible write now requires CONTAINED, not SEALED "
+          "(ADR-088) — and in-process is not CONTAINED",
+          minimum_isolation(CodeTrust.FIXED, irreversible)
+          is IsolationTier.CONTAINED)
+    check("B5. ARBITRARY code still requires SEALED — the tier this machine "
+          "cannot provide",
+          minimum_isolation(CodeTrust.ARBITRARY, irreversible)
+          is IsolationTier.SEALED)
 
     # Gate 1, executed: the capability cannot even be declared below SEALED.
     from backend.contexts.connectivity.domain.contract import (
@@ -214,13 +231,14 @@ def probe_contract() -> None:
             interface=CapabilityInterface.CONNECTOR,
             side_effect_class=SideEffectClass.IRREVERSIBLE_WRITE,
             effect_semantics=EffectSemantics.NON_IDEMPOTENT_WRITE,
-            isolation_tier=IsolationTier.CONTAINED,
+            isolation_tier=IsolationTier.AMBIENT,
+            code_trust=CodeTrust.FIXED,
             execution_mode=ExecutionMode.SYNCHRONOUS,
         )
     except ContractViolation as exc:
         gate1 = str(exc)
-    check("B6. GATE 1 — the contract REFUSES an irreversible write at CONTAINED",
-          "insufficient" in gate1, gate1)
+    check("B6. GATE 1 — the contract REFUSES an in-process (AMBIENT) "
+          "irreversible write", "insufficient" in gate1, gate1)
 
     # Gate 2, executed: even a declared capability cannot be dispatched.
     from backend.contexts.execution.domain.worker_directory import (
@@ -233,15 +251,16 @@ def probe_contract() -> None:
         worker_id="probe-worker", worker_kind=WorkerKind.KUBERNETES,
         interface=WorkerInterface.CONNECTOR,
         implementation="probe", implementation_version="1.0.0",
-        isolation=IsolationTier.CONTAINED, scope=WorkerScope.PLATFORM,
+        isolation=IsolationTier.AMBIENT, scope=WorkerScope.PLATFORM,
         supported_environments=frozenset({ExecutionEnvironment.DEVELOPMENT}),
         supported_effects=frozenset({EffectSemantics.NON_IDEMPOTENT_WRITE,
                                      EffectSemantics.READ_ONLY}),
         supported_providers=frozenset({"kubernetes"}))
-    check("B7. GATE 2 — a CONTAINED worker REFUSES to perform an irreversible write",
-          impl.permits_side_effect(SideEffectClass.IRREVERSIBLE_WRITE) is False)
+    check("B7. GATE 2 — the in-process (AMBIENT) worker REFUSES an irreversible "
+          "write", impl.permits(CodeTrust.FIXED,
+                                SideEffectClass.IRREVERSIBLE_WRITE) is False)
     check("B8. the same worker still permits READ — the read path is untouched",
-          impl.permits_side_effect(SideEffectClass.READ) is True)
+          impl.permits(CodeTrust.FIXED, SideEffectClass.READ) is True)
 
     # And a SEALED-declared worker WOULD pass — which is exactly why declaring
     # one on this host would be the lie. The gate cannot detect a false claim;
@@ -257,7 +276,8 @@ def probe_contract() -> None:
         supported_providers=frozenset({"kubernetes"}))
     check("B9. a worker DECLARED sealed would pass gate 2 — the gate trusts the "
           "declaration, so only honesty keeps it meaningful",
-          sealed_impl.permits_side_effect(SideEffectClass.IRREVERSIBLE_WRITE) is True)
+          sealed_impl.permits(CodeTrust.FIXED,
+                              SideEffectClass.IRREVERSIBLE_WRITE) is True)
 
 
 # ----------------------------------------------------------------------
@@ -332,18 +352,24 @@ def probe_regress() -> None:
 
 def probe_nothing_was_weakened() -> None:
     section("E. the decisive negative: nothing was built and nothing was weakened")
-    from backend.contracts.connector import IsolationTier, _TIER_SUFFICIENCY
+    from backend.contracts.connector import (
+        CodeTrust, IsolationTier, minimum_isolation)
     from backend.contracts.execution import SideEffectClass
 
-    check("E1. the tier taxonomy still has exactly THREE tiers — no intermediate "
-          "tier was invented", len(list(IsolationTier)) == 3,
-          str([t.value for t in IsolationTier]))
-    check("E2. CONTAINED still permits exactly READ + REVERSIBLE_WRITE — unchanged",
-          _TIER_SUFFICIENCY[IsolationTier.CONTAINED]
-          == frozenset({SideEffectClass.READ, SideEffectClass.REVERSIBLE_WRITE}))
-    check("E3. SEALED remains the only tier sufficient for DESTRUCTIVE too",
-          SideEffectClass.DESTRUCTIVE in IsolationTier.SEALED.minimum_for
-          and SideEffectClass.DESTRUCTIVE not in IsolationTier.CONTAINED.minimum_for)
+    # SUPERSEDED BY ADR-088. E1-E3 recorded that this phase invented no tier and
+    # widened nothing. It did not: the fourth tier arrived later, by ratification,
+    # with its own ADR and its own named relaxation. What these now check is that
+    # the ratified model kept SEALED where SEALED belongs.
+    check("E1. the taxonomy has the four ratified tiers, in order",
+          [t.value for t in sorted(IsolationTier, key=lambda t: t.rank)]
+          == ["ambient", "contained", "sandboxed", "sealed"])
+    check("E2. SANDBOXED does NOT satisfy SEALED — a shared-kernel boundary is "
+          "never counted as virtualization",
+          not IsolationTier.SANDBOXED.satisfies(IsolationTier.SEALED))
+    check("E3. ARBITRARY code requires SEALED for every effect class, reads "
+          "included — stricter than before this phase ran",
+          all(minimum_isolation(CodeTrust.ARBITRARY, e) is IsolationTier.SEALED
+              for e in SideEffectClass))
 
     # The 9.6 write is still declared, still honest, still not exposed.
     from backend.contexts.execution.infrastructure.adapters.connectors.kubernetes import (

@@ -168,7 +168,7 @@ def main() -> None:  # noqa: PLR0915 - a driver reads top to bottom
                 interface="connector",
                 side_effect_class=effect,
                 effect_semantics=semantics,
-                isolation_tier="contained",
+                isolation_tier="contained", code_trust="fixed",
                 execution_mode="synchronous",
                 owner_id="ops-owner",
                 owner_kind="human",

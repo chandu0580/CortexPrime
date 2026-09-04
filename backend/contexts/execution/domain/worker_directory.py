@@ -47,7 +47,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Iterable, Optional
 
-from backend.contracts.connector import IsolationTier
+from backend.contracts.connector import CodeTrust, IsolationTier, minimum_isolation
 from backend.contracts.errors import ContractViolation
 from backend.contracts.execution import (
     EffectSemantics,
@@ -511,14 +511,31 @@ class WorkerImplementation:
             return True
         return self.tenant_id == tenant_id
 
-    def permits_side_effect(self, side_effect: SideEffectClass) -> bool:
-        """Whether this implementation's isolation is sufficient for that effect.
+    def permits(self, code_trust: CodeTrust, side_effect: SideEffectClass) -> bool:
+        """Whether this worker may run **this code** performing **this effect**.
 
-        Reuses ``IsolationTier.minimum_for`` rather than restating the table. The
-        platform already decided that arbitrary commands need ``SEALED``; this
-        does not get a second opinion.
+        GATE 2 (ADR-088). Reads the one matrix rather than restating it: the
+        platform already decided what each class of computation requires, and
+        this does not get a second opinion.
+
+        Note what ``isolation`` means here. It is what the implementation
+        **actually provides**, not what it would prefer to claim -- an in-process
+        adapter is not ``CONTAINED`` however it is declared (ADR-059), because
+        ``CONTAINED`` requires a separate worker with per-execution credentials.
+        This gate cannot detect a false declaration; only honesty upstream of it
+        keeps the gate meaningful.
         """
-        return side_effect in self.isolation.minimum_for
+        return self.isolation.satisfies(minimum_isolation(code_trust, side_effect))
+
+    def permits_side_effect(self, side_effect: SideEffectClass) -> bool:
+        """Whether this worker may perform that effect **with FIXED code**.
+
+        The pre-ADR-088 signature, kept for callers that only ever ask about
+        typed connector operations, and narrowed to that meaning rather than
+        left ambiguous. Anything that can host code above ``FIXED`` must call
+        :meth:`permits` and say which class.
+        """
+        return self.permits(CodeTrust.FIXED, side_effect)
 
     def to_dict(self) -> dict:
         return {**self.identity_payload(), "digest": self.digest}

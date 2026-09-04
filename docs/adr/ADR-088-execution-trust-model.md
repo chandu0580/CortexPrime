@@ -1,6 +1,10 @@
 # ADR-088 — The execution trust model: isolation answers to code trust, not consequence
 
-**Status:** **PROPOSED — awaiting ratification. Nothing in this ADR has been applied.**
+**Status:** **ACCEPTED — ratified by the owner on 2026-09-04, as written.**
+Ratified in full: the two-axis model, the `CodeTrust` axis, the `SANDBOXED` tier,
+SEALED retained verbatim, and the one named relaxation
+(`FIXED`/`PARAMETERIZED` × `IRREVERSIBLE_WRITE`: SEALED → CONTAINED) under both
+preconditions in Decision 4. Implementation is Phase 9.9.
 **Date:** 2026-09-04
 **Extends:** ADR-059 (in-process worker gap), ADR-086 (Phase 9.6 blocked write),
 ADR-087 (Phase 9.7 SEALED unavailable).

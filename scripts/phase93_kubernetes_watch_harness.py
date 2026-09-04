@@ -119,7 +119,7 @@ def _commission(runtime, platform_ctx):
             platform_ctx, RegisterCapability(
                 capability_id=cid, version=1, name=f"Kubernetes {op}", description=op,
                 provider="kubernetes", interface="connector", side_effect_class="read",
-                effect_semantics="read_only", isolation_tier="contained",
+                effect_semantics="read_only", isolation_tier="contained", code_trust="fixed",
                 execution_mode="synchronous", owner_id="ops-owner", owner_kind="human",
                 tenancy="platform", source="internal",
                 supported_environments=("development",), provider_operation=op)))

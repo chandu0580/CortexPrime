@@ -80,7 +80,11 @@ def _context() -> ExecutionContext:
 _INTERFACE = "^(execution_worker|connector|mcp_tool|agent|skill|service)$"
 _SIDE_EFFECT = "^(read|reversible_write|irreversible_write|destructive)$"
 _EFFECT = "^(read_only|idempotent_write|non_idempotent_write|unknown)$"
-_ISOLATION = "^(ambient|contained|sealed)$"
+_ISOLATION = "^(ambient|contained|sandboxed|sealed)$"
+#: ADR-088. Required on registration: which class of computation this runs is
+#: the question isolation answers to, and it cannot be inferred from anything
+#: else the registrar sends.
+_CODE_TRUST = "^(fixed|parameterized|third_party|operator_script|arbitrary)$"
 _MODE = "^(synchronous|asynchronous|streaming)$"
 _TENANCY = "^(platform|tenant|shared)$"
 _SOURCE = "^(internal|manual|connector_package|mcp|agent|discovery|import)$"
@@ -118,6 +122,14 @@ class RegisterIn(BaseModel):
         description="Whether repeating this is safe. 'unknown' is never treated as safe.",
     )
     isolation_tier: str = Field(..., pattern=_ISOLATION)
+    code_trust: str = Field(
+        ...,
+        pattern=_CODE_TRUST,
+        description=(
+            "Which class of computation the implementation performs. Isolation "
+            "answers to this, not to how consequential the effect is (ADR-088)."
+        ),
+    )
     execution_mode: str = Field("synchronous", pattern=_MODE)
 
     owner_id: str = Field(..., description="Never 'system'; every capability is owned")
@@ -291,6 +303,7 @@ async def register_route(payload: RegisterIn):
                 side_effect_class=payload.side_effect_class,
                 effect_semantics=payload.effect_semantics,
                 isolation_tier=payload.isolation_tier,
+                code_trust=payload.code_trust,
                 execution_mode=payload.execution_mode,
                 owner_id=payload.owner_id,
                 owner_kind=payload.owner_kind,

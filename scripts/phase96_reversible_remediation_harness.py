@@ -155,7 +155,7 @@ def _commission(runtime, platform_ctx, *, include_write=True, swallow=True):
             platform_ctx, RegisterCapability(
                 capability_id=cid, version=1, name=op, description=op,
                 provider="kubernetes", interface="connector", side_effect_class=e,
-                effect_semantics=sm, isolation_tier="contained",
+                effect_semantics=sm, isolation_tier="contained", code_trust="fixed",
                 execution_mode="synchronous", owner_id="ops-owner", owner_kind="human",
                 tenancy="platform", source="internal",
                 supported_environments=("development",), provider_operation=op))
@@ -502,7 +502,7 @@ def main():  # noqa: PLR0912, PLR0915
     _require_env()
 
     from backend.api.remediation import RemediationOutcome, RemediationTarget
-    from backend.contracts.connector import IsolationTier
+    from backend.contracts.connector import CodeTrust, IsolationTier, minimum_isolation
     from backend.contracts.errors import ContractViolation
     from backend.contracts.execution import EffectSemantics, SideEffectClass
     from backend.contracts.intelligence.autonomy import (
@@ -561,12 +561,23 @@ def main():  # noqa: PLR0912, PLR0915
     print("\n[BLOCKED] the platform refuses to isolate its own first irreversible write")
     check("the platform DERIVES HIGH risk from the honest classification",
           profile.risk.level is RiskLevel.HIGH, profile.risk.level.value)
+    # SUPERSEDED BY ADR-088 (ratified 2026-09-04). When this harness first ran,
+    # every irreversible write routed to SEALED regardless of what code performed
+    # it, and these three checks recorded that. The taxonomy now asks what runs:
+    # a FIXED typed operation needs CONTAINED, and only arbitrary code needs
+    # SEALED. What did NOT change is the conclusion this harness reaches -- the
+    # write is still refused, because an in-process adapter is AMBIENT and
+    # AMBIENT is still insufficient. The reason is now the honest one.
     check("AMBIENT isolation is insufficient for an irreversible write",
-          SideEffectClass.IRREVERSIBLE_WRITE not in IsolationTier.AMBIENT.minimum_for)
-    check("CONTAINED isolation is insufficient for an irreversible write",
-          SideEffectClass.IRREVERSIBLE_WRITE not in IsolationTier.CONTAINED.minimum_for)
-    check("ONLY SEALED ('full virtualization, no ambient credentials') suffices",
-          SideEffectClass.IRREVERSIBLE_WRITE in IsolationTier.SEALED.minimum_for)
+          not IsolationTier.AMBIENT.satisfies(
+              minimum_isolation(CodeTrust.FIXED, SideEffectClass.IRREVERSIBLE_WRITE)))
+    check("a FIXED irreversible write requires CONTAINED — a separate worker "
+          "with per-execution credentials, which in-process is not",
+          minimum_isolation(CodeTrust.FIXED, SideEffectClass.IRREVERSIBLE_WRITE)
+          is IsolationTier.CONTAINED)
+    check("ARBITRARY code still requires SEALED for every effect, reads included",
+          all(minimum_isolation(CodeTrust.ARBITRARY, e) is IsolationTier.SEALED
+              for e in SideEffectClass))
 
     runtime = _build_runtime()
     platform_ctx = ExecutionContext.platform_internal(

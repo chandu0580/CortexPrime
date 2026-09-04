@@ -577,6 +577,7 @@ class CapabilityDiscoveryService:
             side_effect_class=contract.side_effect_class.value,
             effect_semantics=contract.effect_semantics.value,
             isolation_tier=contract.isolation_tier.value,
+            code_trust=contract.code_trust.value,
             execution_mode=contract.execution_mode.value,
             owner_id=candidate.source.source_id,
             owner_kind="external_system",

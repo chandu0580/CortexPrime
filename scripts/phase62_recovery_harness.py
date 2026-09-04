@@ -89,7 +89,7 @@ def _commission(runtime, platform_ctx):
                   capability_id=cid, version=1, name=f"Controlled {op}",
                   description=op, provider="controlled", interface="connector",
                   side_effect_class=effect, effect_semantics=sem,
-                  isolation_tier="contained", execution_mode="synchronous",
+                  isolation_tier="contained", code_trust="fixed", execution_mode="synchronous",
                   owner_id="ops-owner", owner_kind="human", tenancy="platform",
                   source="internal", supported_environments=("development",),
                   provider_operation=op)))

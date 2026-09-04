@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Mapping, Optional
 
-from backend.contracts.connector import IsolationTier
+from backend.contracts.connector import CodeTrust, IsolationTier, minimum_isolation
 from backend.contracts.errors import ContractViolation
 from backend.contracts.execution import EffectSemantics, SideEffectClass
 
@@ -155,6 +155,14 @@ class CapabilityContract:
     side_effect_class: SideEffectClass
     effect_semantics: EffectSemantics
     isolation_tier: IsolationTier
+    code_trust: CodeTrust
+    """How much computation this capability's implementation can perform that
+    nobody declared (ADR-088). Required, with no default in either direction: a
+    default of ``FIXED`` would silently grant every undeclared capability the
+    weakest isolation requirement, and a default of ``ARBITRARY`` would refuse
+    every read. An undeclared code trust is an undecided one, and it must be
+    stated at registration like the effect class beside it."""
+
     execution_mode: ExecutionMode = ExecutionMode.SYNCHRONOUS
 
     input_schema: Optional[SchemaRef] = None
@@ -197,16 +205,26 @@ class CapabilityContract:
             raise ContractViolation("effect_semantics must be an EffectSemantics")
         if not isinstance(self.isolation_tier, IsolationTier):
             raise ContractViolation("isolation_tier must be an IsolationTier")
+        if not isinstance(self.code_trust, CodeTrust):
+            raise ContractViolation("code_trust must be a CodeTrust")
         if not isinstance(self.execution_mode, ExecutionMode):
             raise ContractViolation("execution_mode must be an ExecutionMode")
 
-        # Reuses the existing BC-8 rule (ADR-005 / Constitution S6): an
-        # under-isolated destructive tool is the configuration that turns a
-        # prompt injection into an incident.
-        if self.side_effect_class not in self.isolation_tier.minimum_for:
+        # GATE 1 (ADR-088, ratified 2026-09-04). The rule it replaces routed
+        # every irreversible write to SEALED regardless of what ran, which made
+        # posting a GitHub issue comment require full virtualization while
+        # arbitrary shell required nothing. Isolation now answers to code trust;
+        # consequence is priced by governance under L10.
+        #
+        # Still fail-closed, and still the configuration that turns a prompt
+        # injection into an incident if got wrong: an ARBITRARY-code capability
+        # needs SEALED for every effect class, reads included.
+        required = minimum_isolation(self.code_trust, self.side_effect_class)
+        if not self.isolation_tier.satisfies(required):
             raise ContractViolation(
                 f"isolation tier {self.isolation_tier.value!r} is insufficient for a "
-                f"{self.side_effect_class.value!r} capability"
+                f"{self.side_effect_class.value!r} capability running "
+                f"{self.code_trust.value!r} code; {required.value!r} is the minimum"
             )
 
         # The two effect axes must not contradict each other.
@@ -290,6 +308,12 @@ class CapabilityContract:
             "side_effect_class": self.side_effect_class.value,
             "effect_semantics": self.effect_semantics.value,
             "isolation_tier": self.isolation_tier.value,
+            # Part of the digest (ADR-088 Decision 4). Code trust is a claim
+            # about the code as shipped, and compromised fixed code is arbitrary
+            # code. Digesting it means a capability that quietly changes class
+            # invalidates every approval bound to the old one, instead of
+            # inheriting authority that was granted to something else.
+            "code_trust": self.code_trust.value,
             "execution_mode": self.execution_mode.value,
             "input_schema": self.input_schema.to_dict() if self.input_schema else None,
             "output_schema": self.output_schema.to_dict() if self.output_schema else None,
@@ -317,6 +341,7 @@ class CapabilityContract:
             side_effect_class=SideEffectClass(data["side_effect_class"]),
             effect_semantics=EffectSemantics(data["effect_semantics"]),
             isolation_tier=IsolationTier(data["isolation_tier"]),
+            code_trust=CodeTrust(data["code_trust"]),
             execution_mode=ExecutionMode(data["execution_mode"]),
             input_schema=(
                 SchemaRef.from_dict(data["input_schema"])

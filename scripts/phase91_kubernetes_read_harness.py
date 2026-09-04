@@ -75,7 +75,7 @@ def _commission_k8s(runtime, platform_ctx):
         _idem(lambda cid=cid, op=op: runtime.capabilities.register(platform_ctx, RegisterCapability(
             capability_id=cid, version=1, name=f"Kubernetes {op}", description=op,
             provider="kubernetes", interface="connector", side_effect_class="read",
-            effect_semantics="read_only", isolation_tier="contained", execution_mode="synchronous",
+            effect_semantics="read_only", isolation_tier="contained", code_trust="fixed", execution_mode="synchronous",
             owner_id="ops-owner", owner_kind="human", tenancy="platform", source="internal",
             supported_environments=("development",), provider_operation=op)))
         _idem(lambda cid=cid: runtime.capabilities.validate(platform_ctx, ValidateCapability(capability_id=cid, version=1)))

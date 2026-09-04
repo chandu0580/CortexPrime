@@ -37,7 +37,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Mapping, Optional
 
-from backend.contracts.connector import IsolationTier
+from backend.contracts.connector import CodeTrust, IsolationTier
 from backend.contracts.errors import ContractViolation
 from backend.contracts.execution import EffectSemantics, SideEffectClass
 from backend.contexts.connectivity.domain.budgets import DEFAULT_BUDGET, DiscoveryBudget
@@ -93,6 +93,7 @@ class RawObservation:
     side_effect_class: Optional[str] = None
     effect_semantics: Optional[str] = None
     isolation_tier: Optional[str] = None
+    code_trust: Optional[str] = None
     execution_mode: str = "synchronous"
     supported_environments: tuple = ()
     idempotency_supported: bool = False
@@ -358,6 +359,12 @@ def normalize(
             "isolation_tier -- how far this must be sandboxed cannot be inferred "
             "from a tool description"
         )
+    if not observation.code_trust:
+        missing.append(
+            "code_trust -- whether this runs one declared operation or arbitrary "
+            "code is the question isolation answers to (ADR-088), and a tool "
+            "description that does not say is one nobody has classified"
+        )
     if not observation.supported_environments:
         missing.append(
             "supported_environments -- a capability usable everywhere by omission "
@@ -374,6 +381,7 @@ def normalize(
                 side_effect_class=SideEffectClass(observation.side_effect_class),
                 effect_semantics=EffectSemantics(observation.effect_semantics),
                 isolation_tier=IsolationTier(observation.isolation_tier),
+                code_trust=CodeTrust(observation.code_trust),
                 execution_mode=ExecutionMode(observation.execution_mode),
                 input_schema=input_ref,
                 output_schema=output_ref,

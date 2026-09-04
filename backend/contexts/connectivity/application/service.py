@@ -34,7 +34,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Optional, Protocol, runtime_checkable
 
-from backend.contracts.connector import IsolationTier
+from backend.contracts.connector import CodeTrust, IsolationTier
 from backend.contracts.execution import EffectSemantics, SideEffectClass
 from backend.contracts.identity import PrincipalKind, PrincipalRef
 from backend.contexts.connectivity.application.commands import (
@@ -212,6 +212,7 @@ class CapabilityService:
             side_effect_class=SideEffectClass(command.side_effect_class),
             effect_semantics=EffectSemantics(command.effect_semantics),
             isolation_tier=IsolationTier(command.isolation_tier),
+            code_trust=CodeTrust(command.code_trust),
             execution_mode=ExecutionMode(command.execution_mode),
             input_schema=(
                 SchemaRef.from_dict(command.input_schema) if command.input_schema else None

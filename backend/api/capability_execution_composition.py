@@ -579,7 +579,18 @@ def build_grafana_connector(
             "ConnectorAdapter+connectors.grafana"
         ),
         implementation_version="1.0.0",
-        isolation=isolation or IsolationTier.CONTAINED,
+        # ADR-088 made this declaration load-bearing. Before it, SEALED blocked
+        # every irreversible write regardless of what a connector claimed here,
+        # so a generous CONTAINED cost nothing. Now CONTAINED is sufficient for a
+        # FIXED irreversible write -- which means claiming it while running
+        # in-process would open exactly the door the ratification was not asked
+        # to open.
+        #
+        # This adapter runs in the platform's own process with process-level
+        # credentials. That is AMBIENT. CONTAINED requires a separate worker with
+        # per-execution credentials (ADR-059's stated gap), and a worker becomes
+        # CONTAINED by being out-of-process, never by being declared so.
+        isolation=isolation or IsolationTier.AMBIENT,
         scope=WorkerScope.PLATFORM,
         supported_environments=frozenset({environment}),
         supported_effects=frozenset(
@@ -666,7 +677,18 @@ def build_kubernetes_connector(
             "ConnectorAdapter+connectors.kubernetes"
         ),
         implementation_version="1.0.0",
-        isolation=isolation or IsolationTier.CONTAINED,
+        # ADR-088 made this declaration load-bearing. Before it, SEALED blocked
+        # every irreversible write regardless of what a connector claimed here,
+        # so a generous CONTAINED cost nothing. Now CONTAINED is sufficient for a
+        # FIXED irreversible write -- which means claiming it while running
+        # in-process would open exactly the door the ratification was not asked
+        # to open.
+        #
+        # This adapter runs in the platform's own process with process-level
+        # credentials. That is AMBIENT. CONTAINED requires a separate worker with
+        # per-execution credentials (ADR-059's stated gap), and a worker becomes
+        # CONTAINED by being out-of-process, never by being declared so.
+        isolation=isolation or IsolationTier.AMBIENT,
         scope=WorkerScope.PLATFORM,
         supported_environments=frozenset({environment}),
         supported_effects=frozenset(
@@ -755,7 +777,18 @@ def build_prometheus_connector(
             "ConnectorAdapter+connectors.prometheus"
         ),
         implementation_version="1.0.0",
-        isolation=isolation or IsolationTier.CONTAINED,
+        # ADR-088 made this declaration load-bearing. Before it, SEALED blocked
+        # every irreversible write regardless of what a connector claimed here,
+        # so a generous CONTAINED cost nothing. Now CONTAINED is sufficient for a
+        # FIXED irreversible write -- which means claiming it while running
+        # in-process would open exactly the door the ratification was not asked
+        # to open.
+        #
+        # This adapter runs in the platform's own process with process-level
+        # credentials. That is AMBIENT. CONTAINED requires a separate worker with
+        # per-execution credentials (ADR-059's stated gap), and a worker becomes
+        # CONTAINED by being out-of-process, never by being declared so.
+        isolation=isolation or IsolationTier.AMBIENT,
         scope=WorkerScope.PLATFORM,
         supported_environments=frozenset({environment}),
         supported_effects=frozenset(

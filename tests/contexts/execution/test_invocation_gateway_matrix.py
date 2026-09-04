@@ -43,6 +43,7 @@ from backend.contracts.credential import (
     CredentialType,
 )
 from backend.contracts.errors import ContractViolation
+from backend.contracts.connector import CodeTrust
 from backend.contracts.execution import (
     EffectSemantics,
     ExecutionEnvironment,
@@ -546,6 +547,10 @@ class Fixture:
             expires_at=LATER,
             side_effect_class=self.side_effect,
             effect_semantics=self.semantics,
+            # ADR-088: these fixtures drive typed connector operations, which is
+            # exactly what FIXED means. A test that wants to exercise a
+            # higher code-trust class overrides it.
+            code_trust=CodeTrust.FIXED,
             environment=ENV,
             governance_operation=GOV_OP,
             execution_id=str(self.execution_id),

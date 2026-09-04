@@ -49,6 +49,12 @@ class RegisterCapability:
     side_effect_class: str
     effect_semantics: str
     isolation_tier: str
+    code_trust: str
+    """Which class of computation the implementation performs (ADR-088).
+
+    Required, exactly like ``side_effect_class`` beside it, and for the same
+    reason: it is a security-relevant declaration that cannot be inferred from
+    anything else the registrar supplies."""
 
     owner_id: str
     owner_kind: str
