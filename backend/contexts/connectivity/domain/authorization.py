@@ -406,6 +406,15 @@ class AuthorizationDecision:
     obligations: tuple = ()
     risk: RiskLevel = RiskLevel.CRITICAL
     approval_artifact_id: Optional[str] = None
+    approval_bound_digest: Optional[str] = None
+    """The ACTION digest the approval was granted for (ADR-090).
+
+    Carried on the decision because the gateway -- not this service -- is what
+    can compare it: the action digest needs the validated payload, which does
+    not exist yet here. Authorization establishes *that* an approval covers this
+    capability; the gateway establishes that it covers this **action**.
+    """
+
     break_glass_used: bool = False
     digest: Optional[str] = None
 
@@ -534,6 +543,7 @@ class AuthorizationDecision:
         risk: RiskLevel,
         obligations: tuple = (),
         approval_artifact_id: Optional[str] = None,
+        approval_bound_digest: Optional[str] = None,
         break_glass_used: bool = False,
         ttl_seconds: int = DEFAULT_DECISION_TTL_SECONDS,
         now: Optional[datetime] = None,
@@ -541,6 +551,7 @@ class AuthorizationDecision:
         moment = now or datetime.now(timezone.utc)
         return cls(
             effect=PolicyEffect.ALLOW,
+            approval_bound_digest=approval_bound_digest,
             request=request,
             policy_version=policy_version,
             decided_at=moment,

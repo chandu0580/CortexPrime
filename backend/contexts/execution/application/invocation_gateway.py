@@ -581,7 +581,11 @@ class SecureCapabilityInvocationGateway:
 
         validated = self._validate_input(context, request, binding)
         action_digest = self._check_action_digest(request, authority, validated)
-        self._check_approval(request, authority, action_digest, now)
+        # The approvable view of the same action (ADR-090): everything a human
+        # could be shown, without the binding that did not exist when they were
+        # asked. Computed from the VALIDATED payload, like the action digest.
+        approval_digest = request.approval_digest(payload=validated)
+        self._check_approval(request, authority, approval_digest, now)
         self._check_obligations(request, authority)
 
         window = self._window(binding, authority, request)
@@ -1027,7 +1031,7 @@ class SecureCapabilityInvocationGateway:
         self,
         request: InvocationRequest,
         facts: AuthorityFacts,
-        action_digest: str,
+        approval_digest: str,
         now: datetime,
     ) -> None:
         """An approval must be *for this action*, not merely present.
@@ -1072,7 +1076,13 @@ class SecureCapabilityInvocationGateway:
                 "approval would authorize anything this capability can do",
                 stage="approval",
             )
-        if facts.approval_bound_digest != action_digest:
+        # Compared against the APPROVAL digest, not the action digest (ADR-090).
+        # The action digest includes the binding, which does not exist when a
+        # human approves; comparing against it refused every approval that had
+        # ever been granted. This digest covers the capability, version,
+        # operation, tenant, principal, environment and validated payload -- so
+        # an approval for workload A still cannot authorize workload B.
+        if facts.approval_bound_digest != approval_digest:
             raise self._refuse(
                 request,
                 InvocationRefusal.APPROVAL_MISMATCH,

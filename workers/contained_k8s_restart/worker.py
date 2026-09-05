@@ -165,16 +165,22 @@ def _verify_binding(envelope: Mapping[str, Any]) -> dict:
                       f"this worker is bound to namespace {BIND_NAMESPACE!r} and "
                       f"was asked for {namespace!r}")
 
-    key = envelope["idempotency_key"]
+    # Attribution comes from the ACTION DIGEST, not an idempotency key. A
+    # rollout restart is genuinely non-idempotent -- a repeat creates another
+    # revision rather than collapsing -- so the platform derives no idempotency
+    # key for it, and demanding one would force a false IDEMPOTENT_WRITE
+    # declaration. The action digest identifies the action just as well and is
+    # what the approval was granted against.
+    key = envelope["execution_digest"]
     if not isinstance(key, str) or not key:
-        raise Refused("idempotency_key_missing",
+        raise Refused("execution_digest_missing",
                       "an unattributable write is not one this worker performs")
     for label in ("authorization_ref", "approval_ref", "autonomy_decision"):
         if not envelope[label]:
             raise Refused(f"{label}_missing",
                           f"the envelope carries no {label}; this worker performs "
                           "only executions the platform already authorized")
-    return {"namespace": namespace, "name": name, "idempotency_key": key}
+    return {"namespace": namespace, "name": name, "action_ref": key}
 
 
 def _patch_deployment(target: Mapping[str, str], credential: str) -> dict:
@@ -190,7 +196,7 @@ def _patch_deployment(target: Mapping[str, str], credential: str) -> dict:
            f"{target['namespace']}/deployments/{target['name']}")
     body = json.dumps({
         "spec": {"template": {"metadata": {"annotations": {
-            RESTART_ANNOTATION: target["idempotency_key"][:63]}}}}
+            RESTART_ANNOTATION: target["action_ref"][:63]}}}}
     }).encode("utf-8")
 
     request = urllib.request.Request(

@@ -96,7 +96,27 @@ class ApprovalFacts:
     artifact_id: str
     outcome: ApprovalOutcome
     bound_digest: Optional[str]
+    """The CAPABILITY contract digest this approval was granted against. An
+    approval for version 1 must not authorize version 2."""
+
     scope_tenant_id: Optional[str]
+    bound_action_digest: Optional[str] = None
+    """The ADR-038 ACTION digest this approval was granted for (ADR-090).
+
+    Distinct from ``bound_digest`` and deliberately so. The capability digest
+    says *which capability at which version*; the action digest additionally
+    covers the validated input, the tenant, the principal and the environment --
+    which is what stops an approval for restarting workload A being replayed to
+    restart workload B.
+
+    The gateway has always demanded this (``_check_approval`` refuses when it is
+    ``None``: "an unbound approval would authorize anything this capability can
+    do"). Until ADR-090 nothing could supply it, so that demand refused every
+    approval-requiring dispatch. Optional here because an approval granted
+    without one is simply not dispatchable -- which is the pre-existing
+    behaviour, not a new refusal.
+    """
+
     operation: Optional[str] = None
     expires_at: Optional[datetime] = None
 
@@ -262,6 +282,10 @@ class CapabilityAuthorizationService:
                         risk=verdict.risk or snapshot.implied_risk,
                         obligations=verdict.obligations,
                         approval_artifact_id=request.approval_artifact_id,
+                        # Carried so the gateway can do the check this service
+                        # cannot: whether the approval covers this ACTION, not
+                        # merely this capability (ADR-090).
+                        approval_bound_digest=snapshot.approval_bound_digest,
                         break_glass_used=self._break_glass_live(request, moment),
                         now=moment,
                     ),
@@ -287,6 +311,10 @@ class CapabilityAuthorizationService:
                 risk=verdict.risk or snapshot.implied_risk,
                 obligations=verdict.obligations,
                 approval_artifact_id=request.approval_artifact_id,
+                # Carried on every allow path, not only the one that started as
+                # REQUIRE_APPROVAL: if an approval was presented at all, the
+                # gateway must be able to check it covers THIS action (ADR-090).
+                approval_bound_digest=snapshot.approval_bound_digest,
                 break_glass_used=self._break_glass_live(request, moment),
                 now=moment,
             ),
@@ -479,7 +507,10 @@ class CapabilityAuthorizationService:
             approval_present=approval_facts is not None,
             approval_valid=approval_valid,
             approval_bound_digest=(
-                approval_facts.bound_digest if approval_facts else None
+                # The ACTION digest (ADR-090), which is what the gateway
+                # compares against. Reading ``bound_digest`` here would hand the
+                # gateway a capability digest and fail every comparison.
+                approval_facts.bound_action_digest if approval_facts else None
             ),
             evaluated_at=moment,
         )

@@ -122,6 +122,11 @@ class ContainedWorkerAdapter(AdapterSeam):
         super().__init__(
             implementation=implementation,
             provider=provider,
+            # The channel IS this adapter's transport. Without it the seam
+            # reports LOST and refuses before sending anything -- which is the
+            # correct default (there is no fallback transport), and is what a
+            # missing wiring should look like.
+            invoker=channel,
             preflight=preflight,
             metrics=metrics,
         )
@@ -178,6 +183,9 @@ class ContainedWorkerAdapter(AdapterSeam):
             "autonomy_decision": authority.policy_version,
             "worker_identity": authority.worker_id,
             "execution_digest": authority.action_digest,
+            # Empty for this operation, and correctly so: a rollout restart is
+            # non-idempotent, so the platform derives no key. Kept in the
+            # envelope because the worker's field set is exact.
             "idempotency_key": authority.idempotency_key or "",
         }
 
@@ -208,10 +216,10 @@ class ContainedWorkerAdapter(AdapterSeam):
                 ProviderFailure.VALIDATION_FAILURE,
                 f"the authorized payload does not name a target: missing {missing}",
             )
-        if not envelope["idempotency_key"]:
+        if not envelope["execution_digest"]:
             return ProviderOutcome.refused(
                 ProviderFailure.VALIDATION_FAILURE,
-                "an irreversible write without an idempotency key is one nothing "
+                "an irreversible write without an action digest is one nothing "
                 "can attribute afterwards",
             )
 
@@ -223,7 +231,8 @@ class ContainedWorkerAdapter(AdapterSeam):
         )
 
         exchange = self._channel.send(
-            authority, plan, provider_timeout_seconds=45, max_response_bytes=64 * 1024
+            authority, plan, provider_timeout_seconds=45,
+            max_response_bytes=1024 * 1024
         )
 
         if exchange.delivery is not ProviderDelivery.DELIVERED:

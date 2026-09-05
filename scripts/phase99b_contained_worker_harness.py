@@ -288,8 +288,13 @@ def probe_bindings() -> None:
         ("C13. a PATH-TRAVERSAL target is refused",
          {"arguments": {"namespace": NAMESPACE, "name": "../../secrets"}},
          "name_not_a_single_target"),
-        ("C14. a MISSING idempotency key is refused",
-         {"idempotency_key": ""}, "idempotency_key_missing"),
+        # SUPERSEDED BY ADR-090. The worker attributed the write by idempotency
+        # key until a rollout restart's honest NON_IDEMPOTENT_WRITE declaration
+        # meant the platform derives no key for it. Attribution moved to the
+        # action digest, which the approval is bound to anyway.
+        ("C14. a MISSING action digest is refused — an unattributable write is "
+         "not one this worker performs",
+         {"execution_digest": ""}, "execution_digest_missing"),
         ("C15. a MISSING approval reference is refused",
          {"approval_ref": ""}, "approval_ref_missing"),
         ("C16. a MISSING authorization reference is refused",

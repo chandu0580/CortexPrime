@@ -66,6 +66,8 @@ __all__ = [
     "INVOCATION_ARTIFACT_KIND",
     "ACTION_DIGEST_KIND",
     "canonical_action_digest",
+    "canonical_approval_digest",
+    "APPROVAL_DIGEST_KIND",
 ]
 
 INVOCATION_ARTIFACT_KIND = "cortexprime.execution.invocation_request"
@@ -442,6 +444,62 @@ def canonical_action_digest(
     ).value
 
 
+#: The artifact kind for the digest a human approves. Distinct from
+#: ``ACTION_DIGEST_KIND`` so the two can never collide.
+APPROVAL_DIGEST_KIND = "cortexprime.execution.approval_digest"
+
+
+def canonical_approval_digest(
+    *,
+    capability_ref: str,
+    capability_digest: str,
+    operation: str,
+    tenant_id: str,
+    principal_id: str,
+    environment: ExecutionEnvironment,
+    payload: Mapping[str, Any],
+) -> str:
+    """The digest a human can actually approve (ADR-090).
+
+    Why this exists rather than reusing ``canonical_action_digest``
+    ---------------------------------------------------------------
+    The action digest includes ``binding_digest``, and the binding is created by
+    resolution *inside* the execution the approval is meant to authorize. So the
+    action digest cannot be known at approval time, and the gateway's comparison
+    against it -- which is the check that stops an approval for workload A being
+    replayed against workload B -- could never succeed for a human-in-the-loop
+    approval. It refused everything instead, which is how the defect stayed
+    invisible until a real approval reached a real gateway.
+
+    This digest covers exactly what an approver can be shown and asked about:
+    **what will happen, to whom, under whose authority** -- the capability and
+    its contract version, the operation, the tenant, the principal, the
+    environment, and the validated input.
+
+    It deliberately excludes ``binding_digest`` and ``policy_version``. Both are
+    execution-internal: which binding resolution happened to produce, and which
+    policy revision evaluated it, are not things a human approved and not things
+    that change *what is about to be done*. Authorization re-evaluates the policy
+    at dispatch independently, so dropping the policy version here removes no
+    check.
+
+    What it still prevents, which is the whole point: the payload is inside the
+    digest, so an approval granted for one namespace/workload cannot authorize
+    another. Same capability, different target, different digest, refused.
+    """
+    return compute_digest(
+        {
+            "artifact_kind": APPROVAL_DIGEST_KIND,
+            "capability_ref": capability_ref,
+            "capability_digest": capability_digest,
+            "operation": operation,
+            "tenant_id": tenant_id,
+            "principal_id": principal_id,
+            "environment": environment.value,
+            "payload": dict(payload),
+        }
+    ).value
+
 # ----------------------------------------------------------------------
 # The request
 # ----------------------------------------------------------------------
@@ -619,6 +677,22 @@ class InvocationRequest:
             environment=self.environment,
             binding_digest=self.binding_digest,
             policy_version=policy_version,
+            payload=payload,
+        )
+
+    def approval_digest(self, *, payload: Mapping[str, Any]) -> str:
+        """The digest an approver could have been shown for this action.
+
+        Same discipline as ``action_digest``: the payload is a parameter so the
+        caller must pass the *validated* one.
+        """
+        return canonical_approval_digest(
+            capability_ref=self.capability_ref,
+            capability_digest=self.capability_digest,
+            operation=self.operation,
+            tenant_id=self.tenant_id,
+            principal_id=self.principal_id,
+            environment=self.environment,
             payload=payload,
         )
 

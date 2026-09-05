@@ -69,6 +69,7 @@ from backend.contexts.execution.domain.invocation import (
     InvocationRefused,
     InvocationRequest,
     canonical_action_digest,
+    canonical_approval_digest,
 )
 from backend.contexts.execution.domain.provider_operation import (
     OperationCatalog,
@@ -219,6 +220,25 @@ def _expected_digest(
         environment=ENV,
         binding_digest=BINDING_DIGEST,
         policy_version=policy_version,
+        payload=payload or {},
+    )
+
+
+def _expected_approval_digest(payload=None, *, operation: str = OP_READ) -> str:
+    """The canonical APPROVAL digest the gateway compares against (ADR-090).
+
+    Distinct from the action digest: it omits the binding digest and the policy
+    version, because the binding does not exist when a human is asked to approve
+    and neither field changes what is about to be done. The payload is still in
+    it, which is what stops an approval for one target authorizing another.
+    """
+    return canonical_approval_digest(
+        capability_ref=CAP_REF,
+        capability_digest=CAP_DIGEST,
+        operation=operation,
+        tenant_id=TENANT,
+        principal_id=ACTOR.principal_id,
+        environment=ENV,
         payload=payload or {},
     )
 
@@ -701,7 +721,13 @@ class TestHappyPath:
 
     def test_a_valid_approval_bound_to_this_exact_action_admits(self) -> None:
         """An approval is sufficient only when its bound digest IS this action's
-        digest -- the positive half of the approval stage."""
+        approvable digest -- the positive half of the approval stage.
+
+        Updated by ADR-090: the comparison moved from the action digest to the
+        approval digest. The action digest includes the binding, which does not
+        exist when a human approves, so nothing could ever satisfy the old
+        comparison. What the check protects is unchanged.
+        """
         fx = Fixture(
             facts=_facts(
                 effect=PolicyEffect.REQUIRE_APPROVAL,
@@ -709,13 +735,58 @@ class TestHappyPath:
                 approval_present=True,
                 approval_valid=True,
                 approval_artifact_id="APPROVAL-1",
-                approval_bound_digest=_expected_digest(),
+                approval_bound_digest=_expected_approval_digest(),
                 approval_expires_at=LATER,
             )
         )
         admission = fx.gateway.admit(fx.context, fx.request, fx.binding)
         assert admission.authority.approval_artifact_id == "APPROVAL-1"
         assert fx.credentials.acquisitions == 1
+
+    def test_an_allowed_decision_still_has_its_approval_checked(self) -> None:
+        """The hole Phase 9.9C found, kept closed.
+
+        Authorization downgrades REQUIRE_APPROVAL to ALLOW the moment a presented
+        approval passes its capability-level test. While the gateway read
+        ``approval_required`` off that downgraded effect, its action-level check
+        returned before running -- and an approval granted for one workload
+        admitted another. On a real cluster that performed four writes a negative
+        matrix was supposed to prove impossible.
+
+        So: effect ALLOW, an approval present, and bound to a DIFFERENT action.
+        It must still refuse.
+        """
+        fx = Fixture(
+            facts=_facts(
+                effect=PolicyEffect.ALLOW,
+                approval_required=True,
+                approval_present=True,
+                approval_valid=True,
+                approval_artifact_id="APPROVAL-FOR-SOMETHING-ELSE",
+                approval_bound_digest=_expected_approval_digest(
+                    payload={"target": "a-different-workload"}),
+                approval_expires_at=LATER,
+            )
+        )
+        # The shared helper, which also asserts the two invariants every refusal
+        # must satisfy: no provider call and no credential minted.
+        _refused(fx, InvocationRefusal.APPROVAL_MISMATCH, "approval")
+
+    def test_an_unbound_approval_is_refused_even_when_allowed(self) -> None:
+        """An approval bound to no action would authorize anything this
+        capability can do. Refused, whatever the effect says."""
+        fx = Fixture(
+            facts=_facts(
+                effect=PolicyEffect.ALLOW,
+                approval_required=True,
+                approval_present=True,
+                approval_valid=True,
+                approval_artifact_id="APPROVAL-UNBOUND",
+                approval_bound_digest=None,
+                approval_expires_at=LATER,
+            )
+        )
+        _refused(fx, InvocationRefusal.APPROVAL_MISMATCH, "approval")
 
 
 # ----------------------------------------------------------------------

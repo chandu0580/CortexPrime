@@ -157,6 +157,7 @@ def binding_to_record(binding: "Any") -> dict[str, Any]:
         "resolution_policy_version": binding.resolution_policy_version,
         "resolved_at": binding.resolved_at.isoformat(),
         "expires_at": binding.expires_at.isoformat(),
+        "approval_artifact_id": binding.approval_artifact_id,
         "code_trust": (
             binding.code_trust.value if binding.code_trust else None
         ),
@@ -221,6 +222,7 @@ def binding_from_record(data: Mapping[str, Any]):
         resolution_policy_version=data["resolution_policy_version"],
         resolved_at=datetime.fromisoformat(data["resolved_at"]),
         expires_at=datetime.fromisoformat(data["expires_at"]),
+        approval_artifact_id=data.get("approval_artifact_id"),
         code_trust=(
             CodeTrust(data["code_trust"]) if data.get("code_trust") else None
         ),

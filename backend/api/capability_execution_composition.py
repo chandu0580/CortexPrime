@@ -179,6 +179,7 @@ def project_binding(
         environment=environment,
         interface=interface,
         code_trust=binding.code_trust,
+        approval_artifact_id=binding.approval_artifact_id,
         binding_id=binding.binding_id,
         binding_digest=binding.digest,
         capability_ref=binding.reference.value,
@@ -928,6 +929,12 @@ class AuthorizationAuthorityAdapter:
                 environment=binding.environment,
                 execution_id=str(request.execution_id),
                 node_id=request.node_id,
+                # ADR-090. Without this the re-authorization looks up nothing,
+                # approval_valid is never true, and REQUIRE_APPROVAL refuses
+                # every dispatch -- which is precisely what it did until now.
+                # Read off the SEALED BINDING, never off a payload, so nothing
+                # a model produced can reach it.
+                approval_artifact_id=binding.approval_artifact_id,
             ),
         )
         if decision is None:
@@ -956,8 +963,22 @@ class AuthorizationAuthorityAdapter:
             environment=binding.environment,
             delegation_permitted=permitted,
             delegated_principal_id=delegated_to,
-            approval_required=decision.effect is PolicyEffect.REQUIRE_APPROVAL,
+            # NOT simply "the decision still wants one". Authorization
+            # downgrades REQUIRE_APPROVAL to ALLOW the moment a presented
+            # approval passes its capability-level test -- so reading the
+            # downgraded effect made the gateway skip its own, stronger,
+            # action-level check entirely. An approval that was RELIED UPON must
+            # still be shown to cover THIS action.
+            approval_required=(
+                decision.effect is PolicyEffect.REQUIRE_APPROVAL
+                or bool(decision.approval_artifact_id)
+            ),
+            approval_present=bool(decision.approval_artifact_id),
             approval_artifact_id=decision.approval_artifact_id,
+            # The decision ALLOWED, which is what "valid" means at this layer.
+            # The gateway then applies the action-level test on top.
+            approval_valid=decision.effect is PolicyEffect.ALLOW,
+            approval_bound_digest=decision.approval_bound_digest,
             obligations=tuple(decision.obligations),
             reasons=decision.reason_codes,
         )
@@ -1684,7 +1705,10 @@ def contained_worker_catalog():
                 ),
                 static_headers={"content-type": "application/json"},
                 provider_timeout_seconds=45,
-                max_response_bytes=64 * 1024,
+                # The worker's answer is a few hundred bytes, but the response
+                # budget must not be smaller than the transport's single-frame
+                # budget (1 MiB by policy) or the policy refuses to construct.
+                max_response_bytes=1024 * 1024,
             ),
         ),
     )
@@ -1775,6 +1799,10 @@ def build_contained_worker_connector(
         supported_effects=frozenset({EffectSemantics.NON_IDEMPOTENT_WRITE}),
         supported_providers=frozenset({CONTAINED_KUBERNETES_PROVIDER_ID}),
         supported_operations=frozenset({ContainedWorkerAdapter.OPERATION}),
+        # FALSE, and honestly so: a rollout restart is non-idempotent -- a
+        # repeat creates another revision rather than collapsing one -- so there
+        # is no key that would make a retry safe. Attribution comes from the
+        # action digest instead, which the authority always carries.
         supports_provider_idempotency=False,
     )
     adapter = ContainedWorkerAdapter(

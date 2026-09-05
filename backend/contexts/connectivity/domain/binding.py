@@ -131,6 +131,18 @@ class CapabilityBinding:
     #: The declared effect at the moment of binding. Carried so the execution
     #: boundary can refuse a capability whose declaration changed without having
     #: to reason about what it used to say.
+    approval_artifact_id: Optional[str] = None
+    """The approval the authorization decision rested on, when one was required.
+
+    Sealed here because the gateway re-authorizes at dispatch and needs to look
+    the approval up again -- an approval can be revoked in between, and a
+    re-check that could not find it would refuse every approved action (which is
+    exactly what it did before ADR-090).
+
+    Not added to ``digest_payload``: ``authorization_digest`` is already there,
+    and the decision's own digest covers ``approval_artifact_id``, so the
+    approval is already transitively sealed into this binding."""
+
     code_trust: Optional[CodeTrust] = None
     """Which class of computation the bound capability performs (ADR-088).
 
@@ -360,6 +372,7 @@ class CapabilityBinding:
         candidate,
         operation: CapabilityOperation,
         authorization_digest: str,
+        approval_artifact_id: Optional[str] = None,
         authorization_policy_version: str,
         resolution_policy_version: str,
         expires_at: datetime,
@@ -384,6 +397,7 @@ class CapabilityBinding:
             operation=operation,
             provider_operation=getattr(candidate, "provider_operation", None),
             authorization_digest=authorization_digest,
+            approval_artifact_id=approval_artifact_id,
             authorization_policy_version=authorization_policy_version,
             resolution_policy_version=resolution_policy_version,
             resolved_at=moment,

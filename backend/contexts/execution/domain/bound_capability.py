@@ -96,6 +96,13 @@ class BoundCapability:
     it to decide what boundary this must run behind, and an unstated code trust
     cannot be read as a safe one."""
 
+    approval_artifact_id: Optional[str] = None
+    """The approval the authorization rested on, projected from the binding.
+
+    Execution carries it and hands it back; it never reads it, compares it or
+    decides anything from it. The gateway's re-authorization is what looks it up,
+    and the approval machinery is what validates it."""
+
     environment: Optional[ExecutionEnvironment] = None
     """Where this is to be performed. Optional in the type and **mandatory in
     practice**: worker selection refuses a binding that does not say (Phase

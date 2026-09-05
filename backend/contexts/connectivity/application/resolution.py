@@ -245,6 +245,10 @@ class CapabilityResolutionService:
             candidate=best.candidate,
             operation=request.operation,
             authorization_digest=request.authorization.digest,
+            # Copied from the decision, never from a caller. The gateway will
+            # look this up again at dispatch and re-validate it (ADR-090).
+            approval_artifact_id=getattr(
+                request.authorization, "approval_artifact_id", None),
             authorization_policy_version=request.authorization.policy_version,
             resolution_policy_version=self.policy_version,
             # Never outlives the authorization behind it.
