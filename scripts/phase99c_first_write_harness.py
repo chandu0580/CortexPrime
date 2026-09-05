@@ -608,7 +608,7 @@ def probe_replay(runtime, definitions, approvals, state) -> None:
           len(annotation) >= 32, annotation[:24] + "...")
 
 
-def _approval_recorded() -> list:
+def _approval_recorded(needle: str = "appr-first-write") -> list:
     """Every durable place the approval reference actually appears.
 
     Searched rather than assumed. An earlier version of this check queried
@@ -622,7 +622,6 @@ def _approval_recorded() -> list:
         return []
     engine = sa.create_engine(dsn)
     found = []
-    needle = "appr-first-write"
     try:
         with engine.connect() as conn:
             tables = [r[0] for r in conn.execute(sa.text(
