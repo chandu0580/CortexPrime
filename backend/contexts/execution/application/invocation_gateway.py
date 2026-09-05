@@ -383,6 +383,7 @@ class InvocationAdmission:
             action_digest=self.action_digest,
             authorization_digest=self.authority.decision_digest,
             policy_version=self.authority.policy_version,
+            approval_ref=self.authority.approval_artifact_id,
             execution_id=str(request.execution_id),
             node_id=request.node_id,
             attempt_id=str(request.attempt_id),

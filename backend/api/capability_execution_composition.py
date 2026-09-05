@@ -164,11 +164,21 @@ def project_binding(
             f"binding {binding.binding_id} does not declare its effect; Execution "
             "decides retry safety from that declaration and will not infer one"
         )
+    if binding.code_trust is None:
+        # Fail closed, for the same reason as the effect above. Worker selection
+        # reads this to decide which isolation tier is sufficient (ADR-088), and
+        # a projection that guessed FIXED would grant the weakest requirement to
+        # a capability nobody classified.
+        raise ValueError(
+            f"binding {binding.binding_id} does not declare its code trust; "
+            "isolation is chosen from that declaration and will not be inferred"
+        )
     if environment is not None and not isinstance(environment, ExecutionEnvironment):
         raise ValueError("environment must be an ExecutionEnvironment")
     return BoundCapability(
         environment=environment,
         interface=interface,
+        code_trust=binding.code_trust,
         binding_id=binding.binding_id,
         binding_digest=binding.digest,
         capability_ref=binding.reference.value,
@@ -1610,3 +1620,171 @@ class GovernedCapabilityWriter(GovernedCapabilityReader):
             context, operation=operation, payload=payload, node_id=node_id,
             workflow_id=workflow_id or f"remediate-{operation}",
             approval_artifact_id=approval_artifact_id)
+
+
+#: The provider id of the CONTAINED write path (ADR-089).
+#:
+#: Deliberately NOT ``kubernetes``. That id names the in-process read connector,
+#: which reaches the API server directly with a read-only ServiceAccount and now
+#: honestly declares ``AMBIENT``. The contained path is a different provider
+#: boundary in every sense that matters: a different address (the worker, not
+#: the API server), a different identity (a ServiceAccount that may patch one
+#: namespace), and a different trust posture (out of this process entirely).
+#:
+#: Giving them one id would put two endpoints and two credentials behind one
+#: name, which is exactly the shadowing Phase 9.2 refused: "one provider id, one
+#: execution path, never a fallback."
+CONTAINED_KUBERNETES_PROVIDER_ID = "kubernetes-contained"
+
+
+def contained_worker_catalog():
+    """The one operation the contained worker performs, as the PLATFORM sees it.
+
+    Note the method and path: ``POST /execute``. This catalog describes what the
+    adapter actually sends -- an envelope to a worker -- not what the worker
+    subsequently sends to Kubernetes. Declaring the Kubernetes PATCH here would
+    describe a request this side never makes, and the catalog is meant to be the
+    truth about the dial that leaves this process.
+
+    The effect classification is the Kubernetes one, because that is the effect
+    the execution has on the world: an irreversible, non-idempotent write.
+    """
+    from backend.contexts.execution.domain.provider_operation import (
+        OperationCatalog, ParameterKind, ParameterLocation, ParameterSpec,
+        ProviderOperationSpec,
+    )
+    from backend.contracts.execution import EffectSemantics, SideEffectClass
+
+    return OperationCatalog(
+        CONTAINED_KUBERNETES_PROVIDER_ID,
+        (
+            ProviderOperationSpec(
+                operation="kubernetes.workload.rollout_restart",
+                method="POST",
+                path_template="/execute",
+                side_effect_class=SideEffectClass.IRREVERSIBLE_WRITE,
+                effect_semantics=EffectSemantics.NON_IDEMPOTENT_WRITE,
+                # Exactly two, and both are resource segments: there is no field
+                # here in which a selector, a path or a URL could be expressed.
+                parameters=(
+                    ParameterSpec(name="namespace",
+                                  kind=ParameterKind.RESOURCE_SEGMENT,
+                                  location=ParameterLocation.BODY,
+                                  max_length=253),
+                    ParameterSpec(name="name",
+                                  kind=ParameterKind.RESOURCE_SEGMENT,
+                                  location=ParameterLocation.BODY,
+                                  max_length=253),
+                ),
+                success_statuses=(200,),
+                response_required_fields=(),
+                response_evidence_fields=(
+                    "kind", "name", "namespace", "resourceVersion",
+                    "generation", "restartAnnotation",
+                ),
+                static_headers={"content-type": "application/json"},
+                provider_timeout_seconds=45,
+                max_response_bytes=64 * 1024,
+            ),
+        ),
+    )
+
+
+def build_contained_worker_connector(
+    *,
+    transport_broker: Any,
+    connection_policy: Any,
+    environment: ExecutionEnvironment,
+    worker_url: str,
+    capability_id: str,
+    capability_version: int,
+    implementation_digest: str,
+    worker_id: str = "kubernetes-contained-worker",
+    preflight: Optional[Any] = None,
+    metrics: Optional[Any] = None,
+) -> tuple:
+    """The first genuinely CONTAINED worker (ADR-089, Phase 9.9 Part B).
+
+    Returns ``(entry, adapter, catalog)`` — the same shape as the other connector
+    builders. The catalog declares the one operation and its exactly-two
+    parameters, so the platform validates the arguments before dispatching them
+    rather than leaving the worker as the only check.
+
+    **This declares ``IsolationTier.CONTAINED`` and the declaration is true.**
+    The thing it dispatches to is a separate process, in a separate container,
+    in a separate PID namespace, with its own read-only filesystem, holding no
+    CortexPrime credential and running as a non-root user. That is what the tier
+    requires, and Part A's whole point was that a worker becomes CONTAINED by
+    being out-of-process rather than by being described as such.
+
+    It is still **not** ``SANDBOXED`` and never ``SEALED``: it shares the host
+    kernel, which Phase 9.7 established by execution this host cannot avoid.
+
+    ``worker_url`` is deployment configuration with no default, exactly as the
+    Kubernetes API address is. There is no universal worker address, and a
+    guessed one would be a fabricated destination.
+    """
+    from backend.contracts.connector import IsolationTier
+    from backend.contexts.execution import WorkerEntry, WorkerInterface, WorkerScope
+    from backend.contexts.execution.domain.worker import WorkerKind
+    from backend.contexts.execution.domain.worker_directory import WorkerImplementation
+    from backend.contexts.execution.infrastructure.adapters.channel import (
+        ProviderChannel, TransportEndpoint, TransportKind,
+    )
+    from backend.contexts.execution.infrastructure.adapters.contained_worker import (
+        ContainedWorkerAdapter,
+    )
+    from backend.contracts.execution import EffectSemantics
+    from backend.contracts.provider import ProviderRef
+
+    provider = ProviderRef(provider_id=CONTAINED_KUBERNETES_PROVIDER_ID)
+    catalog = contained_worker_catalog()
+    endpoint = TransportEndpoint.parse(
+        worker_url, transport=TransportKind.HTTPS, environment=environment
+    )
+    if endpoint.is_plaintext:
+        # The credential reaches the worker as this connection's authorization
+        # header. Refused here as well as by policy, for the same reason the
+        # Kubernetes channel refuses it.
+        raise ValueError(
+            "the contained worker endpoint must be HTTPS; the execution "
+            "credential is exposed on every plaintext request"
+        )
+    channel = ProviderChannel(
+        provider=provider,
+        broker=transport_broker,
+        base_endpoint=endpoint,
+        policy=connection_policy,
+        transport=TransportKind.HTTPS,
+    )
+    implementation = WorkerImplementation(
+        worker_id=worker_id,
+        worker_kind=WorkerKind.CONNECTOR,
+        interface=WorkerInterface.CONNECTOR,
+        implementation=(
+            "backend.contexts.execution.infrastructure.adapters.contained_worker."
+            "ContainedWorkerAdapter"
+        ),
+        # Pinned, and part of what the worker is bound to. A capability
+        # implementation change must invalidate the previous authorization
+        # assumptions rather than quietly inherit them.
+        implementation_version=ContainedWorkerAdapter.IMPLEMENTATION_VERSION,
+        isolation=IsolationTier.CONTAINED,
+        scope=WorkerScope.PLATFORM,
+        supported_environments=frozenset({environment}),
+        supported_effects=frozenset({EffectSemantics.NON_IDEMPOTENT_WRITE}),
+        supported_providers=frozenset({CONTAINED_KUBERNETES_PROVIDER_ID}),
+        supported_operations=frozenset({ContainedWorkerAdapter.OPERATION}),
+        supports_provider_idempotency=False,
+    )
+    adapter = ContainedWorkerAdapter(
+        implementation=implementation,
+        provider=provider,
+        channel=channel,
+        capability_id=capability_id,
+        capability_version=capability_version,
+        implementation_digest=implementation_digest,
+        preflight=preflight,
+        metrics=metrics,
+    )
+    return WorkerEntry(implementation=implementation), adapter, catalog

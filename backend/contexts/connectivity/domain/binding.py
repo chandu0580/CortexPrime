@@ -41,6 +41,7 @@ from typing import Any, Mapping, Optional
 
 from backend.contracts.approval import PayloadDigest
 from backend.contracts.errors import ContractViolation
+from backend.contracts.connector import CodeTrust
 from backend.contracts.execution import EffectSemantics, SideEffectClass
 from backend.contracts.identity import PrincipalRef
 from backend.contexts.connectivity.domain.authorization import CapabilityOperation
@@ -130,6 +131,14 @@ class CapabilityBinding:
     #: The declared effect at the moment of binding. Carried so the execution
     #: boundary can refuse a capability whose declaration changed without having
     #: to reason about what it used to say.
+    code_trust: Optional[CodeTrust] = None
+    """Which class of computation the bound capability performs (ADR-088).
+
+    Projected into Execution beside the effect class, because worker selection
+    needs both: the effect says what it does to the world, and this says what
+    the code could do if it were something other than declared. Optional in the
+    type and mandatory in practice -- ``project_binding`` refuses without it."""
+
     side_effect_class: Optional[SideEffectClass] = None
     effect_semantics: Optional[EffectSemantics] = None
 
@@ -379,6 +388,7 @@ class CapabilityBinding:
             resolution_policy_version=resolution_policy_version,
             resolved_at=moment,
             expires_at=expires_at,
+            code_trust=getattr(candidate, "code_trust", None),
             side_effect_class=candidate.side_effect_class,
             effect_semantics=candidate.effect_semantics,
             mission_id=mission_id,

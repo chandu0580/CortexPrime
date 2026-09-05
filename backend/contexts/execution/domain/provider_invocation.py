@@ -176,6 +176,15 @@ class ProviderAuthority:
     deadline_seconds: Optional[int] = None
 
     # -- correlation -----------------------------------------------------------------
+    approval_ref: Optional[str] = None
+    """The approval artifact the authorization decision rested on, when one was
+    required. A *reference*, never the artifact: an adapter that could read the
+    approval would be an adapter that could re-decide it, and the decision was
+    already made. ``None`` where the effect class required no approval.
+
+    Carried so an out-of-process worker can record what it acted under without
+    being handed authority to re-evaluate it (ADR-089)."""
+
     idempotency_key: Optional[str] = None
     """Execution's key, passed through untouched. An adapter that minted one
     would give the provider two identities for one logical operation, which is

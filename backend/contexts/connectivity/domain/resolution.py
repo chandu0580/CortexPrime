@@ -40,6 +40,7 @@ from enum import Enum
 from typing import Any, Mapping, Optional
 
 from backend.contracts.errors import ContractViolation
+from backend.contracts.connector import CodeTrust
 from backend.contracts.execution import EffectSemantics, SideEffectClass
 from backend.contracts.identity import PrincipalRef
 from backend.contexts.connectivity.domain.authorization import (
@@ -161,6 +162,12 @@ class CandidateSnapshot:
     side_effect_class: SideEffectClass
     effect_semantics: EffectSemantics
     supported_environments: tuple = ()
+    code_trust: Optional[CodeTrust] = None
+    """Which class of computation this capability's implementation performs
+    (ADR-088). Travels with the effect class because the binding built from this
+    snapshot needs both: worker selection reads them together to decide which
+    isolation tier is sufficient."""
+
     input_schema_digest: Optional[str] = None
     output_schema_digest: Optional[str] = None
     provider_operation: Optional[str] = None

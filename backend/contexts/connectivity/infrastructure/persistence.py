@@ -157,6 +157,9 @@ def binding_to_record(binding: "Any") -> dict[str, Any]:
         "resolution_policy_version": binding.resolution_policy_version,
         "resolved_at": binding.resolved_at.isoformat(),
         "expires_at": binding.expires_at.isoformat(),
+        "code_trust": (
+            binding.code_trust.value if binding.code_trust else None
+        ),
         "side_effect_class": (
             binding.side_effect_class.value if binding.side_effect_class else None
         ),
@@ -184,6 +187,7 @@ def binding_from_record(data: Mapping[str, Any]):
     is what makes an edited row fail to load rather than loading as authority
     nobody granted.
     """
+    from backend.contracts.connector import CodeTrust
     from backend.contracts.execution import EffectSemantics, SideEffectClass
     from backend.contexts.connectivity.domain.binding import CapabilityBinding
     from backend.contexts.connectivity.domain.authorization import CapabilityOperation
@@ -217,6 +221,9 @@ def binding_from_record(data: Mapping[str, Any]):
         resolution_policy_version=data["resolution_policy_version"],
         resolved_at=datetime.fromisoformat(data["resolved_at"]),
         expires_at=datetime.fromisoformat(data["expires_at"]),
+        code_trust=(
+            CodeTrust(data["code_trust"]) if data.get("code_trust") else None
+        ),
         side_effect_class=(
             SideEffectClass(data["side_effect_class"])
             if data.get("side_effect_class")

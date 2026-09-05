@@ -422,6 +422,7 @@ class CapabilityResolutionService:
                 tenant_id=d.tenant_id,
                 source=d.source.value,
                 is_self_declared=d.source.is_self_declared,
+                code_trust=d.contract.code_trust,
                 side_effect_class=d.contract.side_effect_class,
                 effect_semantics=d.contract.effect_semantics,
                 provider_operation=d.contract.provider_operation,
