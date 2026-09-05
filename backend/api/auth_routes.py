@@ -172,6 +172,50 @@ async def get_current_user(
 
 
 # ---------------------------------------------------------------------------
+# Tenant claims (Phase 10.2)
+# ---------------------------------------------------------------------------
+
+def _tenant_claims(user_id: str) -> dict:
+    """The authenticated user's tenant membership, resolved from the store.
+
+    Why this exists
+    ---------------
+    The governed Product API refuses any token with no tenant claim (403), and
+    until now login minted tokens with none -- so no browser session could ever
+    reach it. This is the missing wire, not a new mechanism: ``TenantManager``
+    already maps a user to a tenant and a role, and ``create_access_token``
+    already accepts ``tenant_id`` / ``tenant_slug`` / ``user_role``.
+
+    Fail-closed by construction
+    ---------------------------
+    No membership, an inactive membership, an inactive tenant, or any failure
+    reading the store -> **no claims at all**, exactly as before this change.
+    The caller cannot influence the result: the only input is the identity that
+    already passed authentication. There is no header, body or query that
+    reaches this function, so a client can neither choose nor suggest a tenant.
+    """
+    try:
+        from backend.auth.tenant import get_tenant_manager
+
+        tm = get_tenant_manager()
+        member = tm.get_user_by_email(user_id)
+        if member is None or not getattr(member, "is_active", False):
+            return {}
+        tenant = tm.get_tenant(member.tenant_id)
+        if tenant is None or not tenant.is_active:
+            return {}
+        return {
+            "tenant_id": tenant.tenant_id,
+            "tenant_slug": tenant.slug,
+            "user_role": member.role,
+        }
+    except Exception:  # noqa: BLE001 - a store failure must not grant a tenant
+        log.warning("tenant membership lookup failed; issuing token with no "
+                    "tenant claim", exc_info=True)
+        return {}
+
+
+# ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
@@ -189,7 +233,8 @@ async def login(request: LoginRequest, response: Response):
         )
 
     role          = "operator"
-    access_token  = create_access_token(user_id=request.username, role=role)
+    claims        = _tenant_claims(request.username)
+    access_token  = create_access_token(user_id=request.username, role=role, **claims)
     refresh_token = create_refresh_token(user_id=request.username, role=role)
 
     _set_access_cookie(response, access_token)
@@ -271,7 +316,11 @@ async def refresh(
     role = old_payload.get("role", "operator")
 
     # Issue new pair (refresh-token rotation)
-    new_access  = create_access_token(user_id=user_id, role=role)
+    # Re-resolved, never copied from the old token: a membership revoked since
+    # the last login must stop being honoured at the next rotation rather than
+    # ride along inside a token the client keeps refreshing.
+    claims      = _tenant_claims(user_id)
+    new_access  = create_access_token(user_id=user_id, role=role, **claims)
     new_refresh = create_refresh_token(user_id=user_id, role=role)
 
     _set_access_cookie(response, new_access)

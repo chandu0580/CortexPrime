@@ -61,6 +61,17 @@ class ProductEngine:
     investigation_repository: Any
     world_query: Any
     verifications: Any
+    #: Phase 10.2. Both are pure reads over the two ledgers already reachable
+    #: above -- ``observations`` resolves one observation by id (so an evidence
+    #: list can show what was observed rather than only that something was), and
+    #: ``beliefs`` is the existing BeliefFormation, which is how CORRELATED stays
+    #: distinguishable from INDEPENDENT. Neither is a new store.
+    observations: Any = None
+    beliefs: Any = None
+    #: The SAME lineage policy the belief path uses, so a source's origin is
+    #: described identically wherever it appears. Two lineage policies would be
+    #: two answers to "are these sources independent".
+    lineage_policy: Any = None
 
 
 def current_engine() -> Optional[ProductEngine]:
@@ -99,22 +110,39 @@ def compose_engine() -> Optional[ProductEngine]:
             SqlObservationRepository,
         )
 
+        from backend.api.observability_evidence import observability_lineage_policy
+        from backend.world.application.belief import BeliefFormation
+
         runtime = build_governed_runtime()
         if runtime is None:
             log.warning("product API: no governed runtime; data endpoints will 503")
             return None
 
+        lineage_policy = observability_lineage_policy()
         store = runtime.persistence.store
         investigation_repository = SqlInvestigationRepository(store)
+        observations = SqlObservationRepository(store)
+        authority_policy = observability_authority_policy()
+        world_query = WorldQuery(
+            facts=SqlFactRepository(store),
+            observations=observations,
+            authority_policy=authority_policy,
+            freshness_policy=observability_freshness_policy())
         return ProductEngine(
             investigations=InvestigationService(repository=investigation_repository),
             investigation_repository=investigation_repository,
-            world_query=WorldQuery(
-                facts=SqlFactRepository(store),
-                observations=SqlObservationRepository(store),
-                authority_policy=observability_authority_policy(),
-                freshness_policy=observability_freshness_policy()),
+            world_query=world_query,
             verifications=SqlVerificationRepository(store),
+            observations=observations,
+            # Reuses the SAME query and the SAME policies. A second belief path
+            # with its own policies would be a second answer to "what do we
+            # believe", which is the one thing the World Plane may not have.
+            beliefs=BeliefFormation(
+                query=world_query,
+                observations=observations,
+                authority_policy=authority_policy,
+                lineage_policy=lineage_policy),
+            lineage_policy=lineage_policy,
         )
     except Exception:  # noqa: BLE001 - a failed composition must not crash boot
         log.warning("product API: engine composition failed", exc_info=True)

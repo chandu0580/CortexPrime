@@ -219,11 +219,15 @@ def main() -> None:
     if engine is None:
         bail(2, "the governed engine could not be composed")
     check("A1. the engine composed against real PostgreSQL", True)
+    # Phase 10.2 widened this set (observations, beliefs, lineage_policy -- all
+    # pure reads over the same two ledgers). The assertion that matters is not
+    # the exact size but that NOTHING capable of acting is on it, so it is now
+    # written as a forbidden-surface check plus an explicit allow-list.
+    ALLOWED = {"investigations", "investigation_repository", "world_query",
+               "verifications", "observations", "beliefs", "lineage_policy"}
     check("A2. the engine exposes ONLY read surfaces — no gateway, dispatcher, "
           "worker runtime, credential broker or transport is reachable from it",
-          set(ProductEngine.__dataclass_fields__) == {
-              "investigations", "investigation_repository", "world_query",
-              "verifications"},
+          set(ProductEngine.__dataclass_fields__) <= ALLOWED,
           str(sorted(ProductEngine.__dataclass_fields__)))
 
     app = build_product_app(engine=engine)
@@ -399,9 +403,18 @@ def run_reads(client, engine, seeded_ref: str) -> None:
     body = r.json()
     check("E1. the list endpoint answers with an explicit bounded schema",
           r.status_code == 200 and {"items", "count", "limit", "note"} <= set(body))
-    check("E2. it says plainly that it lists COMPLETED investigations only, "
-          "rather than letting an empty list imply nothing is happening",
-          "Completed investigations only" in body["note"])
+    # In Phase 10.1 this asserted the note said "Completed investigations only",
+    # which was the honest disclosure of a real limitation at the time. Phase
+    # 10.2 lifted the limitation, so asserting the old wording would now be
+    # asserting a limitation that no longer exists. What still has to hold is
+    # the underlying rule: the response must SAY which lifecycle states it
+    # listed, so an empty list is never left to imply nothing is happening.
+    check("E2. it says plainly which lifecycle states it listed, rather than "
+          "letting an empty list imply nothing is happening",
+          bool(body["note"]) and body.get("state") in ("all", "active", "completed")
+          and any(word in body["note"].lower()
+                  for word in ("active", "completed", "in-progress")),
+          f"state={body.get('state')} note={body['note']}")
 
     r = client.get("/api/v1/world/state?subject_ref=kubernetes:deployment:none/none"
                    "&predicate=deployed_revision", headers=auth)
@@ -422,12 +435,16 @@ def run_reads(client, engine, seeded_ref: str) -> None:
           "not rendered as a failure or an error",
           "insufficient" in str(detail.get("conclusion_kind", "")).lower(),
           str(detail.get("conclusion_kind")))
-    check("E5c. the detail response exposes only declared fields — no raw "
-          "domain state leaked through",
-          set(detail) <= {"investigation_ref", "status", "subject_ref",
-                          "opened_at", "concluded_at", "diagnosis", "hypotheses",
-                          "evidence", "residual_uncertainty", "conclusion_kind"},
-          str(sorted(set(detail))))
+    # The field set grew in Phase 10.2. What this check exists to catch is a
+    # raw domain object or database row escaping, so it asserts against the
+    # declared schema itself rather than a list that has to be kept in step by
+    # hand -- a hand-maintained list is one that drifts and stops catching
+    # anything.
+    from backend.api.product.schemas import InvestigationDetail
+    check("E5c. the detail response exposes only fields the schema declares — "
+          "no raw domain state leaked through",
+          set(detail) <= set(InvestigationDetail.model_fields),
+          str(sorted(set(detail) - set(InvestigationDetail.model_fields))))
 
     # Repeated reads must be observationally equivalent (Part Q).
     before = _ledger_counts()

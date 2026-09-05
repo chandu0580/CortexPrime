@@ -118,6 +118,72 @@ class SqlInvestigationRepository:
             ).fetchall()
         return tuple(r[0] for r in rows)
 
+    def list_active(
+        self, *, tenant_id: str, limit: int = 200
+    ) -> tuple[dict, ...]:
+        """The latest snapshots of NON-terminal investigations for a tenant.
+
+        The exact query ``list_terminal`` runs, with the status filter inverted.
+        It exists because an incident workspace that can only list finished
+        investigations is a report archive: the investigation a human most needs
+        to see is the one still running.
+
+        Tenant-scoped in SQL for the same reason ``list_terminal`` is -- a WHERE
+        clause the database enforces is a stronger boundary than a filter the
+        application remembers to apply. Read-only.
+        """
+        terminal = ("completed", "failed", "abandoned")
+        with self._store.atomic() as work:
+            latest = sa.select(
+                T.c.investigation_id, sa.func.max(T.c.seq).label("mseq")
+            ).where(T.c.tenant_id == tenant_id).group_by(T.c.investigation_id).subquery()
+            rows = work.execute(
+                sa.select(T.c.state).select_from(T).join(
+                    latest, sa.and_(T.c.investigation_id == latest.c.investigation_id,
+                                    T.c.seq == latest.c.mseq)
+                ).where(
+                    T.c.tenant_id == tenant_id, T.c.to_status.notin_(terminal)
+                ).order_by(T.c.recorded_at.desc()).limit(limit)
+            ).fetchall()
+        return tuple(r[0] for r in rows)
+
+    def list_events(
+        self, *, tenant_id: str, investigation_id: str, limit: int = 500
+    ) -> tuple[dict, ...]:
+        """Every recorded event for one investigation, oldest first.
+
+        The ledger is already append-only and already stores each transition, so
+        a timeline is a read of what happened -- not a reconstruction, and never
+        an inference about what probably happened between two events.
+
+        ``recorded_at`` is returned under its own name. It is when CortexPrime
+        committed the event, which is NOT when the world changed; a consumer that
+        conflates the two would be inventing an event time, so this method does
+        not rename it to anything friendlier.
+        """
+        with self._store.atomic() as work:
+            rows = work.execute(
+                sa.select(
+                    T.c.seq, T.c.event_kind, T.c.from_status, T.c.to_status,
+                    T.c.autonomy_level, T.c.recorded_at, T.c.payload,
+                ).where(
+                    T.c.tenant_id == tenant_id,
+                    T.c.investigation_id == investigation_id,
+                ).order_by(T.c.seq.asc()).limit(limit)
+            ).fetchall()
+        return tuple(
+            {
+                "seq": int(r[0]),
+                "event_kind": r[1],
+                "from_status": r[2],
+                "to_status": r[3],
+                "autonomy_level": r[4],
+                "recorded_at": r[5],
+                "payload": r[6] if isinstance(r[6], dict) else {},
+            }
+            for r in rows
+        )
+
     def event_count(self, *, tenant_id: str, investigation_id: str) -> int:
         with self._store.atomic() as work:
             return int(work.execute(
