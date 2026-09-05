@@ -682,7 +682,9 @@ class ExecutionService:
         events = self.history(context, command.execution_id)
         if not events:
             raise ExecutionNotFound(command.execution_id)
-        return self._replayer.replay(events)
+        # The id the caller asked for, as a hint only: the events win if they
+        # name one, so a projection can never be relabelled (ADR-092).
+        return self._replayer.replay(events, execution_id=command.execution_id)
 
     def plan_retry(self, context: Any, execution_id: str, node_id: str) -> RetryDecision:
         """Decide whether a node may run again. Pure, and safe to ask twice.

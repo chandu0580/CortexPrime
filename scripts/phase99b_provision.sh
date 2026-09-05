@@ -40,6 +40,7 @@ READER_SA=cortex-reader
 RESTART_SA=cortex-restarter
 WORKER_IMAGE=cortexprime/contained-k8s-restart:1.0.0
 WORKER_NODEPORT=30099
+POD_MAX_PIDS=128
 WORKER_HOSTPORT=18099
 PG_CONTAINER=cortex-p99b-pg
 PG_PORT=55437
@@ -103,7 +104,11 @@ MSYS_NO_PATHCONV=1 docker run --rm -v "${WINPWD}/.phase99b:/out" alpine/openssl 
 # ---------------------------------------------------------------------------
 echo "==> k3d cluster ${CLUSTER}"
 if ! "$K3D" cluster list "$CLUSTER" >/dev/null 2>&1; then
+  # pod-max-pids sets each pod's cgroup pids.max. Without it the cap is "max",
+  # which is what ADR-089 honestly reported as NOT VERIFIED. 128 is ample for a
+  # stdlib HTTP server and far below anything a fork bomb needs.
   "$K3D" cluster create "$CLUSTER" --servers 1 --agents 0 --no-lb \
+    --k3s-arg "--kubelet-arg=pod-max-pids=${POD_MAX_PIDS}@server:0" \
     --port "${WORKER_HOSTPORT}:${WORKER_NODEPORT}@server:0:direct" --wait
 fi
 "$K3D" kubeconfig get "$CLUSTER" > "$KUBECONFIG_PATH"
@@ -315,6 +320,40 @@ spec:
     - {port: 8080, targetPort: 8080, nodePort: ${WORKER_NODEPORT}}
 YAML
 
+# ---------------------------------------------------------------------------
+# 5b. Egress. The worker may reach the Kubernetes API server and DNS. Nothing
+#     else -- not the internet, not another service in this cluster.
+#
+#     The API server rule names the ENDPOINT (node IP:6443), not the ClusterIP.
+#     kube-proxy DNATs the ClusterIP and NetworkPolicy is evaluated after that,
+#     so an ipBlock for 10.43.0.1 silently blocks the API server. That mistake
+#     was made and caught by probing before it reached the worker.
+# ---------------------------------------------------------------------------
+echo "==> restricting worker egress (API server + DNS only)"
+API_ENDPOINT=$(kubectl get endpoints kubernetes -n default \
+  -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null)
+API_ENDPOINT_PORT=$(kubectl get endpoints kubernetes -n default \
+  -o jsonpath='{.subsets[0].ports[0].port}' 2>/dev/null)
+DNS_IP=$(kubectl get svc -n kube-system kube-dns -o jsonpath='{.spec.clusterIP}' 2>/dev/null)
+if [ -n "$API_ENDPOINT" ] && [ -n "$DNS_IP" ]; then
+  cat <<YAML | kubectl apply -f - >/dev/null
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: contained-worker-egress, namespace: ${NAMESPACE}}
+spec:
+  podSelector: {matchLabels: {app: contained-worker}}
+  policyTypes: ["Egress"]
+  egress:
+    - to: [{ipBlock: {cidr: ${API_ENDPOINT}/32}}]
+      ports: [{protocol: TCP, port: ${API_ENDPOINT_PORT}}]
+    - to: [{ipBlock: {cidr: ${DNS_IP}/32}}]
+      ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
+YAML
+  echo "   egress: ${API_ENDPOINT}:${API_ENDPOINT_PORT} + DNS ${DNS_IP} only"
+else
+  echo "   (could not resolve the API endpoint; NO egress policy applied)"
+fi
+
 echo "==> waiting for the worker to become ready"
 kubectl -n "$NAMESPACE" rollout status deploy/contained-worker --timeout=180s
 for deploy in "$TARGET_DEPLOY" "$BYSTANDER_DEPLOY"; do
@@ -397,6 +436,8 @@ CORTEX_P99B_OTHER_NAMESPACE=${OTHER_NAMESPACE}
 CORTEX_P99B_TARGET=${TARGET_DEPLOY}
 CORTEX_P99B_BYSTANDER=${BYSTANDER_DEPLOY}
 CORTEX_P99B_IMPL_DIGEST=${IMPL_DIGEST}
+CORTEX_P99B_POD_MAX_PIDS=${POD_MAX_PIDS}
+CORTEX_P99B_API_ENDPOINT=${API_ENDPOINT}
 CORTEX_P99B_CAPABILITY_ID=${CAPABILITY_ID}
 CORTEX_P99B_CAPABILITY_VERSION=${CAPABILITY_VERSION}
 CORTEX_P99B_OPERATION=${OPERATION}

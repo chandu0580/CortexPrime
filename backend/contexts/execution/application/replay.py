@@ -153,8 +153,20 @@ class ExecutionReplayer:
     discipline. There is nothing here to call.
     """
 
-    def replay(self, events: Sequence[Any]) -> ReplayedExecution:
+    def replay(
+        self, events: Sequence[Any], *, execution_id: Optional[str] = None
+    ) -> ReplayedExecution:
         """Reconstruct the run from its history.
+
+        ``execution_id`` is an optional identity *hint*, used only when the
+        recorded events do not name one themselves (ADR-092). The outbox keys
+        its rows by execution id but the reconstructed events do not carry it,
+        so a projection folded from them could not say which run it described --
+        an observability gap, not a safety one: the lookup is already
+        tenant-scoped and by id, and this class executes nothing regardless.
+
+        It is a hint and never an override. An id the events *do* carry wins,
+        so a caller cannot relabel somebody else's history as its own.
 
         Events are folded in the order given. Causal order is *checked* rather
         than imposed: where an event names a causation that has not been seen,
@@ -176,7 +188,7 @@ class ExecutionReplayer:
         selections: list = []
         seen_ids: set = set()
         gaps: list = []
-        execution_id = ""
+        found_execution_id = ""
         workflow_id = workflow_digest = mission_id = None
 
         for index, event in enumerate(events, start=1):
@@ -185,9 +197,8 @@ class ExecutionReplayer:
             )
             payload = event.to_dict() if hasattr(event, "to_dict") else {}
 
-            execution_id = execution_id or payload.get("execution_id") or getattr(
-                event, "aggregate_id", ""
-            )
+            found_execution_id = found_execution_id or payload.get(
+                "execution_id") or getattr(event, "aggregate_id", "")
             workflow_id = workflow_id or payload.get("workflow_id")
             workflow_digest = workflow_digest or payload.get("workflow_digest")
             mission_id = mission_id or payload.get("mission_id")
@@ -256,7 +267,8 @@ class ExecutionReplayer:
             )
 
         return ReplayedExecution(
-            execution_id=execution_id or "unknown",
+            # What the events said, else the caller's hint, else honestly unknown.
+            execution_id=found_execution_id or execution_id or "unknown",
             workflow_id=workflow_id,
             workflow_digest=workflow_digest,
             mission_id=mission_id,
