@@ -940,6 +940,75 @@ approval_table = sa.Table(
 )
 
 
+# ----------------------------------------------------------------------
+# Authority grants — the durable home authority never had (Phase 10.8)
+# ----------------------------------------------------------------------
+
+authority_grant_table = sa.Table(
+    "cp_authority_grant",
+    DURABLE_METADATA,
+    # Phase 10.8, ADR-101. Phases 10.5-10.7 built scoped approver and executor
+    # authority and then read it out of ``data/tenants/tenant_users.json`` -- a
+    # gitignored file, holding bare strings, with no issuer, no timestamps, no
+    # digest and no audit. Enforcement was governed; creation was not.
+    #
+    # This table does NOT decide anything. ``resolve_scoped_authority`` still
+    # answers "may this human take this action on this approval", exactly as it
+    # did in 10.7. What changes is where the grant it reads comes from, and the
+    # fact that a row here can only have been written by an attributed issuer.
+    #
+    # Why not an existing table:
+    #   cp_delegation carries identity BORROWING and is read by
+    #   DurableDelegationAuthority to permit on-behalf-of invocation. Putting an
+    #   authority grant there would convert it into a delegation of identity.
+    #   cp_approval binds a capability INVOCATION via canonical_approval_digest;
+    #   a grant is not an invocation and the digest would cover a fiction.
+    sa.Column("grant_id", sa.String(64), primary_key=True),
+    sa.Column("tenant_id", sa.String(128), nullable=False),
+    # Who HOLDS the authority. Namespaced identity from the verified session at
+    # issuance time, never a display name.
+    sa.Column("subject_principal_id", sa.String(256), nullable=False),
+    # ``approve`` or ``execute``, never merged into one generic permission and
+    # never ``issue``: issuance authority is not itself issuable, which is what
+    # makes transitive delegation structurally impossible rather than merely
+    # forbidden.
+    sa.Column("authority_type", sa.String(16), nullable=False),
+    # Version-pinned, as Phase 10.7 established: reference.value carries "@1",
+    # so a capability version bump does not silently carry a grant forward.
+    sa.Column("capability_ref", sa.Text(), nullable=False),
+    sa.Column("capability_version", sa.String(32), nullable=False),
+    sa.Column("environment", sa.String(32), nullable=False),
+    # Optional ceiling. NULL means "bounded by the capability's own declared
+    # risk", which issuance validates -- not "any risk".
+    sa.Column("max_risk", sa.String(16), nullable=True),
+    # The attribution that did not exist before this phase. An issued grant
+    # always names a human; the bootstrap path names itself as bootstrap.
+    sa.Column("issued_by", sa.String(256), nullable=False),
+    sa.Column("issued_at", _TS, nullable=False),
+    sa.Column("issue_reason", sa.String(1024), nullable=False),
+    # Revocation is the half that matters. Set, never deleted: a grant that
+    # vanishes leaves an auditor unable to tell revoked from never-issued.
+    sa.Column("revoked_at", _TS, nullable=True),
+    sa.Column("revoked_by", sa.String(256), nullable=True),
+    sa.Column("revocation_reason", sa.String(1024), nullable=True),
+    # Deterministic identity over every authority-bearing field. Changing any
+    # of them changes this, so a tampered row no longer matches its own digest
+    # and stops authorizing -- authority is immutable by construction.
+    sa.Column("digest", sa.String(128), nullable=False),
+    sa.Column("schema_version", sa.Integer(), nullable=False),
+    # One live grant per (tenant, subject, authority, capability, environment).
+    # Re-issuing the same authority collides rather than creating a second row
+    # that a later revocation would miss.
+    sa.UniqueConstraint(
+        "tenant_id", "subject_principal_id", "authority_type",
+        "capability_ref", "environment", "issued_at",
+        name="uq_cp_authority_grant",
+    ),
+    sa.Index("ix_cp_authority_grant_subject",
+             "tenant_id", "subject_principal_id", "authority_type"),
+)
+
+
 #: Every durable table, in creation order. Used by the migration and by the
 #: bootstrap check that the schema a process needs is the schema it found.
 DURABLE_TABLES = (
@@ -965,4 +1034,5 @@ DURABLE_TABLES = (
     world_reasoning_table,
     world_investigation_table,
     approval_table,
+    authority_grant_table,
 )

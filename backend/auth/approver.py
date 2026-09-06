@@ -105,8 +105,55 @@ STORE_UNAVAILABLE = "authority_store_unavailable"
 GRANTED = "approver_authority_granted"
 
 
+
+def render_grant(record: Any) -> str:
+    """One durable grant row, in the grammar ``parse_grants`` already reads.
+
+    Phase 10.8 moved where a grant comes from -- an editable JSON file became an
+    attributed durable row -- and deliberately did NOT change how it is read.
+    One parser, one strict-equality comparison, no second input shape for a
+    matcher that decides authority.
+    """
+    text = (f"{record.authority_type}:{APPROVE_RESOURCE}:"
+            f"capability={record.capability_ref},"
+            f"environment={record.environment}")
+    if record.max_risk:
+        text += f",max_risk={record.max_risk}"
+    return text
+
+
+def durable_grants(repository: Any, *, tenant_id: str, principal_id: str,
+                   action: str) -> tuple:
+    """Live grant strings for one subject and one authority. Fail closed.
+
+    ``None`` means the repository itself is missing, which is not the same as
+    "no grants": the caller must refuse with ``authority_store_unavailable``
+    rather than with "you are not an approver", because those send an operator
+    to two very different places.
+    """
+    if repository is None:
+        return None
+    if action not in _NO_AUTHORITY_REASON:
+        # An allow-list, not a formality. ``parse_grants`` is generic over the
+        # action -- it will happily parse "autonomy:remediation:capability=…"
+        # -- so the guarantee that autonomy cannot be conferred by a grant does
+        # NOT come from the parser. It comes from here: only approve, execute
+        # and issue are authorities this platform will resolve at all, so a row
+        # naming anything else authorizes nothing no matter how it was written.
+        log.warning("refusing to resolve an unknown authority type: %r", action)
+        return ()
+    try:
+        records = repository.live_grants_for(
+            tenant_id=tenant_id, subject_principal_id=principal_id,
+            authority_type=action)
+    except Exception:  # noqa: BLE001 - an unreadable store grants nothing
+        log.warning("durable grant store unavailable", exc_info=True)
+        return None
+    return tuple(render_grant(r) for r in records)
+
+
 def resolve_approver_authority(
-    *, principal_id: str, tenant_id: str
+    *, principal_id: str, tenant_id: str, grants: Any = None
 ) -> ApproverAuthority:
     """May this human decide approvals in this tenant? Read live, fail closed.
 
@@ -161,8 +208,17 @@ def resolve_approver_authority(
     # ``resolve_scoped_authority`` against the stored approval -- so the two
     # refusals stay distinct: "you are not an approver" and "your grant does not
     # cover this".
-    granted = bool(parse_grants(getattr(member, "permissions", ()) or (),
-                                action=APPROVE_ACTION))
+    #
+    # Phase 10.8. The grants themselves now come from ``cp_authority_grant``,
+    # where every row names who issued it. The JSON ``permissions`` list is no
+    # longer consulted: it could be edited by anyone who could open the file,
+    # and an authority nobody issued is exactly what this phase closes.
+    strings = durable_grants(grants, tenant_id=tenant_id,
+                             principal_id=principal_id, action=APPROVE_ACTION)
+    if strings is None:
+        return ApproverAuthority(False, STORE_UNAVAILABLE, principal_id,
+                                 tenant_id, member.role)
+    granted = bool(parse_grants(strings, action=APPROVE_ACTION))
     if not granted:
         return ApproverAuthority(False, NOT_AN_APPROVER, principal_id, tenant_id,
                                  member.role)
@@ -277,6 +333,14 @@ OUT_OF_SCOPE_RISK = "risk_exceeds_grant_ceiling"
 UNSCOPED_GRANT = "grant_is_not_scoped"
 NO_EXECUTOR_AUTHORITY = "no_executor_authority"
 SCOPED_GRANT_MATCHED = "scoped_grant_matched"
+NO_ISSUER_AUTHORITY = "no_issuer_authority"
+
+#: The absence of each authority, named separately. Phase 10.8 added the third.
+_NO_AUTHORITY_REASON = {
+    "approve": NOT_AN_APPROVER,
+    "execute": NO_EXECUTOR_AUTHORITY,
+    "issue": NO_ISSUER_AUTHORITY,
+}
 
 #: The risk ladder, by the platform's own ordering. Not a score -- a rank over
 #: the existing RiskLevel members, used only to compare a declared risk against
@@ -362,6 +426,7 @@ class ScopedAuthority:
 def resolve_scoped_authority(
     *, principal_id: str, tenant_id: str, action: str,
     capability_ref: str, environment: str, risk: str,
+    grants: Any = None,
 ) -> ScopedAuthority:
     """May this human take ``action`` on an approval with these properties?
 
@@ -408,10 +473,19 @@ def resolve_scoped_authority(
         return ScopedAuthority(False, TENANT_INACTIVE, action,
                                principal_id=principal_id, tenant_id=tenant_id)
 
-    grants = parse_grants(getattr(member, "permissions", ()), action=action)
-    if not grants:
-        reason = (NOT_AN_APPROVER if action == APPROVE_ACTION
-                  else NO_EXECUTOR_AUTHORITY)
+    # Phase 10.8: durable, attributed rows -- not the editable JSON list.
+    strings = durable_grants(grants, tenant_id=tenant_id,
+                             principal_id=principal_id, action=action)
+    if strings is None:
+        return ScopedAuthority(False, STORE_UNAVAILABLE, action,
+                               principal_id=principal_id, tenant_id=tenant_id)
+    parsed = parse_grants(strings, action=action)
+    if not parsed:
+        # Each authority gets its own absence reason. Telling an issuer they
+        # hold "no executor authority" would send them to ask for the wrong
+        # grant, which is the failure mode this whole family of reason codes
+        # exists to avoid.
+        reason = _NO_AUTHORITY_REASON.get(action, NO_EXECUTOR_AUTHORITY)
         return ScopedAuthority(False, reason, action,
                                principal_id=principal_id, tenant_id=tenant_id)
 
@@ -420,7 +494,7 @@ def resolve_scoped_authority(
     refusal = UNSCOPED_GRANT
     declared_rank = _RISK_RANK.get((risk or "").strip().casefold(), 3)
 
-    for grant in grants:
+    for grant in parsed:
         if not grant.is_scoped:
             continue
         if grant.capability_ref != capability_ref:

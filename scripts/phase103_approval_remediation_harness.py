@@ -228,6 +228,12 @@ def build_engine(runtime, definitions):
     from backend.contexts.connectivity.infrastructure.sql_approval import (
         SqlApprovalRepository,
     )
+    # Phase 10.8: the durable authority-grant store. Without it every scope
+    # resolution answers ``authority_store_unavailable`` -- correctly, since a
+    # store that is not there cannot say anyone holds anything.
+    from backend.contexts.connectivity.infrastructure.sql_authority_grant import (
+        SqlAuthorityGrantRepository,
+    )
     from backend.contracts.execution import ExecutionEnvironment
     from backend.intelligence.application.investigation_service import (
         InvestigationService,
@@ -267,6 +273,7 @@ def build_engine(runtime, definitions):
                                 authority_policy=authority, lineage_policy=lineage),
         lineage_policy=lineage,
         approvals=SqlApprovalRepository(store),
+        grants=SqlAuthorityGrantRepository(store),
         remediation=RemediationService(
             definitions=definitions, approvals=SqlApprovalRepository(store),
             writer_factory=writer_factory,

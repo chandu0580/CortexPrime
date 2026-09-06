@@ -132,5 +132,13 @@ def approver_authority(ctx: "ProductContext"):
     """
     from backend.auth.approver import resolve_approver_authority
 
+    from backend.api.product.app import current_engine
+
+    # Phase 10.8: the grants come from the durable, attributed store. Passing
+    # the repository rather than reaching for a global keeps the dependency
+    # explicit -- and a missing store refuses rather than reading an empty list
+    # as "this person holds nothing".
+    engine = current_engine()
     return resolve_approver_authority(
-        principal_id=ctx.principal.principal_id, tenant_id=ctx.tenant_id)
+        principal_id=ctx.principal.principal_id, tenant_id=ctx.tenant_id,
+        grants=getattr(engine, "grants", None))

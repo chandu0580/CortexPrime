@@ -38,6 +38,7 @@ if str(REPO) not in sys.path:
 
 import scripts.phase103_approval_remediation_harness as p103  # noqa: E402
 import scripts.phase105_approver_authority_harness as p105  # noqa: E402
+import scripts.phase108_grant_provisioning as provisioning  # noqa: E402
 import scripts.phase99b_contained_worker_harness as b  # noqa: E402
 
 REPORT: dict = {
@@ -189,19 +190,38 @@ def register_people() -> None:
         APPROVER_NO_EXEC: (TENANT_A, [approve_grant()]),
         OTHER_TENANT: (TENANT_B, [approve_grant(), execute_grant()]),
     }
+    # Phase 10.8. Authority no longer comes from the membership's JSON
+    # ``permissions`` list -- ``resolve_scoped_authority`` reads
+    # ``cp_authority_grant``, where every row names who issued it. These grants
+    # are provisioned through ``bootstrap_grant``, the same documented
+    # out-of-band root of trust a real operator would use to seed a first
+    # issuer. Nothing about what 10.7 proves changes; only where the grant
+    # lives.
+    global GRANT_REPO, GRANT_STORE
+    from backend.contexts.connectivity.infrastructure.sql_authority_grant import (
+        SqlAuthorityGrantRepository)
+    from backend.database.durable.config import build_development_store
+
+    GRANT_STORE = build_development_store(dsn=os.environ["CORTEX_DURABLE_URL"])
+    GRANT_REPO = SqlAuthorityGrantRepository(GRANT_STORE)
+
     for email, (slug, grants) in people.items():
         member = tm.get_user_by_email(email)
         if member is None:
             member = tm.add_user(TENANTS[slug], email, role="member")
-        # The tenant store is durable and survives runs. Clear this membership's
-        # approve/execute grants first so a run cannot pass on a grant an
-        # earlier run left behind.
-        for stale in list(member.permissions or ()):
-            if stale.split(":", 1)[0] in ("approve", "execute"):
-                tm.revoke_permission(member.tenant_id, member.user_id, stale)
         MEMBERS[email] = member
-        for grant in grants:
-            tm.grant_permission(member.tenant_id, member.user_id, grant)
+        set_grants(email, grants)
+
+
+GRANT_REPO = None
+GRANT_STORE = None
+
+
+def set_grants(email, grants) -> None:
+    """Give one person exactly these grants, durably. Clears theirs first."""
+    provisioning.provision(
+        GRANT_REPO, GRANT_STORE, tenant_id=MEMBERS[email].tenant_id,
+        principal_id=email, grants=grants)
 
 
 def token_for(tenant_slug, subject):
@@ -293,10 +313,20 @@ def main() -> None:
               for m in (getattr(r, "methods", None) or ())
               if m not in ("GET", "HEAD", "OPTIONS")
               and getattr(r, "path", "").startswith("/api")}
-    check("A1. the product's non-GET routes are STILL exactly the three from "
-          "Phase 10.3", actual == set(MUTATING_ROUTES), str(sorted(actual)))
-    check("A2. NO new table — every scope dimension was already a column or a "
-          "contract field", len(DURABLE_TABLES) == 22, f"{len(DURABLE_TABLES)}")
+    from backend.api.product.authority_routes import (
+        MUTATING_ROUTES as AUTHORITY_ROUTES)
+
+    # Phase 10.8 added two: issuing and revoking an authority grant. They are
+    # enumerated in their own module, so the product's write surface is still a
+    # closed list rather than whatever happens to be registered.
+    expected = set(MUTATING_ROUTES) | set(AUTHORITY_ROUTES)
+    check("A1. the product's non-GET routes are exactly the three from Phase "
+          "10.3 plus Phase 10.8's two authority routes — a closed, enumerated "
+          "set", actual == expected, str(sorted(actual ^ expected)))
+    check("A2. NO new table for SCOPE — every scope dimension was already a "
+          "column or a contract field. The 23rd table is Phase 10.8's "
+          "cp_authority_grant, which holds who ISSUED a grant, not what one "
+          "means", len(DURABLE_TABLES) == 23, f"{len(DURABLE_TABLES)}")
     check("A3. exactly ONE commissioned write capability — none was added",
           set(definitions) == {OPERATION}, str(sorted(definitions)))
 
@@ -364,7 +394,8 @@ def run_scope_unit() -> None:
                 environment=ENVIRONMENT, risk="high"):
         return resolve_scoped_authority(
             principal_id=who, tenant_id=TENANTS[TENANT_A], action=action,
-            capability_ref=capability, environment=environment, risk=risk)
+            capability_ref=capability, environment=environment, risk=risk,
+            grants=GRANT_REPO)
 
     check("B1. a correctly scoped approver is permitted",
           verdict(APPROVER).permitted, verdict(APPROVER).matched_grant)
@@ -407,7 +438,8 @@ def run_scope_unit() -> None:
 
     v = resolve_scoped_authority(
         principal_id=APPROVER, tenant_id=TENANTS[TENANT_A], action=APPROVE_ACTION,
-        capability_ref=CAPABILITY, environment=ENVIRONMENT, risk="critical")
+        capability_ref=CAPABILITY, environment=ENVIRONMENT, risk="critical",
+        grants=GRANT_REPO)
     check("B10. an UNRECOGNISED or higher risk than the ceiling refuses — a "
           "ceiling nobody can rank is a ceiling nobody agreed to",
           v.denied and v.reason == OUT_OF_SCOPE_RISK, v.reason)
@@ -625,7 +657,7 @@ def run_revocation(client, engine) -> None:
     item = client.get(f"/api/v1/approvals/{approval_id}", headers=stale).json()
     check("H1. before revocation the approver may decide", item["can_approve"] is True)
 
-    tm.revoke_permission(two.tenant_id, two.user_id, approve_grant())
+    set_grants(APPROVER_TWO, [])
     r = decide(client, approval_id, stale, "approve")
     check("H2. the SAME TOKEN, minted before the revocation, is refused — scope "
           "is read from the store, not the claim",
@@ -634,7 +666,7 @@ def run_revocation(client, engine) -> None:
     granted = approved(client, engine)
     executor = MEMBERS[EXECUTOR]
     stale_exec = auth(EXECUTOR)
-    tm.revoke_permission(executor.tenant_id, executor.user_id, execute_grant())
+    set_grants(EXECUTOR, [])
     before = p103.generations()
     r = client.post(f"/api/v1/approvals/{granted}/execute", json={},
                     headers=stale_exec)
@@ -643,7 +675,7 @@ def run_revocation(client, engine) -> None:
           r.status_code == 403
           and p103.cluster_writes(before, p103.generations()) == 0,
           f"HTTP {r.status_code}")
-    tm.grant_permission(executor.tenant_id, executor.user_id, execute_grant())
+    set_grants(EXECUTOR, [execute_grant()])
 
     withdrawn = approved(client, engine)
     engine.approvals.withdraw(approval_id=withdrawn, tenant_id=TENANTS[TENANT_A],
@@ -654,7 +686,7 @@ def run_revocation(client, engine) -> None:
     check("H4. a REVOKED approval refuses execution even for a scoped executor",
           r.status_code == 409, str(r.status_code))
     SEEDED["withdrawn"] = withdrawn
-    tm.grant_permission(two.tenant_id, two.user_id, approve_grant())
+    set_grants(APPROVER_TWO, [approve_grant()])
 
 
 def run_concurrency(client, engine) -> None:
@@ -875,6 +907,29 @@ def _rejected(client, engine) -> str:
     return approval_id
 
 
+
+def reborn_strings(email):
+    """This subject's live grants, read through a FRESH repository.
+
+    Phase 10.8 moved authority into PostgreSQL, so surviving a restart is now a
+    claim about the database rather than about a JSON file being re-read. A new
+    repository over a new store is the honest way to ask it.
+    """
+    from backend.contexts.connectivity.infrastructure.sql_authority_grant import (
+        SqlAuthorityGrantRepository)
+    from backend.database.durable.config import build_development_store
+    from backend.auth.approver import render_grant
+
+    repo = SqlAuthorityGrantRepository(
+        build_development_store(dsn=os.environ["CORTEX_DURABLE_URL"]))
+    out = []
+    for action in ("approve", "execute"):
+        out += [render_grant(r) for r in repo.live_grants_for(
+            tenant_id=TENANTS[TENANT_A], subject_principal_id=email,
+            authority_type=action)]
+    return out
+
+
 def run_restart(engine) -> None:
     section("K. restart")
     from backend.auth.approver import APPROVE_ACTION, EXECUTE_ACTION, resolve_scoped_authority
@@ -890,12 +945,13 @@ def run_restart(engine) -> None:
           (reborn.get_user_by_email(APPROVER).permissions or []),
           str(reborn.get_user_by_email(APPROVER).permissions)[:120])
     check("K2. and a revoked grant is still gone",
-          execute_grant() in (reborn.get_user_by_email(EXECUTOR).permissions or []))
+          execute_grant() in reborn_strings(EXECUTOR))
 
     def verdict(who, action):
         return resolve_scoped_authority(
             principal_id=who, tenant_id=TENANTS[TENANT_A], action=action,
-            capability_ref=CAPABILITY, environment=ENVIRONMENT, risk="high")
+            capability_ref=CAPABILITY, environment=ENVIRONMENT, risk="high",
+            grants=GRANT_REPO)
 
     check("K3. authority resolves identically after the restart — and a restart "
           "cannot widen it",

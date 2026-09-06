@@ -174,6 +174,7 @@ def _scoped_authority(ctx: ProductContext, record, *, action: str):
         capability_ref=record.capability_ref,
         environment=record.environment,
         risk=risk,
+        grants=getattr(engine, "grants", None),
     )
 
 

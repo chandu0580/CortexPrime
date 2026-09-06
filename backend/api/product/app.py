@@ -86,6 +86,13 @@ class ProductEngine:
     remediation: Any = None
     runtime: Any = None
     execution_context_factory: Any = None
+    #: Phase 10.8. The durable authority-grant STORE -- rows in, rows out. It
+    #: decides nothing: whether a human may approve, execute or issue is still
+    #: answered by ``resolve_scoped_authority``, and whether an issuer may
+    #: create a grant is still answered by ``backend.auth.grants``. Before this
+    #: phase the grants those functions read lived in a gitignored JSON file
+    #: that nobody had to be authorized to write.
+    grants: Any = None
 
 
 def current_engine() -> Optional[ProductEngine]:
@@ -130,6 +137,9 @@ def compose_engine() -> Optional[ProductEngine]:
         from backend.contexts.connectivity.infrastructure.sql_approval import (
             SqlApprovalRepository,
         )
+        from backend.contexts.connectivity.infrastructure.sql_authority_grant import (
+            SqlAuthorityGrantRepository,
+        )
 
         # The durable approval store, installed through the DECLARED seam. It
         # supplies storage; ApprovalFacts and the gateway still decide.
@@ -164,6 +174,7 @@ def compose_engine() -> Optional[ProductEngine]:
                 lineage_policy=lineage_policy),
             lineage_policy=lineage_policy,
             approvals=SqlApprovalRepository(store),
+            grants=SqlAuthorityGrantRepository(store),
             remediation=_compose_remediation(runtime),
             runtime=runtime,
             execution_context_factory=_execution_context,
@@ -273,8 +284,15 @@ def build_product_app(*, engine: Optional[ProductEngine] = None) -> FastAPI:
     )
     if engine is not None:
         set_engine(engine)
+    from backend.api.product.authority_routes import router as authority_router
+
     app.include_router(router)
     # The ONLY module carrying non-GET routes. Kept a separate include so the
     # product's mutation surface is one import a reviewer can find.
     app.include_router(remediation_router)
+    # Phase 10.8. The second module carrying non-GET routes, and the reason it
+    # is a separate include is the same: the product's mutation surface should
+    # be a short list a reviewer can hold in their head. These routes issue and
+    # revoke authority; they decide nothing about it.
+    app.include_router(authority_router)
     return app
