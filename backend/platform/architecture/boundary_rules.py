@@ -50,6 +50,7 @@ __all__ = [
     "NoV1IntelligenceImportRule",
     "IntelligenceCannotBypassWorldRule",
     "WorldCannotImportV1MemoryRule",
+    "ProductCannotBypassExecutionRule",
     "AutonomyNotModelDrivenRule",
     "default_boundary_rules",
     "BOUNDED_CONTEXTS",
@@ -1573,6 +1574,89 @@ class IntelligenceCannotBypassWorldRule:
             violations=tuple(violations), modules_checked=checked)
 
 
+
+@dataclass(frozen=True)
+class ProductCannotBypassExecutionRule:
+    """The product API reaches the world only through the one execution door
+    (Phase 10.3, ADR-096).
+
+    Why an existing rule does not already cover this
+    ------------------------------------------------
+    ``BND-DIRECT-HTTP`` scopes to the bounded contexts and the credential
+    fabric; ``BND-PROVIDER-SDK`` quarantines SDK imports to connector modules;
+    ``BND-WORLD-CANNOT-EXECUTE``, ``BND-ASSURANCE-CANNOT-EXECUTE`` and
+    ``BND-INTELLIGENCE-CANNOT-EXECUTE`` each scope to their own plane. None of
+    them names ``backend/api/product``, which did not exist when they were
+    written. So a product module could import the invocation gateway, the
+    dispatcher, a connector adapter, the transport broker or the credential
+    broker directly and dispatch around authorization -- and every existing rule
+    would still pass. That is a genuine uncovered bypass, which is the only
+    justification for a new rule (Phase 10.3, Part X).
+
+    What the product may do instead
+    --------------------------------
+    Exactly one thing: call ``backend.api.capability_execution_composition``,
+    which is the composed governed chain -- capability binding, authorization,
+    approval validation, the gateway, then the CONTAINED worker. That module is
+    an allowed import precisely because going through it IS the governed path.
+
+    Note what is deliberately NOT forbidden: the approval STORE
+    (``sql_approval``). Storing and reading approvals is not executing, and the
+    decision about whether an approval covers an action still lives in
+    ``ApprovalFacts`` and the gateway.
+    """
+
+    rule_id: str = "BND-PRODUCT-CANNOT-BYPASS-EXECUTION"
+    description: str = (
+        "the product API imports no gateway, dispatcher, connector adapter, "
+        "transport or credential broker — it acts only through the composed "
+        "governed execution door"
+    )
+    product_root: str = "backend.api.product"
+    forbidden_roots: tuple[str, ...] = (
+        "backend.contexts.execution.application.gateway",
+        "backend.contexts.execution.application.dispatch",
+        "backend.contexts.execution.infrastructure.adapters",
+        "backend.contexts.connectivity.infrastructure.adapters",
+        "backend.platform.transport",
+        "backend.platform.credentials",
+        "backend.contexts.execution.application.scheduler",
+    )
+    severity: Severity = Severity.ERROR
+
+    def evaluate(self, graph: ModuleGraph) -> RuleResult:
+        violations: list[Violation] = []
+        checked = 0
+        for module in graph.modules():
+            if not (module.name.startswith(self.product_root + ".")
+                    or module.name == self.product_root):
+                continue
+            checked += 1
+            for imported, line in module.imports:
+                if any(imported == f or imported.startswith(f + ".")
+                       for f in self.forbidden_roots):
+                    violations.append(
+                        Violation(
+                            rule_id=self.rule_id, severity=self.severity,
+                            module=module.name, line=line, offender=imported,
+                            detail=(
+                                f"the product API imports {imported!r}; a product "
+                                "surface must reach the world only through "
+                                "backend.api.capability_execution_composition, "
+                                "which is the governed chain (binding, "
+                                "authorization, approval, gateway, contained "
+                                "worker). Importing a gateway, dispatcher, "
+                                "adapter, transport or credential broker "
+                                "directly would dispatch around authorization "
+                                "(ADR-096)"
+                            ),
+                        )
+                    )
+        return RuleResult(
+            rule_id=self.rule_id, description=self.description,
+            violations=tuple(violations), modules_checked=checked)
+
+
 @dataclass(frozen=True)
 class AutonomyNotModelDrivenRule:
     """The autonomy decision is outside the model's mutation surface (Phase 8.8).
@@ -1718,4 +1802,5 @@ def default_boundary_rules() -> tuple:
         IntelligenceCannotBypassWorldRule(),
         WorldCannotImportV1MemoryRule(),
         AutonomyNotModelDrivenRule(),
+        ProductCannotBypassExecutionRule(),
     )

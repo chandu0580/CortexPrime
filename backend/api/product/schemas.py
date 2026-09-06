@@ -36,6 +36,8 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 __all__ = [
+    "ApprovalList",
+    "ApprovalView",
     "AssuranceList",
     "AuthorityAlternativeView",
     "AuthorityView",
@@ -47,6 +49,8 @@ __all__ = [
     "InvestigationDetail",
     "InvestigationSummary",
     "InvestigationList",
+    "RemediationOutcomeView",
+    "RemediationProposalView",
     "SourceLineageView",
     "TimelineEvent",
     "TimelineView",
@@ -405,3 +409,123 @@ class AssuranceList(BaseModel):
         default="Verifications this investigation references. An empty list "
                 "means nothing has been verified yet -- it does not mean the "
                 "investigation was refuted.")
+
+# ----------------------------------------------------------------------
+# Remediation and approval (Phase 10.3)
+# ----------------------------------------------------------------------
+
+class RemediationProposalView(BaseModel):
+    """What the platform would do, shown before anyone is asked to allow it.
+
+    Every field is read from a capability contract, a policy or a platform digest
+    function. **The client computes none of them**, which is the property that
+    makes this a preview of a governed action rather than a description a
+    frontend assembled and hoped the backend agreed with.
+    """
+
+    investigation_ref: str
+    capability_ref: str
+    capability_version: int
+    capability_digest: str
+    operation: str
+    provider: str
+    tenant_id: str = Field(
+        description="Resolved from the verified session. Shown so an approver "
+                    "can see whose systems this touches -- never accepted from "
+                    "a request.")
+    principal_id: str
+    environment: str
+    namespace: str
+    workload: str
+    parameters: dict = Field(
+        description="The validated input. This exact mapping is inside the "
+                    "approval digest and is what executes.")
+    side_effect_class: str
+    effect_semantics: Optional[str] = None
+    code_trust: str
+    isolation_tier: str
+    reversible: bool = Field(
+        description="From the capability contract. An irreversible action says "
+                    "so; nothing here infers it from the operation's name.")
+    blast_radius: str
+    approval_required: bool
+    autonomy_ceiling: str = Field(
+        description="Platform-set. Displayed as a fact; there is no route that "
+                    "could change it.")
+    approval_digest: str = Field(
+        description="ADR-090. The digest a human approves, and the one the "
+                    "gateway compares against. An approval for one workload "
+                    "cannot authorize another because the payload is inside it.")
+    evidence_refs: tuple[str, ...] = ()
+    diagnosis: Optional[str] = None
+
+
+class ApprovalView(BaseModel):
+    """One approval, with the exact action it is bound to."""
+
+    approval_id: str
+    investigation_ref: Optional[str] = None
+    capability_ref: str
+    capability_digest: str
+    operation: str
+    environment: str
+    namespace: str
+    workload: str
+    parameters: dict
+    approval_digest: str
+    state: str = Field(
+        description="pending / granted / denied / withdrawn / expired, as the "
+                    "approval contract names them. Not success or failure.")
+    requested_by: str = Field(
+        description="A namespaced identity reference for the authenticated "
+                    "human. Never a name supplied by a browser.")
+    decided_by: Optional[str] = None
+    justification: Optional[str] = None
+    requested_at: Optional[str] = None
+    decided_at: Optional[str] = None
+    expires_at: Optional[str] = Field(
+        default=None,
+        description="Every approval expires. A standing authorization nobody "
+                    "consciously granted is not something this system issues.")
+    expired: bool = False
+    consumed_by_execution: Optional[str] = Field(
+        default=None,
+        description="Which execution used it. Recorded so a second use is "
+                    "visible -- at-least-once remains the platform contract and "
+                    "this field does not change it.")
+
+
+class ApprovalList(BaseModel):
+    items: tuple[ApprovalView, ...] = ()
+    count: int = 0
+    limit: int = 25
+
+
+class RemediationOutcomeView(BaseModel):
+    """What is ESTABLISHED about a remediation, stage by stage.
+
+    ``world_status`` comes from an independent World read and
+    ``assurance_verdicts`` from Assurance. Neither is derived from the
+    execution's own reply: Phase 9.10's finding was that a POST to a worker is
+    not a mutation of Kubernetes, and a product outcome screen is the easiest
+    place in the system to forget that.
+    """
+
+    execution_ref: str
+    approval_id: str
+    subject_ref: str
+    action_requested: bool = False
+    action_approved: bool = False
+    execution_started: bool = False
+    world_status: Optional[str] = Field(
+        default=None,
+        description="The epistemic status of the world afterwards. Null means "
+                    "not yet observed -- which is not the same as unchanged.")
+    world_value: Optional[str] = None
+    world_observed_at: Optional[str] = None
+    assurance_verdicts: tuple[str, ...] = Field(
+        default=(),
+        description="SUPPORTED / UNSUPPORTED / INSUFFICIENT_EVIDENCE, unmapped. "
+                    "An empty tuple means Assurance has not ruled.")
+    read_at: Optional[str] = None
+    note: Optional[str] = None

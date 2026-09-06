@@ -96,15 +96,37 @@ describe("the workspace has exactly one route out of the browser", () => {
         }
     })
 
-    it("no workspace file issues a non-GET request", () => {
+    it("no workspace file issues a PUT, PATCH or DELETE — ever", () => {
         for (const file of FILES) {
-            const source = read(file)
-            // The client exposes productGet and nothing else; these assert that
-            // no component reintroduces a verb by hand.
-            expect(source, `${file} must not send a POST`).not.toMatch(/method:\s*["']POST["']/)
+            const source = code(file)
             expect(source, `${file} must not send a PUT`).not.toMatch(/method:\s*["']PUT["']/)
             expect(source, `${file} must not send a PATCH`).not.toMatch(/method:\s*["']PATCH["']/)
             expect(source, `${file} must not send a DELETE`).not.toMatch(/method:\s*["']DELETE["']/)
+        }
+    })
+
+    it("only the client module constructs a POST", () => {
+        // Phase 10.3 gave the product a mutation surface, so "this client
+        // cannot write" is no longer true. The honest replacement is that
+        // exactly one module builds a POST, and it accepts only three paths.
+        const offenders = FILES.filter(
+            (file) =>
+                !file.endsWith(path.join("lib", "product-api.ts")) &&
+                /method:\s*["']POST["']/.test(code(file)),
+        )
+        expect(offenders).toEqual([])
+    })
+
+    it("the client's POST allow-list is exactly the three governed routes", () => {
+        const client = code(path.join(ROOT, "lib/product-api.ts"))
+        for (const fragment of ["remediation", "approval-request", "decision", "execute"]) {
+            expect(client).toContain(fragment)
+        }
+        // Nothing outside those three may be posted to, and the body keys are
+        // enumerated too: a tenant, digest, capability or actor cannot be sent.
+        expect(client).toContain("ALLOWED_POST")
+        for (const field of ["justification", "decision", "confirm_workload"]) {
+            expect(client).toContain(field)
         }
     })
 
@@ -127,32 +149,49 @@ describe("the workspace has exactly one route out of the browser", () => {
     })
 })
 
-describe("no execution, approval or autonomy control exists in the workspace", () => {
-    const ACTION_WORDS = [
-        /onClick=\{[^}]*\bapprove\b/i,
-        /onClick=\{[^}]*\bexecute\b/i,
-        /onClick=\{[^}]*\bremediat/i,
-        /onClick=\{[^}]*\bpromote\b/i,
-        /useMutation\s*\(/,
-    ]
-
-    it("has no mutation hook and no action handler", () => {
+describe("no autonomy control exists anywhere in the workspace", () => {
+    it("has no code that sets, promotes or unlocks an autonomy level", () => {
+        // Approval and execution became real actions in Phase 10.3. Autonomy did
+        // not, and must never: it is derived from platform policy and measured
+        // calibration, so a screen offering to change it would be offering
+        // something the platform does not support.
         for (const file of FILES) {
-            const source = read(file)
-            for (const pattern of ACTION_WORDS) {
+            const source = code(file)
+            for (const pattern of [
+                /set[A-Za-z]*[Aa]utonomy/,
+                /promote[A-Za-z]*[Aa]utonomy/,
+                /autonomy[A-Za-z_]*\s*[:=]\s*["']a[0-4]/i,
+                /unlock\s*a[34]/i,
+            ]) {
                 expect(source, `${file} must not contain ${pattern}`).not.toMatch(pattern)
             }
         }
     })
 
-    it("renders autonomy without an input that could change it", () => {
+    it("mutations live only in the query-hooks module", () => {
+        const offenders = FILES.filter(
+            (file) =>
+                !file.endsWith(path.join("queries", "useInvestigator.ts")) &&
+                /useMutation\s*\(/.test(code(file)),
+        )
+        expect(offenders).toEqual([])
+    })
+
+    it("renders autonomy as a fact, with no input that could change it", () => {
         const workspace = read(path.join(ROOT, "components/investigator/Workspace.tsx"))
         expect(workspace).toMatch(/Autonomy/)
-        // The one <input> in the workspace tree is the World predicate box, and
-        // it lives in WorldStatePanel, not here.
         expect(workspace).not.toMatch(/<input/i)
         expect(workspace).not.toMatch(/<select/i)
         expect(workspace).not.toMatch(/type="checkbox"/i)
+    })
+
+    it("the approval screen has no autonomy input either", () => {
+        const panel = read(path.join(ROOT, "components/investigator/RemediationPanel.tsx"))
+        // It does have inputs — a justification and a confirmation — so the
+        // assertion is about what they are for, not that none exist.
+        expect(panel).not.toMatch(/<select/i)
+        expect(panel).not.toMatch(/name=["']autonomy/i)
+        expect(panel).toMatch(/autonomy_ceiling/)
     })
 })
 

@@ -35,6 +35,10 @@ from typing import Any, Optional
 
 from fastapi import FastAPI
 
+from backend.contexts.connectivity.infrastructure.sql_approval import (
+    SqlApprovalRepository,
+)
+
 log = logging.getLogger(__name__)
 
 __all__ = ["ProductEngine", "build_product_app", "current_engine", "set_engine"]
@@ -72,6 +76,16 @@ class ProductEngine:
     #: described identically wherever it appears. Two lineage policies would be
     #: two answers to "are these sources independent".
     lineage_policy: Any = None
+    #: Phase 10.3. The approval STORE (not a decider), the remediation assembler,
+    #: the governed runtime the one execution door needs, and a factory for the
+    #: caller's execution context. Adding these is what makes the product able to
+    #: initiate a governed action -- and none of them decides anything: approval
+    #: validity is still ApprovalFacts + the gateway, authorization is still the
+    #: authorization service, and execution is still GovernedCapabilityWriter.
+    approvals: Any = None
+    remediation: Any = None
+    runtime: Any = None
+    execution_context_factory: Any = None
 
 
 def current_engine() -> Optional[ProductEngine]:
@@ -113,7 +127,13 @@ def compose_engine() -> Optional[ProductEngine]:
         from backend.api.observability_evidence import observability_lineage_policy
         from backend.world.application.belief import BeliefFormation
 
-        runtime = build_governed_runtime()
+        from backend.contexts.connectivity.infrastructure.sql_approval import (
+            SqlApprovalRepository,
+        )
+
+        # The durable approval store, installed through the DECLARED seam. It
+        # supplies storage; ApprovalFacts and the gateway still decide.
+        runtime = build_governed_runtime(approvals_factory=SqlApprovalRepository)
         if runtime is None:
             log.warning("product API: no governed runtime; data endpoints will 503")
             return None
@@ -143,9 +163,80 @@ def compose_engine() -> Optional[ProductEngine]:
                 authority_policy=authority_policy,
                 lineage_policy=lineage_policy),
             lineage_policy=lineage_policy,
+            approvals=SqlApprovalRepository(store),
+            remediation=_compose_remediation(runtime),
+            runtime=runtime,
+            execution_context_factory=_execution_context,
         )
     except Exception:  # noqa: BLE001 - a failed composition must not crash boot
         log.warning("product API: engine composition failed", exc_info=True)
+        return None
+
+
+
+def _execution_context(tenant_id: str, principal_id: str):
+    """The caller's authenticated context, for the governed chain.
+
+    Built from values the SERVER resolved -- the tenant from the verified token
+    and the principal from the stored approval. There is no code path by which a
+    request body reaches this function.
+    """
+    from backend.contracts.identity import PrincipalKind, PrincipalRef
+    from backend.platform.context import ExecutionContext
+    from backend.platform.context.identity import IdentityContext
+
+    identity = IdentityContext(
+        principal=PrincipalRef(principal_id=principal_id, kind=PrincipalKind.HUMAN),
+        capabilities=("capability:invoke",),
+    )
+    return ExecutionContext.for_tenant(
+        tenant_id=tenant_id, identity=identity, source="product-api")
+
+
+def _compose_remediation(runtime):
+    """The remediation assembler, or ``None`` when nothing is commissioned.
+
+    Phase 9 closed with exactly ONE commissioned write capability. If it is not
+    registered in this deployment, remediation is absent and the endpoints answer
+    503 -- rather than offering an action that would be refused further down,
+    which teaches an operator to expect capabilities that do not exist.
+    """
+    try:
+        from backend.api.application_runtime import _platform_context
+        from backend.api.product.approval_routes import COMMISSIONED_OPERATION
+        from backend.api.product.remediation import RemediationService
+        from backend.contexts.connectivity.application.commands import GetCapability
+        from backend.contexts.connectivity.domain.authorization import (
+            CapabilityOperation,
+        )
+        from backend.contracts.execution import ExecutionEnvironment
+
+        definition = runtime.capabilities.get(_platform_context(), GetCapability(
+            capability_id="platform.kubernetes.workload.rollout_restart", version=1))
+        if definition is None:
+            return None
+
+        def writer_factory(rt, definitions, principal):
+            from backend.api.capability_execution_composition import (
+                GovernedCapabilityWriter,
+            )
+            return GovernedCapabilityWriter(
+                runtime=rt, capability_definitions=definitions, principal=principal)
+
+        return RemediationService(
+            definitions={COMMISSIONED_OPERATION: definition},
+            approvals=SqlApprovalRepository(runtime.persistence.store),
+            writer_factory=writer_factory,
+            environment=ExecutionEnvironment.DEVELOPMENT,
+            # The verb AUTHORIZATION is asked about, named here in composition
+            # because this is where the connectivity context is already in
+            # scope. It is NOT the provider operation, and conflating the two
+            # made every legitimate approval invalid earlier in this phase.
+            authorization_operation=CapabilityOperation.INVOKE.value,
+        )
+    except Exception:  # noqa: BLE001 - an uncommissioned deployment is not broken
+        log.info("product API: no commissioned remediation in this deployment",
+                 exc_info=True)
         return None
 
 
@@ -166,6 +257,7 @@ def build_product_app(*, engine: Optional[ProductEngine] = None) -> FastAPI:
     skipped -- the harness is then testing the same routes against the same
     contracts, without a second composition path in production code.
     """
+    from backend.api.product.approval_routes import router as remediation_router
     from backend.api.product.routes import router
 
     app = FastAPI(
@@ -182,4 +274,7 @@ def build_product_app(*, engine: Optional[ProductEngine] = None) -> FastAPI:
     if engine is not None:
         set_engine(engine)
     app.include_router(router)
+    # The ONLY module carrying non-GET routes. Kept a separate include so the
+    # product's mutation surface is one import a reviewer can find.
+    app.include_router(remediation_router)
     return app

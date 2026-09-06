@@ -876,6 +876,70 @@ world_investigation_table = sa.Table(
 )
 
 
+approval_table = sa.Table(
+    "cp_approval",
+    DURABLE_METADATA,
+    # Phase 10.3, ADR-096. The durable home of the approval system that had a
+    # contract, a port and a gateway check but no storage: until now the only
+    # ApprovalLookup implementations were NoApprovals (fail-closed) and an
+    # in-memory dict inside a harness. A product cannot use that -- a human
+    # approves in one request and the execution reads it back in another.
+    #
+    # This table stores approvals. It does NOT decide about them: whether an
+    # approval covers an action is still answered by ApprovalFacts.is_valid_for
+    # and re-answered by the gateway's action-digest comparison. Adding a second
+    # decider here is the specific mistake ADR-090 exists to prevent.
+    sa.Column("approval_id", sa.Text(), primary_key=True),
+    # Deterministic identity for idempotency: a digest over the request. The
+    # same request re-submitted collides and returns the existing approval
+    # rather than creating a second one that could be decided differently.
+    sa.Column("identity_digest", sa.String(128), nullable=False, unique=True),
+    sa.Column("tenant_id", sa.String(128), nullable=False),
+    # What was asked for, as the PLATFORM reconstructed it. No value in this row
+    # was supplied by a browser.
+    sa.Column("capability_ref", sa.Text(), nullable=False),
+    sa.Column("capability_digest", sa.String(128), nullable=False),
+    # TWO operations, deliberately separate. ``operation`` is the provider
+    # operation this approval will perform (kubernetes.workload.rollout_restart);
+    # ``authorization_operation`` is the verb AUTHORIZATION is asked about
+    # (invoke / inspect / ...), which is what ApprovalFacts.is_valid_for
+    # compares. Storing one value for both looks tidier and silently breaks the
+    # check that stops an approval to READ authorizing a DELETE.
+    sa.Column("operation", sa.String(128), nullable=False),
+    sa.Column("authorization_operation", sa.String(32), nullable=False),
+    sa.Column("environment", sa.String(32), nullable=False),
+    sa.Column("principal_id", sa.Text(), nullable=False),
+    # The validated input the approval covers. Stored so an auditor can see what
+    # was approved rather than only its digest -- and so the digest can be
+    # recomputed and checked rather than trusted.
+    sa.Column("payload", _DOC, nullable=False),
+    # The ADR-090 canonical approval digest. This is the binding that stops an
+    # approval for workload A authorizing workload B, and it is computed by the
+    # platform's own function at request time, never accepted from a caller.
+    sa.Column("approval_digest", sa.String(128), nullable=False),
+    # GRANTED / DENIED / PENDING, as the ApprovalOutcome contract names them.
+    sa.Column("outcome", sa.String(32), nullable=False),
+    # The authenticated human who decided. A namespaced identity reference
+    # ("human:<id>"), taken from the verified session -- never from a request
+    # body, and never the string "admin".
+    sa.Column("requested_by", sa.Text(), nullable=False),
+    sa.Column("decided_by", sa.Text(), nullable=True),
+    sa.Column("justification", sa.Text(), nullable=True),
+    # An approval that never expires is a standing authorization nobody granted.
+    sa.Column("expires_at", _TS, nullable=False),
+    sa.Column("requested_at", _TS, nullable=False),
+    sa.Column("decided_at", _TS, nullable=True),
+    # Set once the approval has authorized an execution, so a second use is
+    # visible. It does NOT by itself refuse the second use -- at-least-once is
+    # the platform contract and this table does not get to change it.
+    sa.Column("consumed_by_execution", sa.Text(), nullable=True),
+    sa.Column("investigation_ref", sa.Text(), nullable=True),
+    sa.Column("schema_version", sa.Integer(), nullable=False),
+    sa.Index("ix_cp_approval_tenant", "tenant_id", "requested_at"),
+    sa.Index("ix_cp_approval_investigation", "tenant_id", "investigation_ref"),
+)
+
+
 #: Every durable table, in creation order. Used by the migration and by the
 #: bootstrap check that the schema a process needs is the schema it found.
 DURABLE_TABLES = (
@@ -900,4 +964,5 @@ DURABLE_TABLES = (
     world_verification_table,
     world_reasoning_table,
     world_investigation_table,
+    approval_table,
 )

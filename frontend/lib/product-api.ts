@@ -133,3 +133,76 @@ export async function productGet<T>(
 
     return (await response.json()) as T
 }
+
+/**
+ * The ONLY paths this client may POST to.
+ *
+ * An allow-list rather than a convention. Phases 10.1 and 10.2 could say "this
+ * client cannot write" and have it be structurally true; 10.3 adds an approval
+ * and an execution trigger, so the honest replacement for that guarantee is an
+ * enumerated list a reviewer can read and a test can assert against. Anything
+ * not matching one of these patterns throws before a request is made.
+ */
+const ALLOWED_POST = [
+    /^\/api\/v1\/investigations\/[^/]+\/remediation\/approval-request$/,
+    /^\/api\/v1\/approvals\/[^/]+\/decision$/,
+    /^\/api\/v1\/approvals\/[^/]+\/execute$/,
+]
+
+/**
+ * A POST against the Product API.
+ *
+ * The body carries a justification, a decision word and a confirmation string.
+ * It carries no tenant, no capability, no target, no digest and no actor —
+ * the server reconstructs every one of those, and would reject a request that
+ * tried to supply them (the request models set `extra: forbid`). The guard
+ * below refuses to send them anyway, so an attempt fails here, loudly, rather
+ * than as a 422 a caller might mistake for a validation quirk.
+ */
+export async function productPost<T>(
+    path: string,
+    body: Record<string, unknown> = {},
+    signal?: AbortSignal,
+): Promise<T> {
+    if (!ALLOWED_POST.some((pattern) => pattern.test(path))) {
+        throw new Error(`the product client may not POST to ${path}`)
+    }
+    for (const key of Object.keys(body)) {
+        if (!["justification", "decision", "confirm_workload"].includes(key)) {
+            throw new Error(
+                `"${key}" is not something this client may send: tenant, ` +
+                "capability, target, risk, autonomy, digests and actor are " +
+                "reconstructed by the server and are not the browser's to assert",
+            )
+        }
+    }
+
+    const base = productApiBase()
+    const origin = typeof window === "undefined" ? "http://localhost" : window.location.origin
+    const url = new URL(`${base}${path}`, base.startsWith("http") ? undefined : origin)
+
+    let response: Response
+    try {
+        response = await fetch(url.toString(), {
+            method: "POST",
+            credentials: "include",
+            headers: { Accept: "application/json", "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            signal,
+        })
+    } catch {
+        throw new ProductApiError(0, "CortexPrime could not be reached")
+    }
+
+    if (!response.ok) {
+        let detail = ""
+        try {
+            const parsed = (await response.json()) as { detail?: string }
+            detail = parsed?.detail || ""
+        } catch {
+            detail = ""
+        }
+        throw new ProductApiError(response.status, detail || response.statusText)
+    }
+    return (await response.json()) as T
+}

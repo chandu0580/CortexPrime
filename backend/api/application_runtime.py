@@ -323,6 +323,7 @@ def build_governed_runtime(
     event_bus: Optional[Any] = None,
     loop: Optional[Any] = None,
     instance_id: Optional[str] = None,
+    approvals_factory: Optional[Any] = None,
 ) -> Optional[GovernedApplicationRuntime]:
     """Assemble the governed runtime, or return ``None`` when disabled.
 
@@ -378,7 +379,19 @@ def build_governed_runtime(
 
     # 2. Services, from their real builders.
     capabilities = CapabilityService(persistence.capabilities)
-    authorization = build_authorization(capabilities)
+    # ``approvals_factory`` is called with the durable store and returns an
+    # ``ApprovalLookup``. Passing it HERE rather than assigning
+    # ``authorization._approvals`` afterwards matters: ``build_authorization``
+    # already declares the parameter, and reaching into a private attribute to
+    # install a security-relevant dependency is how a deployment ends up with an
+    # approval system nobody can find by reading the composition.
+    #
+    # ``None`` remains the default and still means every approval lookup fails
+    # closed, so no existing caller changes behaviour.
+    approvals = None
+    if approvals_factory is not None:
+        approvals = approvals_factory(persistence.store)
+    authorization = build_authorization(capabilities, approvals=approvals)
     resolution = build_resolution(capabilities, bindings=persistence.bindings)
     executions = ExecutionService(persistence.executions,
                                   outbox=persistence.outbox)

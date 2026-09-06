@@ -9,13 +9,17 @@
  * client could aim at another tenant.
  */
 
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
-import { productGet } from "@/lib/product-api"
+import { productGet, productPost } from "@/lib/product-api"
 import type {
+    Approval,
+    ApprovalList,
     AssuranceList,
     InvestigationDetail,
     InvestigationList,
+    RemediationOutcome,
+    RemediationProposal,
     Timeline,
     WorldState,
 } from "@/lib/investigator/types"
@@ -28,6 +32,8 @@ export const investigatorKeys = {
     assurance: (ref: string) => ["investigator", "assurance", ref] as const,
     world: (subject: string, predicate: string) =>
         ["investigator", "world", subject, predicate] as const,
+    remediation: (ref: string) => ["investigator", "remediation", ref] as const,
+    approvals: (ref?: string) => ["investigator", "approvals", ref ?? "all"] as const,
 }
 
 /**
@@ -103,5 +109,99 @@ export function useWorldState(subjectRef: string, predicate: string) {
         staleTime: 0,
         gcTime: 0,
         retry: retryPolicy,
+    })
+}
+
+// ---------------------------------------------------------------------
+// Remediation and approval (Phase 10.3)
+// ---------------------------------------------------------------------
+
+export function useRemediation(ref: string) {
+    return useQuery({
+        queryKey: investigatorKeys.remediation(ref),
+        queryFn: ({ signal }) =>
+            productGet<RemediationProposal>(
+                `/api/v1/investigations/${encodeURIComponent(ref)}/remediation`,
+                undefined, signal),
+        enabled: Boolean(ref),
+        retry: retryPolicy,
+    })
+}
+
+/**
+ * Approval state is a governance fact a responder is about to act on, so it is
+ * never served from a cache: showing "awaiting approval" for something already
+ * decided is how two people approve the same action twice.
+ */
+export function useApprovals(investigationRef?: string) {
+    return useQuery({
+        queryKey: investigatorKeys.approvals(investigationRef),
+        queryFn: ({ signal }) =>
+            productGet<ApprovalList>("/api/v1/approvals",
+                investigationRef ? { investigation_ref: investigationRef } : undefined,
+                signal),
+        staleTime: 0,
+        gcTime: 0,
+        retry: retryPolicy,
+    })
+}
+
+function useInvalidate(investigationRef: string) {
+    const client = useQueryClient()
+    return () => {
+        void client.invalidateQueries({
+            queryKey: investigatorKeys.approvals(investigationRef) })
+        void client.invalidateQueries({
+            queryKey: investigatorKeys.approvals(undefined) })
+    }
+}
+
+/** Ask a human to approve the governed remediation. Sends a justification only. */
+export function useRequestApproval(investigationRef: string) {
+    const invalidate = useInvalidate(investigationRef)
+    return useMutation({
+        mutationFn: (justification: string) =>
+            productPost<Approval>(
+                `/api/v1/investigations/${encodeURIComponent(investigationRef)}/remediation/approval-request`,
+                justification ? { justification } : {}),
+        onSuccess: invalidate,
+    })
+}
+
+/**
+ * A human decides.
+ *
+ * `confirmWorkload` is checked by the SERVER against what it stored, so it is a
+ * confirmation and not an input: getting it wrong refuses, and getting it right
+ * changes nothing about what will run.
+ */
+export function useDecideApproval(investigationRef: string) {
+    const invalidate = useInvalidate(investigationRef)
+    return useMutation({
+        mutationFn: (input: {
+            approvalId: string
+            decision: "approve" | "reject"
+            justification?: string
+            confirmWorkload?: string
+        }) =>
+            productPost<Approval>(
+                `/api/v1/approvals/${encodeURIComponent(input.approvalId)}/decision`,
+                {
+                    decision: input.decision,
+                    ...(input.justification ? { justification: input.justification } : {}),
+                    ...(input.confirmWorkload ? { confirm_workload: input.confirmWorkload } : {}),
+                }),
+        onSuccess: invalidate,
+    })
+}
+
+/** Run the approved action through the existing governed chain. */
+export function useExecuteApproval(investigationRef: string) {
+    const invalidate = useInvalidate(investigationRef)
+    return useMutation({
+        mutationFn: (approvalId: string) =>
+            productPost<RemediationOutcome>(
+                `/api/v1/approvals/${encodeURIComponent(approvalId)}/execute`, {}),
+        onSuccess: invalidate,
     })
 }

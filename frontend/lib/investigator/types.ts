@@ -189,3 +189,80 @@ export interface AssuranceList {
     count: number
     note: string
 }
+
+
+// ---------------------------------------------------------------------
+// Remediation and approval (Phase 10.3)
+// ---------------------------------------------------------------------
+
+export interface RemediationProposal {
+    investigation_ref: string
+    capability_ref: string
+    capability_version: number
+    capability_digest: string
+    operation: string
+    provider: string
+    tenant_id: string
+    principal_id: string
+    environment: string
+    namespace: string
+    workload: string
+    parameters: Record<string, unknown>
+    side_effect_class: string
+    effect_semantics: string | null
+    code_trust: string
+    isolation_tier: string
+    reversible: boolean
+    blast_radius: string
+    approval_required: boolean
+    /** Platform-set. Displayed; there is no route that could change it. */
+    autonomy_ceiling: string
+    /** ADR-090. Binds the approval to this exact action. */
+    approval_digest: string
+    evidence_refs: string[]
+    diagnosis: string | null
+}
+
+export interface Approval {
+    approval_id: string
+    investigation_ref: string | null
+    capability_ref: string
+    capability_digest: string
+    operation: string
+    environment: string
+    namespace: string
+    workload: string
+    parameters: Record<string, unknown>
+    approval_digest: string
+    /** pending / granted / denied / withdrawn. Not success or failure. */
+    state: string
+    requested_by: string
+    decided_by: string | null
+    justification: string | null
+    requested_at: string | null
+    decided_at: string | null
+    expires_at: string | null
+    expired: boolean
+    consumed_by_execution: string | null
+}
+
+export interface ApprovalList {
+    items: Approval[]
+    count: number
+    limit: number
+}
+
+export interface RemediationOutcome {
+    execution_ref: string
+    approval_id: string
+    subject_ref: string
+    action_requested: boolean
+    action_approved: boolean
+    execution_started: boolean
+    world_status: string | null
+    world_value: string | null
+    world_observed_at: string | null
+    assurance_verdicts: string[]
+    read_at: string | null
+    note: string | null
+}

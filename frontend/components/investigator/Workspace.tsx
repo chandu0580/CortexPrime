@@ -14,6 +14,7 @@ import EvidenceExplorer from "./EvidenceExplorer"
 import HistoricalExperience from "./HistoricalExperience"
 import HypothesisPanel from "./HypothesisPanel"
 import Panel from "./Panel"
+import RemediationPanel from "./RemediationPanel"
 import TemporalStamp from "./TemporalStamp"
 import TimelinePanel from "./TimelinePanel"
 import WorldStatePanel from "./WorldStatePanel"
@@ -22,11 +23,17 @@ import { Loading, RequestFailure } from "./LoadState"
 /**
  * The investigation workspace.
  *
- * Read-only, and read-only by construction rather than by discipline: the only
- * data module it can reach is `product-api`, which exposes a single `productGet`
- * and no way to write anything. There is no execute button, no approve button
- * and no autonomy control on this screen, because there is no function they
- * could call.
+ * Every panel except one is read-only. Phase 10.3 added the governed
+ * remediation panel, which can request an approval, record a human decision and
+ * hand an approved action to the existing governed chain — three POSTs, to
+ * three enumerated paths, carrying a justification and a confirmation string
+ * and nothing else.
+ *
+ * What is still structurally impossible here: changing autonomy. There is no
+ * toggle, no dropdown and no request-promotion action anywhere in this tree,
+ * because autonomy is derived from platform policy and measured calibration and
+ * a screen offering to change it would be offering something the platform does
+ * not support.
  *
  * The default predicate for the World panel is the one Phase 9 actually
  * observes for Kubernetes workloads. It is a starting point a responder can
@@ -135,6 +142,8 @@ export default function Workspace({ investigationRef }: { investigationRef: stri
             <HypothesisPanel hypotheses={investigation.hypotheses} />
 
             <EvidenceExplorer evidence={investigation.evidence} />
+
+            <RemediationPanel investigationRef={investigation.investigation_ref} />
 
             <TimelinePanel investigationRef={investigation.investigation_ref} />
 
