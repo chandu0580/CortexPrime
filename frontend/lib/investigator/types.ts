@@ -330,8 +330,18 @@ export interface ApprovalQueueItem {
      * a button looks like and nothing else.
      */
     can_approve: boolean
-    /** Why the caller may or may not decide — a stable code, not prose. */
+    /**
+     * Why the caller may or may not decide — a stable code, not prose.
+     * `separation_of_duties` means the caller requested this remediation.
+     */
     authority_reason: string
+    /**
+     * True when the authenticated caller is the human who requested this
+     * remediation. Computed SERVER-side from the stored requester; the client
+     * never compares identities itself, because a client-side comparison would
+     * put the security control in the one place that cannot be trusted.
+     */
+    viewer_is_requester: boolean
     expired: boolean
     consumed_by_execution: string | null
     justification: string | null

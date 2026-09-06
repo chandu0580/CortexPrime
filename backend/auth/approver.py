@@ -43,6 +43,9 @@ log = logging.getLogger(__name__)
 
 __all__ = [
     "APPROVE_ACTION",
+    "SeparationVerdict",
+    "SEPARATION_OF_DUTIES",
+    "decision_separation",
     "APPROVE_RESOURCE",
     "APPROVE_REMEDIATION",
     "ApproverAuthority",
@@ -142,3 +145,98 @@ def resolve_approver_authority(
                                  member.role)
 
     return ApproverAuthority(True, GRANTED, principal_id, tenant_id, member.role)
+
+# ----------------------------------------------------------------------
+# Separation of duties — Phase 10.6 (ADR-099)
+# ----------------------------------------------------------------------
+
+#: The reason a self-decision is refused. Taken from the EXISTING
+#: ``DenialReason`` enum rather than invented here, so a refusal on this path
+#: and a refusal in the capability policy -- where a capability owner may not be
+#: the one who makes it live -- are the same named thing, and a reviewer
+#: grepping for that reason finds both.
+SEPARATION_OF_DUTIES = "separation_of_duties"
+
+
+@dataclass(frozen=True)
+class SeparationVerdict:
+    """Whether these two identities may be the decider and the requester."""
+
+    permitted: bool
+    reason: str
+    requested_by: str = ""
+    actor: str = ""
+
+    @property
+    def denied(self) -> bool:
+        return not self.permitted
+
+
+def _canonical(reference: Optional[str]) -> str:
+    """One identity reference, normalised for comparison.
+
+    Whitespace and case only. Nothing here parses or rebuilds the reference:
+    both sides are minted by the same helper from the same verified session, so
+    they are already the same shape, and a comparison that had to *interpret* an
+    identity would be a comparison that could be fooled by a different spelling
+    of one.
+    """
+    return (reference or "").strip().casefold()
+
+
+def decision_separation(
+    *, requested_by: Optional[str], actor: Optional[str]
+) -> SeparationVerdict:
+    """The human who asked for an action may not be the one who allows it.
+
+    Why this exists
+    ---------------
+    Until Phase 10.6 one person could raise an irreversible remediation and
+    approve it alone. Phase 10.5 established that approving requires an explicit
+    grant -- but the requester can hold that grant, so authority alone did not
+    make a second human necessary.
+
+    What it compares
+    ----------------
+    The two stored, namespaced identity references. Both are produced by the
+    same helper from the verified session, so this is never a comparison of
+    display names, browser-supplied usernames or free text -- and there is no
+    parameter through which a caller could supply either side.
+
+    Fail closed
+    -----------
+    An **absent or unreadable** requester reference denies. An approval whose
+    requester cannot be established is exactly the one where nobody can say the
+    decision was independent, and the honest answer to "we cannot tell whether
+    this is a self-decision" is no.
+
+    What it does NOT do
+    -------------------
+    It answers ALLOWED or REFUSED. It does not decide whether the approval is
+    valid, whether the action may run, or what the action is -- and it cannot
+    rewrite any of them. In particular the requester is already inside
+    ``canonical_approval_digest``; this reads that identity and never touches
+    the digest.
+    """
+    requester = _canonical(requested_by)
+    decider = _canonical(actor)
+
+    if not requester or not decider:
+        return SeparationVerdict(False, SEPARATION_OF_DUTIES,
+                                 requested_by or "", actor or "")
+    if requester == decider:
+        return SeparationVerdict(False, SEPARATION_OF_DUTIES,
+                                 requested_by or "", actor or "")
+    return SeparationVerdict(True, "independent_decision",
+                             requested_by or "", actor or "")
+
+
+def separation_denial_reason():
+    """The platform's own denial reason for this refusal.
+
+    Imported lazily and returned rather than hard-coded, so the string this
+    module reports and the one the capability policy reports cannot drift apart.
+    """
+    from backend.contexts.connectivity.domain.authorization import DenialReason
+
+    return DenialReason.SEPARATION_OF_DUTIES

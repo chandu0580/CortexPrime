@@ -2,6 +2,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { readFileSync } from "node:fs"
+import path from "node:path"
+
 import ApprovalQueue from "@/components/investigator/ApprovalQueue"
 import type { ApprovalQueueItem } from "@/lib/investigator/types"
 
@@ -65,6 +68,7 @@ const BASE: ApprovalQueueItem = {
     justification: "crashloop remediation",
     can_approve: true,
     authority_reason: "approver_authority_granted",
+    viewer_is_requester: false,
 }
 
 function respond(items: ApprovalQueueItem[]) {
@@ -333,5 +337,78 @@ describe("approver authority is the server's verdict, rendered", () => {
             expect(screen.queryByRole("button", { name: pattern })).toBeNull()
             expect(screen.queryByRole("link", { name: pattern })).toBeNull()
         }
+    })
+})
+
+
+describe("separation of duties is the server's verdict, rendered distinctly", () => {
+    const REQUESTER_VIEW = {
+        ...BASE, can_approve: false, viewer_is_requester: true,
+        authority_reason: "separation_of_duties",
+    }
+
+    it("tells the requester WHY, in its own words — not 'no authority'", async () => {
+        vi.stubGlobal("fetch", respond([REQUESTER_VIEW]))
+        wrap(<ApprovalQueue />)
+        ;(await screen.findByRole("button", { name: "Review" })).click()
+        await waitFor(() =>
+            expect(screen.getByText(/You requested this remediation and cannot decide it/i))
+                .toBeInTheDocument())
+        // The other sentence would be false: this person DOES have authority.
+        expect(screen.queryByText(/do not have approval authority/i)).toBeNull()
+    })
+
+    it("says the rule covers rejection too", async () => {
+        vi.stubGlobal("fetch", respond([REQUESTER_VIEW]))
+        wrap(<ApprovalQueue />)
+        ;(await screen.findByRole("button", { name: "Review" })).click()
+        await waitFor(() =>
+            expect(screen.getByText(/cannot withdraw your own request/i))
+                .toBeInTheDocument())
+    })
+
+    it("offers the requester no decision control at all", async () => {
+        vi.stubGlobal("fetch", respond([REQUESTER_VIEW]))
+        wrap(<ApprovalQueue />)
+        ;(await screen.findByRole("button", { name: "Review" })).click()
+        await waitFor(() =>
+            expect(screen.getByText(/You requested this remediation/i)).toBeInTheDocument())
+        expect(screen.queryByRole("button", { name: /Approve this action/ })).toBeNull()
+        expect(screen.queryByRole("button", { name: "Reject" })).toBeNull()
+    })
+
+    it("does NOT hide the row from the requester", async () => {
+        vi.stubGlobal("fetch", respond([REQUESTER_VIEW]))
+        wrap(<ApprovalQueue />)
+        expect(await screen.findByText("payments-api")).toBeInTheDocument()
+        expect(screen.getByText("you requested this")).toBeInTheDocument()
+    })
+
+    it("distinguishes 'you requested this' from 'you cannot approve'", async () => {
+        vi.stubGlobal("fetch", respond([
+            REQUESTER_VIEW,
+            { ...BASE, approval_id: "appr-2", can_approve: false,
+              viewer_is_requester: false, authority_reason: "no_approver_authority" },
+        ]))
+        wrap(<ApprovalQueue />)
+        await screen.findByText("you requested this")
+        expect(screen.getByText("you cannot approve")).toBeInTheDocument()
+    })
+
+    it("surfaces the server's reason code", async () => {
+        vi.stubGlobal("fetch", respond([REQUESTER_VIEW]))
+        wrap(<ApprovalQueue />)
+        ;(await screen.findByRole("button", { name: "Review" })).click()
+        await waitFor(() =>
+            expect(screen.getByText("separation_of_duties")).toBeInTheDocument())
+    })
+
+    it("compares no identities itself — the component holds no requester logic", () => {
+        const source = readFileSync(
+            path.join(__dirname, "../../components/investigator/ApprovalQueue.tsx"), "utf8")
+        // It renders the flag; it never derives it.
+        expect(source).toContain("viewer_is_requester")
+        expect(source).not.toMatch(/requested_by\s*===/)
+        expect(source).not.toMatch(/currentUser|current_user/)
     })
 })

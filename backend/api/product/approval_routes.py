@@ -331,7 +331,7 @@ def list_approvals(
     for record in records:
         item = project_queue_item(
             record, definition=definitions.get(record.operation), now=now,
-            authority=authority)
+            authority=authority, actor=_principal_ref(ctx))
         # Derived filters, applied AFTER the tenant-scoped read. "actionable" is
         # a derived state -- a pending approval past its expiry is not
         # actionable -- so it cannot be expressed as a stored-outcome predicate.
@@ -350,7 +350,8 @@ def list_approvals(
     ordered = [
         project_queue_item(
             record, definition=definitions.get(record.operation), now=now,
-            investigation=context.get(record.approval_id), authority=authority)
+            investigation=context.get(record.approval_id), authority=authority,
+            actor=_principal_ref(ctx))
         for record, item in candidates if item["approval_id"] in wanted
     ]
     ordered = order_queue(ordered)[:limit]
@@ -414,7 +415,7 @@ def get_approval(
     return ApprovalQueueItem(**project_queue_item(
         record, definition=definitions.get(record.operation), now=utc_now(),
         investigation=_investigation_context(ctx, record),
-        authority=approver_authority(ctx)))
+        authority=approver_authority(ctx), actor=_principal_ref(ctx)))
 
 
 @router.get("/remediations/{execution_ref}", response_model=RemediationOutcomeView,
@@ -539,6 +540,7 @@ def decide_approval(
     exactly the approval named in the path and nothing else.
     """
     from backend.api.product.context import approver_authority
+    from backend.auth.approver import decision_separation
     from backend.contracts.approval import ApprovalOutcome
 
     engine = _engine()
@@ -559,6 +561,24 @@ def decide_approval(
             detail=f"no approver authority in this tenant ({authority.reason})")
 
     record = _load_approval(ctx, approval_id)
+
+    # Phase 10.6. The human who asked for this action may not be the one who
+    # allows it -- for EITHER decision. A rule that stopped the requester
+    # approving but let them reject would leave them able to bury their own
+    # request, which is the same authority wearing a different hat.
+    #
+    # Position is inherited, not invented: CapabilityPolicy.evaluate checks
+    # authorization first, separation of duties second, and state concerns
+    # after. So an approval that is both expired AND self-decided answers
+    # SEPARATION_OF_DUTIES, while an independent approver on that same expired
+    # approval gets the expiry.
+    separation = decision_separation(
+        requested_by=record.requested_by, actor=_principal_ref(ctx))
+    if separation.denied:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(f"{separation.reason}: the human who requested this "
+                    "remediation may not decide it"))
 
     if body.decision == "approve":
         # A confirmation, checked against what the SERVER stored. It cannot

@@ -35,6 +35,17 @@ import { Empty, Loading, RequestFailure } from "./LoadState"
  * checkbox, no "run everything actionable". Each approval authorizes exactly
  * one action and is decided on its own screen, because that is the only way the
  * person deciding can have seen what they approved.
+ *
+ * Four distinct reasons a decision is unavailable, and they are four distinct
+ * sentences — never one "forbidden":
+ *
+ *   DECIDED / EXPIRED / REVOKED   nobody may decide this any more
+ *   NO APPROVER AUTHORITY         you may not, and neither may most people here
+ *   SEPARATION OF DUTIES          you may in general, and not this one: you asked for it
+ *   ACTIONABLE                    you may decide it
+ *
+ * Every one of them is the server's verdict, rendered. The component compares
+ * no identities and computes no authority.
  */
 
 const RISK_TONE: Record<string, string> = {
@@ -152,7 +163,9 @@ function QueueRow({
                 </button>
                 {item.actionable && !item.can_approve && (
                     <p className="mt-1 text-[10px]" style={{ color: "var(--text-muted)" }}>
-                        you cannot approve
+                        {item.viewer_is_requester
+                            ? "you requested this"
+                            : "you cannot approve"}
                     </p>
                 )}
             </td>
@@ -288,6 +301,30 @@ function ApprovalDetail({
                 >
                     This approval can no longer be decided. It is shown for the record.
                 </p>
+            ) : item.viewer_is_requester ? (
+                /* Separation of duties. A THIRD distinct sentence: this person
+                   has the authority to approve in general and cannot approve
+                   THIS, because they asked for it. Telling them "you lack
+                   authority" would be false, and hiding the row would leave
+                   them unable to see the thing they raised. */
+                <div
+                    className="mt-4 rounded border px-3 py-2"
+                    style={{ borderColor: "var(--border-strong)" }}
+                    role="note"
+                >
+                    <p className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
+                        You requested this remediation and cannot decide it
+                    </p>
+                    <p className="mt-1 text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                        Separation of duties: the person who asks for an irreversible
+                        action is never the person who allows it. That applies to
+                        rejecting it too — you cannot withdraw your own request by
+                        deciding against it. Another approver in this tenant must decide.
+                    </p>
+                    <p className="mt-1 font-mono text-[11px]" style={{ color: "var(--text-muted)" }}>
+                        {item.authority_reason}
+                    </p>
+                </div>
             ) : !mayDecide ? (
                 /* Two different sentences, deliberately. "Nobody may decide
                    this" and "you may not decide this" are different facts, and
@@ -442,7 +479,8 @@ export default function ApprovalQueue() {
                 </select>
             </div>
 
-            {query.data && !query.data.viewer_can_approve && (
+            {query.data && !query.data.viewer_can_approve
+                && !query.data.items.some((i) => i.viewer_is_requester) && (
                 <div
                     className="rounded border px-3 py-2"
                     style={{ borderColor: "var(--border-strong)", background: "var(--surface-raised)" }}

@@ -621,7 +621,14 @@ class ApprovalQueueItem(BaseModel):
         default="unknown",
         description="Why the caller may or may not decide — a stable code, so a "
                     "refusal can be attributed rather than collapsed into "
-                    "'forbidden'.")
+                    "'forbidden'. `separation_of_duties` means the caller "
+                    "requested this remediation.")
+    viewer_is_requester: bool = Field(
+        default=False,
+        description="True when the authenticated caller is the human who "
+                    "requested this remediation. Computed server-side from the "
+                    "stored requester; the client never compares identities "
+                    "itself.")
     expired: bool = False
     consumed_by_execution: Optional[str] = None
     justification: Optional[str] = None

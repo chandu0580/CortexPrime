@@ -164,7 +164,7 @@ def _governance_of(definition: Any) -> _Governance:
 def project_queue_item(
     record: Any, *, definition: Any, now: datetime,
     investigation: Any = None, autonomy_ceiling: str = "a3_approved_action",
-    authority: Any = None,
+    authority: Any = None, actor: Optional[str] = None,
 ) -> dict:
     """One queue row. Every governed value comes from a contract or a column.
 
@@ -173,9 +173,18 @@ def project_queue_item(
     on, and whether Assurance has ruled. None of it is authority, and its
     absence degrades the row's context, never its safety.
     """
+    from backend.auth.approver import decision_separation
+
     governance = _governance_of(definition)
     payload = getattr(record, "payload", None) or {}
     state = queue_state_of(record, now)
+    # Computed HERE, on the server, from the stored requester and the
+    # authenticated caller. The frontend is told the answer and never works it
+    # out: a client-side "am I the requester?" comparison would put the security
+    # control in the one place that cannot be trusted.
+    separation = decision_separation(
+        requested_by=getattr(record, "requested_by", None), actor=actor)
+    viewer_is_requester = actor is not None and separation.denied
 
     verification_refs = tuple(
         _text(r) for r in (getattr(investigation, "verification_refs", ()) or ()))
@@ -253,8 +262,18 @@ def project_queue_item(
         # this to true would change what a button looks like and nothing else.
         "can_approve": bool(
             state in ACTIONABLE_STATES
-            and authority is not None and getattr(authority, "permitted", False)),
-        "authority_reason": _text(getattr(authority, "reason", None)) or "unknown",
+            and authority is not None and getattr(authority, "permitted", False)
+            and not viewer_is_requester),
+        # The reason follows the same precedence the decision route uses:
+        # authority first, then separation of duties. So a requester who also
+        # lacks authority is told about the authority, and a requester who HAS
+        # authority is told the thing that is actually stopping them.
+        "authority_reason": (
+            _text(getattr(authority, "reason", None)) or "unknown"
+            if authority is None or not getattr(authority, "permitted", False)
+            else (separation.reason if viewer_is_requester
+                  else _text(getattr(authority, "reason", None)) or "unknown")),
+        "viewer_is_requester": viewer_is_requester,
         "expired": bool(record.is_expired_at(now)),
         "consumed_by_execution": _text(
             getattr(record, "consumed_by_execution", None)) or None,
