@@ -9,7 +9,7 @@ import {
     type QueueFilters,
 } from "@/hooks/queries/useInvestigator"
 import { readAutonomy } from "@/lib/investigator/epistemic"
-import { readStage } from "@/lib/investigator/remediation-vocabulary"
+import { readScopeRefusal, readStage } from "@/lib/investigator/remediation-vocabulary"
 import type { ApprovalQueueItem } from "@/lib/investigator/types"
 import EpistemicBadge from "./EpistemicBadge"
 import Panel from "./Panel"
@@ -165,7 +165,10 @@ function QueueRow({
                     <p className="mt-1 text-[10px]" style={{ color: "var(--text-muted)" }}>
                         {item.viewer_is_requester
                             ? "you requested this"
-                            : "you cannot approve"}
+                            : item.approve_scope_reason.startsWith("out_of_scope")
+                                || item.approve_scope_reason === "risk_exceeds_grant_ceiling"
+                                ? "outside your grant"
+                                : "you cannot approve"}
                     </p>
                 )}
             </td>
@@ -295,12 +298,64 @@ function ApprovalDetail({
             )}
 
             {!item.actionable ? (
-                <p
-                    className="mt-4 rounded border px-3 py-2 text-xs leading-relaxed"
-                    style={{ borderColor: "var(--border-strong)", color: "var(--text-secondary)" }}
+                <div
+                    className="mt-4 rounded border px-3 py-2"
+                    style={{ borderColor: "var(--border-strong)" }}
+                    role="note"
                 >
-                    This approval can no longer be decided. It is shown for the record.
-                </p>
+                    <p className="text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                        This approval can no longer be decided. It is shown for the record.
+                    </p>
+                    {item.state === "approved" && !item.consumed_by_execution && (
+                        <>
+                            {/* An approval existing is NOT a reason to offer
+                                Execute. Executing is a third act with its own
+                                grant, and the server decides who holds it. */}
+                            <p className="mt-2 text-xs font-semibold"
+                               style={{ color: "var(--text-primary)" }}>
+                                {item.can_execute
+                                    ? "APPROVED — YOU MAY EXECUTE"
+                                    : `APPROVED — ${readScopeRefusal(item.execute_reason).label}`}
+                            </p>
+                            <p className="mt-1 text-xs leading-relaxed"
+                               style={{ color: "var(--text-secondary)" }}>
+                                {item.can_execute
+                                    ? "A named human approved this exact action and your "
+                                      + "grant covers executing it. Running it hands the "
+                                      + "approved action to the governed chain, which "
+                                      + "re-checks everything."
+                                    : readScopeRefusal(item.execute_reason).meaning}
+                            </p>
+                            <p className="mt-1 font-mono text-[11px]"
+                               style={{ color: "var(--text-muted)" }}>
+                                {item.execute_reason}
+                            </p>
+                        </>
+                    )}
+                </div>
+            ) : !item.can_approve && !item.viewer_is_requester
+                && (item.approve_scope_reason.startsWith("out_of_scope")
+                    || item.approve_scope_reason === "risk_exceeds_grant_ceiling"
+                    || item.approve_scope_reason === "grant_is_not_scoped") ? (
+                /* Scope, not authority. This person IS an approver — their grant
+                   simply does not cover this capability, this environment, or an
+                   action of this risk. Saying "no authority" would send them to
+                   ask for the wrong thing. */
+                <div
+                    className="mt-4 rounded border px-3 py-2"
+                    style={{ borderColor: "var(--border-strong)" }}
+                    role="note"
+                >
+                    <p className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
+                        {readScopeRefusal(item.approve_scope_reason).label}
+                    </p>
+                    <p className="mt-1 text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                        {readScopeRefusal(item.approve_scope_reason).meaning}
+                    </p>
+                    <p className="mt-1 font-mono text-[11px]" style={{ color: "var(--text-muted)" }}>
+                        {item.approve_scope_reason}
+                    </p>
+                </div>
             ) : item.viewer_is_requester ? (
                 /* Separation of duties. A THIRD distinct sentence: this person
                    has the authority to approve in general and cannot approve

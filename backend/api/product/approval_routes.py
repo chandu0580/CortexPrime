@@ -141,6 +141,42 @@ def _principal_ref(ctx: ProductContext) -> str:
     return f"human:{ctx.principal.principal_id}"
 
 
+
+def _scoped_authority(ctx: ProductContext, record, *, action: str):
+    """Scope for ONE stored approval, for one action (Phase 10.7).
+
+    Every dimension is read from the approval row and the capability contract:
+    the capability it names, the environment it was raised in, and the risk the
+    platform derives from the declared effect. Nothing here is read from the
+    request -- the request models forbid extra fields, so an attempt to supply a
+    capability, environment or risk is a 422 rather than a silent ignore.
+
+    Risk is derived with ``implied_risk_for``, the platform's own function, so a
+    grant's ceiling is compared against the same classification authorization
+    would use. An approval whose capability cannot be resolved gets CRITICAL --
+    the safe end -- rather than a permissive default.
+    """
+    from backend.auth.approver import resolve_scoped_authority
+    from backend.contexts.connectivity.domain.authorization import implied_risk_for
+
+    engine = _engine()
+    definitions = getattr(
+        getattr(engine, "remediation", None), "_definitions", {}) or {}
+    definition = definitions.get(record.operation)
+    contract = getattr(definition, "contract", None)
+    risk = implied_risk_for(getattr(contract, "effect_semantics", None),
+                            getattr(contract, "side_effect_class", None)).value
+
+    return resolve_scoped_authority(
+        principal_id=ctx.principal.principal_id,
+        tenant_id=ctx.tenant_id,
+        action=action,
+        capability_ref=record.capability_ref,
+        environment=record.environment,
+        risk=risk,
+    )
+
+
 def _proposal_for(ctx: ProductContext, investigation_ref: str):
     from backend.api.product.routes import _load
 
@@ -331,7 +367,9 @@ def list_approvals(
     for record in records:
         item = project_queue_item(
             record, definition=definitions.get(record.operation), now=now,
-            authority=authority, actor=_principal_ref(ctx))
+            authority=authority, actor=_principal_ref(ctx),
+            approve_scope=_scoped_authority(ctx, record, action="approve"),
+            execute_scope=_scoped_authority(ctx, record, action="execute"))
         # Derived filters, applied AFTER the tenant-scoped read. "actionable" is
         # a derived state -- a pending approval past its expiry is not
         # actionable -- so it cannot be expressed as a stored-outcome predicate.
@@ -351,7 +389,9 @@ def list_approvals(
         project_queue_item(
             record, definition=definitions.get(record.operation), now=now,
             investigation=context.get(record.approval_id), authority=authority,
-            actor=_principal_ref(ctx))
+            actor=_principal_ref(ctx),
+            approve_scope=_scoped_authority(ctx, record, action="approve"),
+            execute_scope=_scoped_authority(ctx, record, action="execute"))
         for record, item in candidates if item["approval_id"] in wanted
     ]
     ordered = order_queue(ordered)[:limit]
@@ -415,7 +455,9 @@ def get_approval(
     return ApprovalQueueItem(**project_queue_item(
         record, definition=definitions.get(record.operation), now=utc_now(),
         investigation=_investigation_context(ctx, record),
-        authority=approver_authority(ctx), actor=_principal_ref(ctx)))
+        authority=approver_authority(ctx), actor=_principal_ref(ctx),
+        approve_scope=_scoped_authority(ctx, record, action="approve"),
+        execute_scope=_scoped_authority(ctx, record, action="execute")))
 
 
 @router.get("/remediations/{execution_ref}", response_model=RemediationOutcomeView,
@@ -540,7 +582,7 @@ def decide_approval(
     exactly the approval named in the path and nothing else.
     """
     from backend.api.product.context import approver_authority
-    from backend.auth.approver import decision_separation
+    from backend.auth.approver import APPROVE_ACTION, decision_separation
     from backend.contracts.approval import ApprovalOutcome
 
     engine = _engine()
@@ -561,6 +603,17 @@ def decide_approval(
             detail=f"no approver authority in this tenant ({authority.reason})")
 
     record = _load_approval(ctx, approval_id)
+
+    # Phase 10.7. Holding approver authority in the tenant is no longer enough:
+    # the grant must cover THIS capability, in THIS environment, within its
+    # declared risk ceiling. Checked against the stored approval, never against
+    # anything the caller sent.
+    scope = _scoped_authority(ctx, record, action=APPROVE_ACTION)
+    if scope.denied:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(f"{scope.reason}: your approval authority does not cover "
+                    "this action"))
 
     # Phase 10.6. The human who asked for this action may not be the one who
     # allows it -- for EITHER decision. A rule that stopped the requester
@@ -598,6 +651,7 @@ def decide_approval(
     # trail that cannot answer the question it exists for.
     justification = body.justification or ""
     provenance = (f"[authority={authority.reason}"
+                  f" scope={scope.matched_grant}"
                   f" membership_role={authority.membership_role}]")
     decided = approvals.decide(
         approval_id=approval_id, tenant_id=ctx.tenant_id,
@@ -639,6 +693,25 @@ def execute_approval(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="this action has not been approved")
+
+    # Phase 10.7. Until now ANY tenant member could execute ANY granted
+    # approval. Executing is a third act, distinct from requesting it and from
+    # allowing it, and it now needs its own scoped grant covering this
+    # capability and environment.
+    #
+    # Deliberately NOT a separation rule: the requester may execute, the
+    # approver may execute, a third party may execute -- each only if they hold
+    # execution scope. Phase 10.6's invariant is `requester != approver` and
+    # nothing more; turning it into `requester != executor` here would be
+    # inventing governance.
+    from backend.auth.approver import EXECUTE_ACTION
+
+    executor = _scoped_authority(ctx, record, action=EXECUTE_ACTION)
+    if executor.denied:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(f"{executor.reason}: you are not authorized to execute "
+                    "this action"))
 
     from backend.contracts.identity import PrincipalKind, PrincipalRef
 

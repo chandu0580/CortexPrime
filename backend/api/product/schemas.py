@@ -623,6 +623,22 @@ class ApprovalQueueItem(BaseModel):
                     "refusal can be attributed rather than collapsed into "
                     "'forbidden'. `separation_of_duties` means the caller "
                     "requested this remediation.")
+    can_execute: bool = Field(
+        default=False,
+        description="True only when the approval is APPROVED and the "
+                    "authenticated caller holds an execution grant covering "
+                    "this capability and environment. An approval existing is "
+                    "not sufficient. Presentation only — the execute route "
+                    "re-resolves the same scope and enforces it.")
+    execute_reason: str = Field(
+        default="unknown",
+        description="Why the caller may or may not execute — names the scope "
+                    "dimension that failed, not a generic refusal.")
+    approve_scope_reason: str = Field(
+        default="unknown",
+        description="The scope verdict for approving this specific action, "
+                    "separate from whether the caller holds any approver "
+                    "authority at all.")
     viewer_is_requester: bool = Field(
         default=False,
         description="True when the authenticated caller is the human who "

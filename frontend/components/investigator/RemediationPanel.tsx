@@ -263,7 +263,23 @@ function ApprovalCard({
                 </form>
             )}
 
-            {approval.state === "granted" && !approval.expired && !approval.consumed_by_execution && (
+            {approval.state === "granted" && !approval.expired
+                && !approval.consumed_by_execution && approval.can_execute === false && (
+                /* Phase 10.7: an approval existing is no longer sufficient to
+                   offer Execute. Executing is a third act with its own scoped
+                   grant, and the server says whether this caller holds it. */
+                <p
+                    className="mt-4 rounded border px-3 py-2 text-xs leading-relaxed"
+                    style={{ borderColor: "var(--border-strong)", color: "var(--text-secondary)" }}
+                    role="note"
+                >
+                    This action is approved and you are not authorized to execute it.
+                    Approving and executing are different acts with different grants.
+                </p>
+            )}
+
+            {approval.state === "granted" && !approval.expired
+                && !approval.consumed_by_execution && approval.can_execute !== false && (
                 <div className="mt-4 border-t pt-3" style={{ borderColor: "var(--border)" }}>
                     <button
                         type="button"

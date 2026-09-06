@@ -69,6 +69,9 @@ const BASE: ApprovalQueueItem = {
     can_approve: true,
     authority_reason: "approver_authority_granted",
     viewer_is_requester: false,
+    can_execute: false,
+    execute_reason: "no_executor_authority",
+    approve_scope_reason: "scoped_grant_matched",
 }
 
 function respond(items: ApprovalQueueItem[]) {
@@ -410,5 +413,96 @@ describe("separation of duties is the server's verdict, rendered distinctly", ()
         expect(source).toContain("viewer_is_requester")
         expect(source).not.toMatch(/requested_by\s*===/)
         expect(source).not.toMatch(/currentUser|current_user/)
+    })
+})
+
+
+describe("scoped authority is the server's verdict, rendered by dimension", () => {
+    const outOfScope = (reason: string) => ({
+        ...BASE, can_approve: false, viewer_is_requester: false,
+        authority_reason: reason, approve_scope_reason: reason,
+    })
+
+    for (const [reason, label] of [
+        ["out_of_scope_capability", "OUT OF SCOPE — CAPABILITY"],
+        ["out_of_scope_environment", "OUT OF SCOPE — ENVIRONMENT"],
+    ] as const) {
+        it(`names ${reason} rather than a generic refusal`, async () => {
+            vi.stubGlobal("fetch", respond([outOfScope(reason)]))
+            wrap(<ApprovalQueue />)
+            ;(await screen.findByRole("button", { name: "Review" })).click()
+            await waitFor(() => expect(screen.getByText(label)).toBeInTheDocument())
+            expect(screen.getByText(reason)).toBeInTheDocument()
+            // NOT the "no authority" sentence: this person IS an approver.
+            expect(screen.queryByText(/do not have approval authority/i)).toBeNull()
+        })
+    }
+
+    it("marks an out-of-scope row 'outside your grant', not 'you cannot approve'", async () => {
+        vi.stubGlobal("fetch", respond([outOfScope("out_of_scope_capability")]))
+        wrap(<ApprovalQueue />)
+        expect(await screen.findByText("outside your grant")).toBeInTheDocument()
+        expect(screen.queryByText("you cannot approve")).toBeNull()
+    })
+
+    it("still says 'no approval authority' when that is the real reason", async () => {
+        vi.stubGlobal("fetch", respond([{
+            ...BASE, can_approve: false, viewer_is_requester: false,
+            authority_reason: "no_approver_authority",
+            approve_scope_reason: "no_approver_authority",
+        }]))
+        wrap(<ApprovalQueue />)
+        ;(await screen.findByRole("button", { name: "Review" })).click()
+        await waitFor(() =>
+            expect(screen.getAllByText(/do not have approval authority/i))
+                .not.toHaveLength(0))
+    })
+})
+
+describe("an approval existing does not imply you may execute it", () => {
+    const approvedRow = (canExecute: boolean, reason: string) => ({
+        ...BASE, state: "approved", actionable: false, can_approve: false,
+        can_execute: canExecute, execute_reason: reason,
+    })
+
+    it("tells an authorized executor they may execute", async () => {
+        vi.stubGlobal("fetch", respond([approvedRow(true, "scoped_grant_matched")]))
+        wrap(<ApprovalQueue />)
+        ;(await screen.findByRole("button", { name: "Review" })).click()
+        await waitFor(() =>
+            expect(screen.getByText("APPROVED — YOU MAY EXECUTE")).toBeInTheDocument())
+    })
+
+    it("tells an unauthorized one why, naming the dimension", async () => {
+        vi.stubGlobal("fetch", respond([
+            approvedRow(false, "out_of_scope_environment"),
+        ]))
+        wrap(<ApprovalQueue />)
+        ;(await screen.findByRole("button", { name: "Review" })).click()
+        await waitFor(() =>
+            expect(screen.getByText("APPROVED — OUT OF SCOPE — ENVIRONMENT"))
+                .toBeInTheDocument())
+    })
+
+    it("distinguishes no-execution-authority from an approval problem", async () => {
+        vi.stubGlobal("fetch", respond([
+            approvedRow(false, "no_executor_authority"),
+        ]))
+        wrap(<ApprovalQueue />)
+        ;(await screen.findByRole("button", { name: "Review" })).click()
+        await waitFor(() =>
+            expect(screen.getByText(/Approving and executing are different acts/i))
+                .toBeInTheDocument())
+    })
+
+    it("derives none of it — the component reads the server's flags", () => {
+        const source = readFileSync(
+            path.join(__dirname, "../../components/investigator/ApprovalQueue.tsx"), "utf8")
+        expect(source).toContain("can_execute")
+        expect(source).toContain("execute_reason")
+        // No client-side grant parsing or scope comparison anywhere.
+        expect(source).not.toMatch(/permissions/)
+        expect(source).not.toMatch(/capability\s*===/)
+        expect(source).not.toMatch(/max_risk/)
     })
 })

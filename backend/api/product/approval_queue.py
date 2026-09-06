@@ -161,10 +161,29 @@ def _governance_of(definition: Any) -> _Governance:
     )
 
 
+
+def _approval_reason(authority, approve_scope, separation, viewer_is_requester) -> str:
+    """Why this caller may or may not decide, in the route's own precedence.
+
+    The order matters and is inherited: ``CapabilityPolicy.evaluate`` checks
+    authorization, then separation of duties, then state -- and Phase 10.7
+    inserts scope inside authorization, before separation. Reporting them in a
+    different order here would tell a responder to fix the wrong thing.
+    """
+    if authority is None or not getattr(authority, "permitted", False):
+        return str(getattr(authority, "reason", None) or "unknown")
+    if approve_scope is not None and not getattr(approve_scope, "permitted", False):
+        return str(getattr(approve_scope, "reason", None) or "unknown")
+    if viewer_is_requester:
+        return separation.reason
+    return str(getattr(authority, "reason", None) or "unknown")
+
+
 def project_queue_item(
     record: Any, *, definition: Any, now: datetime,
     investigation: Any = None, autonomy_ceiling: str = "a3_approved_action",
     authority: Any = None, actor: Optional[str] = None,
+    approve_scope: Any = None, execute_scope: Any = None,
 ) -> dict:
     """One queue row. Every governed value comes from a contract or a column.
 
@@ -263,16 +282,27 @@ def project_queue_item(
         "can_approve": bool(
             state in ACTIONABLE_STATES
             and authority is not None and getattr(authority, "permitted", False)
+            and approve_scope is not None
+            and getattr(approve_scope, "permitted", False)
             and not viewer_is_requester),
+        # Whether THIS caller may execute this approved action. An approval
+        # existing is no longer sufficient to offer the control: executing is a
+        # third act with its own scoped grant.
+        "can_execute": bool(
+            state == QueueState.APPROVED
+            and execute_scope is not None
+            and getattr(execute_scope, "permitted", False)),
+        "execute_reason": _text(getattr(execute_scope, "reason", None)) or "unknown",
+        "approve_scope_reason": _text(getattr(approve_scope, "reason", None)) or "unknown",
         # The reason follows the same precedence the decision route uses:
         # authority first, then separation of duties. So a requester who also
         # lacks authority is told about the authority, and a requester who HAS
         # authority is told the thing that is actually stopping them.
-        "authority_reason": (
-            _text(getattr(authority, "reason", None)) or "unknown"
-            if authority is None or not getattr(authority, "permitted", False)
-            else (separation.reason if viewer_is_requester
-                  else _text(getattr(authority, "reason", None)) or "unknown")),
+        # Precedence mirrors the decision route exactly: authority, then
+        # scope, then separation of duties. A caller is told the thing that is
+        # actually stopping them, not the first check in the list.
+        "authority_reason": _approval_reason(
+            authority, approve_scope, separation, viewer_is_requester),
         "viewer_is_requester": viewer_is_requester,
         "expired": bool(record.is_expired_at(now)),
         "consumed_by_execution": _text(

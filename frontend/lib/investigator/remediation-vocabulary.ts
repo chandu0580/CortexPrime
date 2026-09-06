@@ -132,3 +132,87 @@ export function readApproval(
     }
     return readStage(state)
 }
+
+
+/**
+ * Why a caller may not act on a specific approval — Phase 10.7.
+ *
+ * Each reason names the dimension that failed. "Forbidden" would leave an
+ * operator unable to tell a wrong capability from a wrong environment from a
+ * risk ceiling, which are three different grants to go and ask for.
+ *
+ * Every one of these is the server's own reason code, rendered. The client
+ * derives none of them.
+ */
+export function readScopeRefusal(reason: string | null | undefined): Reading {
+    switch (normalise(reason)) {
+        case "scoped_grant_matched":
+        case "approver_authority_granted":
+            return {
+                label: "IN SCOPE",
+                meaning: "Your grant covers this capability and environment.",
+                tone: "established",
+            }
+        case "out_of_scope_capability":
+            return {
+                label: "OUT OF SCOPE — CAPABILITY",
+                meaning:
+                    "You hold a grant, and not for this capability. Grants name " +
+                    "one capability each; there is no wildcard.",
+                tone: "excluded",
+            }
+        case "out_of_scope_environment":
+            return {
+                label: "OUT OF SCOPE — ENVIRONMENT",
+                meaning:
+                    "Your grant is for a different environment than the one this " +
+                    "action was raised in.",
+                tone: "excluded",
+            }
+        case "risk_exceeds_grant_ceiling":
+            return {
+                label: "ABOVE YOUR RISK CEILING",
+                meaning:
+                    "This action's declared risk is higher than your grant " +
+                    "allows. The platform derives the risk from the capability " +
+                    "contract — it is not something this page or you can set.",
+                tone: "excluded",
+            }
+        case "grant_is_not_scoped":
+            return {
+                label: "GRANT NOT SCOPED",
+                meaning:
+                    "Your grant names no capability and no environment. That form " +
+                    "no longer confers authority; it must be re-issued with scope.",
+                tone: "absent",
+            }
+        case "no_executor_authority":
+            return {
+                label: "NO EXECUTION AUTHORITY",
+                meaning:
+                    "Approving and executing are different acts with different " +
+                    "grants. You may hold one without the other.",
+                tone: "absent",
+            }
+        case "no_approver_authority":
+            return {
+                label: "NO APPROVAL AUTHORITY",
+                meaning: "You hold no approver grant in this tenant.",
+                tone: "absent",
+            }
+        case "separation_of_duties":
+            return {
+                label: "YOU REQUESTED THIS",
+                meaning:
+                    "The person who asks for an irreversible action is never the " +
+                    "person who allows it.",
+                tone: "excluded",
+            }
+        default:
+            return {
+                label: (reason || "NOT PERMITTED").toUpperCase().replace(/_/g, " "),
+                meaning: `Reported by the platform as "${reason}".`,
+                tone: "neutral",
+            }
+    }
+}

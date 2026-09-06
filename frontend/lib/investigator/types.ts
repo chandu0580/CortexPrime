@@ -244,6 +244,9 @@ export interface Approval {
     expires_at: string | null
     expired: boolean
     consumed_by_execution: string | null
+    /** Server-projected. An approval existing does not imply you may run it. */
+    can_execute?: boolean
+    execute_reason?: string
 }
 
 export interface ApprovalList {
@@ -342,6 +345,18 @@ export interface ApprovalQueueItem {
      * put the security control in the one place that cannot be trusted.
      */
     viewer_is_requester: boolean
+    /**
+     * True only when the approval is APPROVED and the caller holds an execution
+     * grant covering this capability and environment.
+     *
+     * An approval existing is no longer sufficient to offer the control.
+     * Presentation only — the execute route re-resolves the same scope.
+     */
+    can_execute: boolean
+    /** Why the caller may or may not execute — names the failed dimension. */
+    execute_reason: string
+    /** The scope verdict for approving this specific action. */
+    approve_scope_reason: string
     expired: boolean
     consumed_by_execution: string | null
     justification: string | null
