@@ -176,6 +176,7 @@ def _scoped_authority(ctx: ProductContext, record, *, action: str):
         risk=risk,
         grants=getattr(engine, "grants", None),
         memberships=getattr(engine, "memberships", None),
+        tenants=getattr(engine, "tenants", None),
     )
 
 

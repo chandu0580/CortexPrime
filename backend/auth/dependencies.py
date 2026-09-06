@@ -60,9 +60,31 @@ async def require_user(
             detail="Authentication required",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    # Verify user belongs to at least one active tenant
+    # Verify the token names a tenant that exists and is live.
+    #
+    # Phase 10.10. This check is older than ``require_tenant`` and runs before
+    # it, and it read ``data/tenants/tenants.json`` -- so until this phase the
+    # JSON file could refuse a request no matter what the durable store said,
+    # which is both halves of "JSON and PostgreSQL are both authoritative".
+    # The durable store is asked first and is the answer whenever it is
+    # composed; the file remains only as a fallback for a process that has no
+    # engine, and that fallback refuses on absence exactly as this one does.
     tenant_id = payload.get("tenant_id")
     if tenant_id:
+        from backend.api.product.app import current_engine
+        from backend.auth.tenants import resolve_tenant
+
+        tenants_store = getattr(current_engine(), "tenants", None)
+        if tenants_store is not None:
+            record, reason = resolve_tenant(tenant_id=tenant_id,
+                                            tenants=tenants_store)
+            if record is None:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Tenant is inactive or does not exist ({reason})",
+                )
+            return payload
+
         tm = get_tenant_manager()
         tenant = tm.get_tenant(tenant_id)
         if not tenant or not tenant.is_active:
@@ -96,6 +118,27 @@ async def require_tenant(current_user: dict = Depends(require_user)) -> dict:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="No tenant association in token",
         )
+    # Phase 10.10. Tenant existence and state come from the durable store
+    # (``cp_tenant``), not from ``data/tenants/tenants.json``. Until this phase
+    # an edit to that gitignored file disabled governance for a whole tenant.
+    #
+    # The JSON manager remains ONLY as a fallback for processes that have not
+    # composed the durable engine -- and that fallback refuses on absence just
+    # as the durable path does, so neither direction fails open.
+    from backend.api.product.app import current_engine
+    from backend.auth.tenants import resolve_tenant
+
+    tenants_store = getattr(current_engine(), "tenants", None)
+    if tenants_store is not None:
+        record, reason = resolve_tenant(tenant_id=tenant_id,
+                                        tenants=tenants_store)
+        if record is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Tenant not found or inactive ({reason})",
+            )
+        return current_user
+
     tm = get_tenant_manager()
     tenant = tm.get_tenant(tenant_id)
     if not tenant or not tenant.is_active:

@@ -156,6 +156,7 @@ def issue_grant(
     reason: str,
     members: Any = None,
     memberships: Any = None,
+    tenants: Any = None,
     audit: Any = None,
     audit_writer: Any = None,
     now: Any = None,
@@ -180,7 +181,7 @@ def issue_grant(
         principal_id=issuer_principal_id, tenant_id=tenant_id,
         action=ISSUE_ACTION, capability_ref=capability.capability_ref,
         environment=environment, risk=effective_risk,
-        grants=repository, memberships=memberships)
+        grants=repository, memberships=memberships, tenants=tenants)
     if issuer.denied:
         # The scoped reason is more useful than a flat refusal -- it says
         # whether the issuer holds nothing, or holds something narrower.
@@ -270,8 +271,8 @@ def issue_grant(
 
 def revoke_grant(
     *, repository: Any, revoker_principal_id: str, tenant_id: str,
-    grant_id: str, reason: str, memberships: Any = None, audit: Any = None,
-    audit_writer: Any = None, now: Any = None,
+    grant_id: str, reason: str, memberships: Any = None, tenants: Any = None,
+    audit: Any = None, audit_writer: Any = None, now: Any = None,
 ) -> GrantOutcome:
     """Withdraw one grant. Tenant-scoped, attributed, and fail-closed.
 
@@ -305,7 +306,7 @@ def revoke_grant(
         principal_id=revoker_principal_id, tenant_id=tenant_id,
         action=ISSUE_ACTION, capability_ref=record.capability_ref,
         environment=record.environment, risk="low", grants=repository,
-        memberships=memberships)
+        memberships=memberships, tenants=tenants)
     if issuer.denied:
         return GrantOutcome(False, NO_ISSUER_AUTHORITY, grant_id=grant_id)
 

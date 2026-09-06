@@ -163,8 +163,30 @@ def _resolve_capability_reference() -> None:
 
 
 def register_people() -> None:
-    """Real memberships with real, differently-scoped grants."""
+    """Real memberships with real, differently-scoped grants.
+
+    Phase 10.8 moved authority out of the membership's JSON ``permissions``
+    list into ``cp_authority_grant``; Phase 10.9 moved membership itself; Phase
+    10.10 moved the tenant boundary. All three are provisioned here through the
+    documented out-of-band paths a real operator would use, because a tenant
+    with no members has nobody who could admit one. Nothing about what 10.7
+    proves changes -- only where each fact lives.
+    """
+    global GRANT_REPO, GRANT_STORE, MEMBER_REPO, TENANT_REPO
     from backend.auth.tenant import get_tenant_manager
+    from backend.contexts.connectivity.infrastructure.sql_authority_grant import (
+        SqlAuthorityGrantRepository)
+    from backend.contexts.connectivity.infrastructure.sql_membership import (
+        SqlMembershipRepository)
+    from backend.contexts.connectivity.infrastructure.sql_tenant import (
+        SqlTenantRepository)
+    from backend.database.durable.config import build_development_store
+
+    # Built first: the loop below provisions tenants into this store.
+    GRANT_STORE = build_development_store(dsn=os.environ["CORTEX_DURABLE_URL"])
+    GRANT_REPO = SqlAuthorityGrantRepository(GRANT_STORE)
+    MEMBER_REPO = SqlMembershipRepository(GRANT_STORE)
+    TENANT_REPO = SqlTenantRepository(GRANT_STORE)
 
     tm = get_tenant_manager()
     for slug in (TENANT_A, TENANT_B):
@@ -172,6 +194,11 @@ def register_people() -> None:
         if tenant is None:
             tenant = tm.create_tenant(name=slug, slug=slug)
         TENANTS[slug] = tenant.tenant_id
+        # Phase 10.10: the tenant BOUNDARY must exist durably before
+        # membership, authority or product access can resolve at all.
+        provisioning.ensure_tenant(GRANT_STORE, tenant_id=tenant.tenant_id,
+                                   slug=slug, name=slug)
+
 
     people = {
         REQUESTER: (TENANT_A, [approve_grant(), execute_grant()]),
@@ -190,23 +217,6 @@ def register_people() -> None:
         APPROVER_NO_EXEC: (TENANT_A, [approve_grant()]),
         OTHER_TENANT: (TENANT_B, [approve_grant(), execute_grant()]),
     }
-    # Phase 10.8. Authority no longer comes from the membership's JSON
-    # ``permissions`` list -- ``resolve_scoped_authority`` reads
-    # ``cp_authority_grant``, where every row names who issued it. These grants
-    # are provisioned through ``bootstrap_grant``, the same documented
-    # out-of-band root of trust a real operator would use to seed a first
-    # issuer. Nothing about what 10.7 proves changes; only where the grant
-    # lives.
-    global GRANT_REPO, GRANT_STORE, MEMBER_REPO
-    from backend.contexts.connectivity.infrastructure.sql_authority_grant import (
-        SqlAuthorityGrantRepository)
-    from backend.database.durable.config import build_development_store
-
-    GRANT_STORE = build_development_store(dsn=os.environ["CORTEX_DURABLE_URL"])
-    GRANT_REPO = SqlAuthorityGrantRepository(GRANT_STORE)
-    from backend.contexts.connectivity.infrastructure.sql_membership import (
-        SqlMembershipRepository)
-    MEMBER_REPO = SqlMembershipRepository(GRANT_STORE)
 
     for email, (slug, grants) in people.items():
         member = tm.get_user_by_email(email)
@@ -224,6 +234,7 @@ def register_people() -> None:
 GRANT_REPO = None
 GRANT_STORE = None
 MEMBER_REPO = None
+TENANT_REPO = None
 
 
 def set_grants(email, grants) -> None:
@@ -338,8 +349,8 @@ def main() -> None:
     check("A2. NO new table for SCOPE — every scope dimension was already a "
           "column or a contract field. The 23rd table is Phase 10.8's "
           "cp_authority_grant, which holds who ISSUED a grant, not what one "
-          "means; the 24th is Phase 10.9's cp_tenant_membership",
-          len(DURABLE_TABLES) == 24, f"{len(DURABLE_TABLES)}")
+          "means; 10.9 added cp_tenant_membership and 10.10 cp_tenant",
+          len(DURABLE_TABLES) == 25, f"{len(DURABLE_TABLES)}")
     check("A3. exactly ONE commissioned write capability — none was added",
           set(definitions) == {OPERATION}, str(sorted(definitions)))
 
@@ -408,7 +419,7 @@ def run_scope_unit() -> None:
         return resolve_scoped_authority(
             principal_id=who, tenant_id=TENANTS[TENANT_A], action=action,
             capability_ref=capability, environment=environment, risk=risk,
-            grants=GRANT_REPO, memberships=MEMBER_REPO)
+            grants=GRANT_REPO, memberships=MEMBER_REPO, tenants=TENANT_REPO)
 
     check("B1. a correctly scoped approver is permitted",
           verdict(APPROVER).permitted, verdict(APPROVER).matched_grant)
@@ -452,7 +463,7 @@ def run_scope_unit() -> None:
     v = resolve_scoped_authority(
         principal_id=APPROVER, tenant_id=TENANTS[TENANT_A], action=APPROVE_ACTION,
         capability_ref=CAPABILITY, environment=ENVIRONMENT, risk="critical",
-        grants=GRANT_REPO, memberships=MEMBER_REPO)
+        grants=GRANT_REPO, memberships=MEMBER_REPO, tenants=TENANT_REPO)
     check("B10. an UNRECOGNISED or higher risk than the ceiling refuses — a "
           "ceiling nobody can rank is a ceiling nobody agreed to",
           v.denied and v.reason == OUT_OF_SCOPE_RISK, v.reason)
@@ -964,7 +975,7 @@ def run_restart(engine) -> None:
         return resolve_scoped_authority(
             principal_id=who, tenant_id=TENANTS[TENANT_A], action=action,
             capability_ref=CAPABILITY, environment=ENVIRONMENT, risk="high",
-            grants=GRANT_REPO, memberships=MEMBER_REPO)
+            grants=GRANT_REPO, memberships=MEMBER_REPO, tenants=TENANT_REPO)
 
     check("K3. authority resolves identically after the restart — and a restart "
           "cannot widen it",

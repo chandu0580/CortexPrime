@@ -131,6 +131,23 @@ async def product_context(
     from backend.auth.approver import durable_membership
 
     engine = current_engine()
+
+    # Phase 10.10. The tenant itself must exist and be live, resolved from the
+    # durable store rather than from the token's claim or a JSON file. Checked
+    # BEFORE membership: belonging to a tenant that has been switched off is
+    # not a membership problem, and saying so would send an operator to the
+    # wrong place.
+    from backend.auth.tenants import resolve_tenant
+
+    tenants_store = getattr(engine, "tenants", None)
+    if tenants_store is not None:
+        record, tenant_reason = resolve_tenant(tenant_id=tenant_id,
+                                               tenants=tenants_store)
+        if record is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"{tenant_reason}: this tenant is not active")
+
     memberships = getattr(engine, "memberships", None)
     if memberships is not None:
         member, membership_reason = durable_membership(
@@ -165,4 +182,5 @@ def approver_authority(ctx: "ProductContext"):
     return resolve_approver_authority(
         principal_id=ctx.principal.principal_id, tenant_id=ctx.tenant_id,
         grants=getattr(engine, "grants", None),
-        memberships=getattr(engine, "memberships", None))
+        memberships=getattr(engine, "memberships", None),
+        tenants=getattr(engine, "tenants", None))

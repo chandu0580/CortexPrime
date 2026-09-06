@@ -55,6 +55,23 @@ class TenantUserResponse(BaseModel):
     created_at: str
 
 
+#: Phase 10.10. Tenant records are authoritative in ``cp_tenant``, and tenant
+#: administration is deliberately OUT-OF-BAND: the authority grammar is
+#: capability+environment scoped, a tenant is neither, and inventing a
+#: tenant-admin action would be building the second authority model this phase
+#: is told not to build.
+#:
+#: These mutation routes are therefore refused rather than repointed at the
+#: durable store. Repointing them would hand tenant-state authority to an
+#: unscoped V1 ``role=admin`` claim over a now-authoritative store, which is
+#: worse than the hole they had. Leaving them writing the JSON would be worse
+#: still: they would appear to work and change nothing.
+TENANT_ADMIN_IS_OUT_OF_BAND = (
+    "tenant administration is out-of-band: tenant records are authoritative in "
+    "the durable store and are provisioned by an operator, not through this API"
+)
+
+
 def _same_tenant_or_refuse(current_user: dict, tenant_id: str) -> None:
     """The path tenant must be the caller's OWN tenant. **Phase 10.9.**
 
@@ -114,7 +131,15 @@ async def create_tenant(
     request: CreateTenantRequest,
     current_user: dict = Depends(require_admin),
 ):
-    """Create a new tenant (admin only)."""
+    """Refused. **Phase 10.10: tenant creation is out-of-band.**
+
+    Until this phase any token carrying ``role == "admin"`` could create a
+    tenant here, with no relationship to the governed authority model at all.
+    """
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=TENANT_ADMIN_IS_OUT_OF_BAND,
+    )
     tm = get_tenant_manager()
     existing = tm.get_tenant_by_slug(request.slug)
     if existing:
@@ -135,9 +160,22 @@ async def create_tenant(
 async def list_tenants(
     current_user: dict = Depends(require_admin),
 ):
-    """List all tenants (admin only)."""
+    """The caller's OWN tenant. **Phase 10.10 closed a disclosure here.**
+
+    This route returned every tenant in the system -- id, slug, domain, plan
+    and state -- to any token carrying ``role == "admin"``. That is the map an
+    attacker uses to pick the next target, and Phase 10.9's path-tenant guard
+    could not reach it because there is no tenant in the path to compare.
+    """
+    claimed = current_user.get("tenant_id")
+    if not claimed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tenant association in token",
+        )
     tm = get_tenant_manager()
-    return [_tenant_to_response(t) for t in tm.list_tenants()]
+    own = tm.get_tenant(claimed)
+    return [_tenant_to_response(own)] if own else []
 
 
 @router.get("/{tenant_id}", response_model=TenantResponse)
@@ -241,8 +279,16 @@ async def deactivate_tenant(
     tenant_id: str,
     current_user: dict = Depends(require_admin),
 ):
-    """Deactivate a tenant (admin only)."""
+    """Refused. **Phase 10.10: tenant state is out-of-band.**
+
+    Deactivating a tenant stops every approval and execution inside it. That is
+    not something an unscoped admin claim may do to a now-authoritative store.
+    """
     _same_tenant_or_refuse(current_user, tenant_id)
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=TENANT_ADMIN_IS_OUT_OF_BAND,
+    )
     tm = get_tenant_manager()
     tenant = tm.get_tenant(tenant_id)
     if not tenant:

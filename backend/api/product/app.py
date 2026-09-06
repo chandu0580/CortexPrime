@@ -98,6 +98,12 @@ class ProductEngine:
     #: 10.8 grants above. Before this phase the answer lived in a gitignored
     #: JSON file whose only mutation route took the tenant from the URL.
     memberships: Any = None
+    #: Phase 10.10. The durable TENANT store -- does this boundary exist, and
+    #: is it live. It confers nothing: membership is still cp_tenant_membership
+    #: and authority is still cp_authority_grant. Before this phase the answer
+    #: came from a gitignored JSON file that require_tenant read on every
+    #: request.
+    tenants: Any = None
 
 
 def current_engine() -> Optional[ProductEngine]:
@@ -148,6 +154,9 @@ def compose_engine() -> Optional[ProductEngine]:
         from backend.contexts.connectivity.infrastructure.sql_membership import (
             SqlMembershipRepository,
         )
+        from backend.contexts.connectivity.infrastructure.sql_tenant import (
+            SqlTenantRepository,
+        )
 
         # The durable approval store, installed through the DECLARED seam. It
         # supplies storage; ApprovalFacts and the gateway still decide.
@@ -184,6 +193,7 @@ def compose_engine() -> Optional[ProductEngine]:
             approvals=SqlApprovalRepository(store),
             grants=SqlAuthorityGrantRepository(store),
             memberships=SqlMembershipRepository(store),
+            tenants=SqlTenantRepository(store),
             remediation=_compose_remediation(runtime),
             runtime=runtime,
             execution_context_factory=_execution_context,

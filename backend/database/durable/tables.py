@@ -1064,9 +1064,55 @@ tenant_membership_table = sa.Table(
 )
 
 
+# ----------------------------------------------------------------------
+# Tenant records — the authoritative boundary (Phase 10.10)
+# ----------------------------------------------------------------------
+
+tenant_table = sa.Table(
+    "cp_tenant",
+    DURABLE_METADATA,
+    # Phase 10.10, ADR-103. Phases 10.8 and 10.9 made authority and membership
+    # durable and left both resting on ``data/tenants/tenants.json`` -- a
+    # gitignored file that ``require_tenant`` read on every request, so an edit
+    # to it disabled governance for a whole tenant.
+    #
+    # This table answers ONE question: **does this tenant exist, and is it
+    # live?** It answers nothing about who belongs to it (cp_tenant_membership)
+    # and nothing about what they may do (cp_authority_grant). A tenant is a
+    # boundary, not a permission.
+    #
+    # Why not ``organizations``: that model has no tenant_id, no membership and
+    # no relationship to any authority, approval or execution record. It is an
+    # org-chart entity served by organization_routes. The names look alike and
+    # the concepts are not, so they stay separate.
+    sa.Column("tenant_id", sa.String(128), primary_key=True),
+    # Display and lookup only. ``tenant_id`` is the authority-bearing identity
+    # that every membership, grant, approval and audit record already keys on.
+    # There is no mutation path for the slug today and this phase does not add
+    # one, so the historical-ambiguity problem a rename would create does not
+    # arise.
+    sa.Column("slug", sa.String(128), nullable=False, unique=True),
+    sa.Column("name", sa.String(256), nullable=False),
+    # active | inactive. **Never deleted.** A tenant row that vanishes leaves
+    # every historical approval, grant and membership pointing at a boundary
+    # nobody can resolve.
+    sa.Column("status", sa.String(16), nullable=False),
+    # ``migrated`` (imported from the JSON bootstrap) or ``provisioned``
+    # (created out of band). An auditor can tell provenance at a glance.
+    sa.Column("source", sa.String(16), nullable=False),
+    sa.Column("created_by", sa.String(256), nullable=False),
+    sa.Column("created_at", _TS, nullable=False),
+    sa.Column("updated_by", sa.String(256), nullable=True),
+    sa.Column("updated_at", _TS, nullable=True),
+    sa.Column("schema_version", sa.Integer(), nullable=False),
+    sa.Index("ix_cp_tenant_status", "status"),
+)
+
+
 #: Every durable table, in creation order. Used by the migration and by the
 #: bootstrap check that the schema a process needs is the schema it found.
 DURABLE_TABLES = (
+    tenant_table,
     execution_table,
     node_lease_table,
     idempotency_table,

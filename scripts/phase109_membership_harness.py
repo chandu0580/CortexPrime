@@ -58,6 +58,7 @@ GRANTS = "/api/v1/authority/grants"
 STORE = None
 MEMBER_REPO = None
 GRANT_REPO = None
+TENANT_REPO = None
 IDS: dict = {}
 
 
@@ -129,7 +130,7 @@ def _resolve_capability_reference() -> None:
 
 
 def register_people() -> None:
-    global STORE, MEMBER_REPO, GRANT_REPO
+    global STORE, MEMBER_REPO, GRANT_REPO, TENANT_REPO
     from backend.auth.tenant import get_tenant_manager
     from backend.contexts.connectivity.infrastructure.sql_authority_grant import (
         SqlAuthorityGrantRepository)
@@ -140,12 +141,20 @@ def register_people() -> None:
     STORE = build_development_store(dsn=os.environ["CORTEX_DURABLE_URL"])
     MEMBER_REPO = SqlMembershipRepository(STORE)
     GRANT_REPO = SqlAuthorityGrantRepository(STORE)
+    from backend.contexts.connectivity.infrastructure.sql_tenant import (
+        SqlTenantRepository)
+    TENANT_REPO = SqlTenantRepository(STORE)
 
     tm = get_tenant_manager()
     for slug in (TENANT_A, TENANT_B):
         tenant = tm.get_tenant_by_slug(slug) or tm.create_tenant(
             name=f"Phase 10.9 {slug}", slug=slug)
         TENANTS[slug] = tenant.tenant_id
+        # Phase 10.10: the tenant BOUNDARY must exist durably before
+        # membership, authority or product access can resolve at all.
+        provisioning.ensure_tenant(STORE, tenant_id=tenant.tenant_id,
+                                   slug=slug, name=slug)
+
 
     people = {
         ADMIN: (TENANT_A, [grant_string("issue", max_risk="high")]),
@@ -165,9 +174,20 @@ def register_people() -> None:
             STORE, tenant_id=TENANTS[slug], principal_id=email)
         provisioning.provision(GRANT_REPO, STORE, tenant_id=TENANTS[slug],
                                principal_id=email, grants=grants)
-    # The newcomer deliberately has NO membership at the start.
-    provisioning.clear_grants(STORE, tenant_id=TENANTS[TENANT_A],
-                              principal_id=NEWCOMER)
+    # The newcomer deliberately has NO membership at the start, and neither do
+    # the subjects the later sections admit. The phase database is durable and
+    # survives runs, so a check that proves admission must begin from absence
+    # -- otherwise it passes on a row an earlier run created and proves
+    # nothing about admission at all.
+    for subject in (NEWCOMER, "p109-audited@cortexprime.test",
+                    "p109-race@cortexprime.test",
+                    "p109-double@cortexprime.test",
+                    "p109-pos@cortexprime.test",
+                    "p109-negative@cortexprime.test"):
+        provisioning.clear_grants(STORE, tenant_id=TENANTS[TENANT_A],
+                                  principal_id=subject)
+        provisioning.clear_membership(STORE, tenant_id=TENANTS[TENANT_A],
+                                      principal_id=subject)
 
 
 # ----------------------------------------------------------------------
@@ -216,7 +236,7 @@ def main() -> None:
           | set(MEMBERSHIP_ROUTES), str(sorted(actual)))
     check("A2. ONE new table (cp_tenant_membership), stopped for and documented "
           "before it was written",
-          len(DURABLE_TABLES) == 24
+          len(DURABLE_TABLES) == 25
           and any(t.name == "cp_tenant_membership" for t in DURABLE_TABLES),
           f"{len(DURABLE_TABLES)} tables")
     check("A3. exactly ONE commissioned write capability — none was added",
@@ -347,7 +367,7 @@ def run_membership_is_not_authority(client) -> None:
         return resolve_scoped_authority(
             principal_id=who, tenant_id=TENANTS[TENANT_A], action=action,
             capability_ref=CAPABILITY, environment=ENVIRONMENT, risk="high",
-            grants=GRANT_REPO, memberships=MEMBER_REPO)
+            grants=GRANT_REPO, memberships=MEMBER_REPO, tenants=TENANT_REPO)
 
     for action, reason in (("approve", "no_approver_authority"),
                            ("execute", "no_executor_authority"),
@@ -378,7 +398,7 @@ def _role_confers_nothing() -> bool:
         return not any(resolve_scoped_authority(
             principal_id=PLAIN, tenant_id=TENANTS[TENANT_A], action=action,
             capability_ref=CAPABILITY, environment=ENVIRONMENT, risk="high",
-            grants=GRANT_REPO, memberships=MEMBER_REPO).permitted
+            grants=GRANT_REPO, memberships=MEMBER_REPO, tenants=TENANT_REPO).permitted
             for action in ("approve", "execute", "issue"))
     finally:
         MEMBER_REPO.set_role(tenant_id=TENANTS[TENANT_A],
@@ -441,7 +461,7 @@ def run_admission(client) -> None:
     v = resolve_scoped_authority(
         principal_id=NEWCOMER, tenant_id=TENANTS[TENANT_A], action="approve",
         capability_ref=CAPABILITY, environment=ENVIRONMENT, risk="high",
-        grants=GRANT_REPO, memberships=MEMBER_REPO)
+        grants=GRANT_REPO, memberships=MEMBER_REPO, tenants=TENANT_REPO)
     check("E6. the newcomer belongs, and can do NOTHING", not v.permitted,
           v.reason)
 
@@ -458,7 +478,7 @@ def run_deactivation(client, engine) -> None:
     before = {a: resolve_scoped_authority(
         principal_id=DOOMED, tenant_id=TENANTS[TENANT_A], action=a,
         capability_ref=CAPABILITY, environment=ENVIRONMENT, risk="high",
-        grants=GRANT_REPO, memberships=MEMBER_REPO).permitted
+        grants=GRANT_REPO, memberships=MEMBER_REPO, tenants=TENANT_REPO).permitted
         for a in ("approve", "execute", "issue")}
     check("F1. before deactivation the subject holds approve, execute AND "
           "issue", all(before.values()), str(before))
@@ -476,7 +496,7 @@ def run_deactivation(client, engine) -> None:
     after = {a: resolve_scoped_authority(
         principal_id=DOOMED, tenant_id=TENANTS[TENANT_A], action=a,
         capability_ref=CAPABILITY, environment=ENVIRONMENT, risk="high",
-        grants=GRANT_REPO, memberships=MEMBER_REPO)
+        grants=GRANT_REPO, memberships=MEMBER_REPO, tenants=TENANT_REPO)
         for a in ("approve", "execute", "issue")}
     check("F4. approval authority is gone", not after["approve"].permitted,
           after["approve"].reason)
@@ -523,7 +543,7 @@ def run_reactivation(client) -> None:
     restored = {a: resolve_scoped_authority(
         principal_id=DOOMED, tenant_id=TENANTS[TENANT_A], action=a,
         capability_ref=CAPABILITY, environment=ENVIRONMENT, risk="high",
-        grants=GRANT_REPO, memberships=MEMBER_REPO).permitted
+        grants=GRANT_REPO, memberships=MEMBER_REPO, tenants=TENANT_REPO).permitted
         for a in ("approve", "execute", "issue")}
     measure("reactivation_restores_grants", all(restored.values()))
     measure("reactivation_semantics",
@@ -757,16 +777,23 @@ def run_positive_matrix(client) -> None:
              principal_id=APPROVER, tenant_id=TENANTS[TENANT_A],
              action="approve", capability_ref=CAPABILITY,
              environment=ENVIRONMENT, risk="high", grants=GRANT_REPO,
-             memberships=MEMBER_REPO).permitted),
+             memberships=MEMBER_REPO, tenants=TENANT_REPO).permitted),
         ("L5. execution authority stays separately governed",
          resolve_scoped_authority(
              principal_id=EXECUTOR, tenant_id=TENANTS[TENANT_A],
              action="execute", capability_ref=CAPABILITY,
              environment=ENVIRONMENT, risk="high", grants=GRANT_REPO,
-             memberships=MEMBER_REPO).permitted),
-        ("L6. tenant isolation intact",
-         MEMBER_REPO.find(tenant_id=TENANTS[TENANT_B],
-                          subject_principal_id=PLAIN) is None),
+             memberships=MEMBER_REPO, tenants=TENANT_REPO).permitted),
+        # NOT "PLAIN is absent from tenant B" -- tenant B's admin may
+        # legitimately admit any subject to tenant B, and the negative matrix
+        # does exactly that to prove the admission lands in B rather than
+        # leaking into A. The isolation property is that B's rows are B's.
+        ("L6. tenant isolation intact — every membership tenant B holds "
+         "belongs to tenant B",
+         all(m.tenant_id == TENANTS[TENANT_B]
+             for m in MEMBER_REPO.list_for_tenant(tenant_id=TENANTS[TENANT_B]))
+         and MEMBER_REPO.find(tenant_id=TENANTS[TENANT_A],
+                              subject_principal_id=PLAIN) is not None),
     ]
     for name, ok in checks:
         check(name, ok)
@@ -927,7 +954,7 @@ def run_negative_matrix(client, engine) -> None:
     v = resolve_scoped_authority(
         principal_id=PLAIN, tenant_id=TENANTS[TENANT_A], action="approve",
         capability_ref=CAPABILITY, environment=ENVIRONMENT, risk="high",
-        grants=GRANT_REPO, memberships=MEMBER_REPO)
+        grants=GRANT_REPO, memberships=MEMBER_REPO, tenants=TENANT_REPO)
     record_negative("N36. direct DB role escalation confers no authority",
                     "governance",
                     f"role rewritten to owner in PostgreSQL → {v.reason}",
@@ -1018,7 +1045,7 @@ def run_performance(client) -> None:
     p50, p95 = timed(lambda: resolve_scoped_authority(
         principal_id=APPROVER, tenant_id=TENANTS[TENANT_A], action="approve",
         capability_ref=CAPABILITY, environment=ENVIRONMENT, risk="high",
-        grants=GRANT_REPO, memberships=MEMBER_REPO))
+        grants=GRANT_REPO, memberships=MEMBER_REPO, tenants=TENANT_REPO))
     measure("authority_after_membership_p50_ms", p50)
     measure("authority_after_membership_p95_ms", p95)
     check("O1. latency measured against real PostgreSQL, no speculative index "

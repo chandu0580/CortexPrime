@@ -68,6 +68,56 @@ def clear_grants(store, *, tenant_id: str, principal_id: str) -> int:
 
 
 
+
+
+def clear_membership(store, *, tenant_id: str, principal_id: str) -> int:
+    """Delete this subject's membership row outright.
+
+    A *test fixture* reset, exactly like ``clear_grants`` -- and like it, there
+    is no production equivalent: ``backend.auth.membership`` deactivates, never
+    deletes, because a vanished membership orphans every historical grant and
+    approval that names the subject.
+
+    A harness needs it because the phase databases are durable and survive
+    runs, so a check that admits somebody must start from them not being there.
+    """
+    from backend.database.durable.tables import tenant_membership_table as M
+
+    with store.atomic() as work:
+        result = work.execute(
+            sa.delete(M).where(M.c.tenant_id == tenant_id,
+                               M.c.subject_principal_id == principal_id))
+    return int(getattr(result, "rowcount", 0) or 0)
+
+
+def ensure_tenant(store, *, tenant_id: str, slug: str, name: str = "",
+                  status: str = "active") -> str:
+    """Give one tenant a durable record.
+
+    Phase 10.10. Authority, membership and product access all now require the
+    tenant to exist and be live in ``cp_tenant``, so a harness must seed the
+    boundary before anything else. This is the out-of-band provisioning path --
+    the same shape as ``bootstrap_grant`` (10.8) and ``ensure_membership``
+    (10.9): a real operator seeding a new tenant does exactly this, because no
+    system creates its own root boundary.
+    """
+    from backend.contexts.connectivity.infrastructure.sql_tenant import (
+        SqlTenantRepository)
+
+    repo = SqlTenantRepository(store)
+    existing = repo.get(tenant_id=tenant_id)
+    if existing is not None:
+        if existing.status != status:
+            repo.set_status(tenant_id=tenant_id, status=status,
+                            updated_by="harness:provisioning")
+        return existing.tenant_id
+    record = repo.provision(tenant_id=tenant_id, slug=slug,
+                            name=name or slug,
+                            created_by="harness:provisioning",
+                            source="migrated", status=status)
+    return record.tenant_id
+
+
 def ensure_membership(store, *, tenant_id: str, principal_id: str,
                       role: str = "member", status: str = "active") -> str:
     """Give one subject a live durable membership of one tenant.

@@ -240,6 +240,12 @@ def build_engine(runtime, definitions):
     from backend.contexts.connectivity.infrastructure.sql_membership import (
         SqlMembershipRepository,
     )
+    # Phase 10.10: without this every authority answers
+    # tenant_store_unavailable -- correctly, since a store that is not there
+    # cannot say a boundary exists.
+    from backend.contexts.connectivity.infrastructure.sql_tenant import (
+        SqlTenantRepository,
+    )
     from backend.contracts.execution import ExecutionEnvironment
     from backend.intelligence.application.investigation_service import (
         InvestigationService,
@@ -281,6 +287,7 @@ def build_engine(runtime, definitions):
         approvals=SqlApprovalRepository(store),
         grants=SqlAuthorityGrantRepository(store),
         memberships=SqlMembershipRepository(store),
+        tenants=SqlTenantRepository(store),
         remediation=RemediationService(
             definitions=definitions, approvals=SqlApprovalRepository(store),
             writer_factory=writer_factory,

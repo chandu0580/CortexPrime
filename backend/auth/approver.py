@@ -189,9 +189,25 @@ def durable_membership(memberships, *, tenant_id: str, principal_id: str):
     return None, (WRONG_TENANT if elsewhere is not None else NO_MEMBERSHIP)
 
 
+
+def durable_tenant(tenants, *, tenant_id: str):
+    """(tenant, reason) for one tenant. Fail closed. **Phase 10.10.**
+
+    Tenant existence and state used to come from ``data/tenants/tenants.json``
+    -- a gitignored file that every authority decision consulted, so an edit to
+    it disabled governance for a whole tenant. It now comes from ``cp_tenant``.
+
+    Three answers kept distinct: the store is unreadable, the tenant does not
+    exist, or it exists and is switched off.
+    """
+    from backend.auth.tenants import resolve_tenant
+
+    return resolve_tenant(tenant_id=tenant_id, tenants=tenants)
+
+
 def resolve_approver_authority(
     *, principal_id: str, tenant_id: str, grants: Any = None,
-    memberships: Any = None,
+    memberships: Any = None, tenants: Any = None,
 ) -> ApproverAuthority:
     """May this human decide approvals in this tenant? Read live, fail closed.
 
@@ -214,15 +230,10 @@ def resolve_approver_authority(
     if member is None:
         return ApproverAuthority(False, reason, principal_id, tenant_id)
 
-    try:
-        from backend.auth.tenant import get_tenant_manager
-
-        tenant = get_tenant_manager().get_tenant(tenant_id)
-    except Exception:  # noqa: BLE001 - an unreadable store grants nothing
-        log.warning("tenant store unavailable", exc_info=True)
-        return ApproverAuthority(False, STORE_UNAVAILABLE, principal_id, tenant_id)
-    if tenant is None or not tenant.is_active:
-        return ApproverAuthority(False, TENANT_INACTIVE, principal_id, tenant_id,
+    # Phase 10.10: tenant existence and state come from cp_tenant, not a file.
+    tenant, tenant_reason = durable_tenant(tenants, tenant_id=tenant_id)
+    if tenant is None:
+        return ApproverAuthority(False, tenant_reason, principal_id, tenant_id,
                                  member.role)
 
     # Does this membership hold ANY approver grant?
@@ -457,7 +468,7 @@ class ScopedAuthority:
 def resolve_scoped_authority(
     *, principal_id: str, tenant_id: str, action: str,
     capability_ref: str, environment: str, risk: str,
-    grants: Any = None, memberships: Any = None,
+    grants: Any = None, memberships: Any = None, tenants: Any = None,
 ) -> ScopedAuthority:
     """May this human take ``action`` on an approval with these properties?
 
@@ -489,16 +500,11 @@ def resolve_scoped_authority(
         return ScopedAuthority(False, reason, action,
                                principal_id=principal_id, tenant_id=tenant_id)
 
-    try:
-        from backend.auth.tenant import get_tenant_manager
-
-        tenant = get_tenant_manager().get_tenant(tenant_id)
-    except Exception:  # noqa: BLE001 - an unreadable store grants nothing
-        log.warning("tenant store unavailable", exc_info=True)
-        return ScopedAuthority(False, STORE_UNAVAILABLE, action,
-                               principal_id=principal_id, tenant_id=tenant_id)
-    if tenant is None or not tenant.is_active:
-        return ScopedAuthority(False, TENANT_INACTIVE, action,
+    # Phase 10.10. An inactive tenant stops every authority here: a grant must
+    # never resurrect a boundary somebody switched off.
+    tenant, tenant_reason = durable_tenant(tenants, tenant_id=tenant_id)
+    if tenant is None:
+        return ScopedAuthority(False, tenant_reason, action,
                                principal_id=principal_id, tenant_id=tenant_id)
 
     # Phase 10.8: durable, attributed rows -- not the editable JSON list.
