@@ -155,7 +155,9 @@ def issue_grant(
     max_risk: Optional[str],
     reason: str,
     members: Any = None,
+    memberships: Any = None,
     audit: Any = None,
+    audit_writer: Any = None,
     now: Any = None,
 ) -> GrantOutcome:
     """Issue one scoped authority grant, or refuse and say which check stopped it.
@@ -178,7 +180,7 @@ def issue_grant(
         principal_id=issuer_principal_id, tenant_id=tenant_id,
         action=ISSUE_ACTION, capability_ref=capability.capability_ref,
         environment=environment, risk=effective_risk,
-        grants=repository)
+        grants=repository, memberships=memberships)
     if issuer.denied:
         # The scoped reason is more useful than a flat refusal -- it says
         # whether the issuer holds nothing, or holds something narrower.
@@ -203,7 +205,19 @@ def issue_grant(
 
     # 4. The subject must be a real member of THIS tenant. A grant to somebody
     #    who is not here is authority nobody can revoke through the product.
-    if members is not None:
+    # Phase 10.9: the subject must hold a LIVE membership of this tenant,
+    # resolved from the durable store. Granting authority to somebody who was
+    # deactivated would hand power to an identity the tenant already removed.
+    if memberships is not None:
+        from backend.auth.approver import durable_membership
+
+        member, _reason = durable_membership(
+            memberships, tenant_id=tenant_id,
+            principal_id=subject_principal_id)
+        if member is None:
+            return GrantOutcome(False, SUBJECT_NOT_A_MEMBER,
+                                issuer_grant=issuer.matched_grant)
+    elif members is not None:
         member = _member(members, subject_principal_id)
         if member is None:
             return GrantOutcome(False, SUBJECT_NOT_A_MEMBER,
@@ -244,7 +258,8 @@ def issue_grant(
     )
     _audit(audit, "grant_issued", tenant_id=tenant_id,
            actor=issuer_principal_id, record=record,
-           detail={"issuer_grant": issuer.matched_grant, "reason": reason})
+           detail={"issuer_grant": issuer.matched_grant, "reason": reason},
+           writer=audit_writer)
     log.info("authority granted: %s may %s %s in %s (issued by %s)",
              subject_principal_id, authority_type, capability.capability_ref,
              environment, issuer_principal_id)
@@ -255,7 +270,8 @@ def issue_grant(
 
 def revoke_grant(
     *, repository: Any, revoker_principal_id: str, tenant_id: str,
-    grant_id: str, reason: str, audit: Any = None, now: Any = None,
+    grant_id: str, reason: str, memberships: Any = None, audit: Any = None,
+    audit_writer: Any = None, now: Any = None,
 ) -> GrantOutcome:
     """Withdraw one grant. Tenant-scoped, attributed, and fail-closed.
 
@@ -288,7 +304,8 @@ def revoke_grant(
     issuer = resolve_scoped_authority(
         principal_id=revoker_principal_id, tenant_id=tenant_id,
         action=ISSUE_ACTION, capability_ref=record.capability_ref,
-        environment=record.environment, risk="low", grants=repository)
+        environment=record.environment, risk="low", grants=repository,
+        memberships=memberships)
     if issuer.denied:
         return GrantOutcome(False, NO_ISSUER_AUTHORITY, grant_id=grant_id)
 
@@ -301,7 +318,7 @@ def revoke_grant(
 
     _audit(audit, "grant_revoked", tenant_id=tenant_id,
            actor=revoker_principal_id, record=record,
-           detail={"reason": reason})
+           detail={"reason": reason}, writer=audit_writer)
     return GrantOutcome(True, REVOKED, grant_id=grant_id, digest=record.digest)
 
 
@@ -348,7 +365,7 @@ def _member(members: Any, principal_id: str) -> Any:
 
 
 def _audit(audit: Any, event: str, *, tenant_id: str, actor: str,
-           record: Any, detail: dict) -> None:
+           record: Any, detail: dict, writer: Any = None) -> None:
     """Record issuance or revocation on the existing hash-chained ledger.
 
     ``IDENTITY_EVENT`` already means "authentication, authorization, or
@@ -367,10 +384,9 @@ def _audit(audit: Any, event: str, *, tenant_id: str, actor: str,
         payload = dict(record.to_dict())
         payload.update(detail)
         payload["event"] = event
-        audit.record(AuditEventKind.IDENTITY_EVENT,
-                     _scope_for(audit, tenant_id),
-                     subject_reference=record.grant_id,
-                     detail=payload)
+        _append(audit, writer, AuditEventKind.IDENTITY_EVENT,
+                _scope_for(audit, tenant_id),
+                subject_reference=record.grant_id, detail=payload)
     except Exception:  # noqa: BLE001 - see below
         # A failed audit write must never look like a failed grant, and must
         # never be silent. The grant is already durable at this point; losing
@@ -378,6 +394,37 @@ def _audit(audit: Any, event: str, *, tenant_id: str, actor: str,
         log.error("authority %s was not audited (tenant=%s grant=%s)",
                   event, tenant_id, getattr(record, "grant_id", None),
                   exc_info=True)
+
+
+
+def _append(audit: Any, writer: Any, kind: Any, scope: Any, **fields: Any) -> None:
+    """Append one audit record, re-acquiring a lapsed writer lease once.
+
+    ``AuditWriterLeadership`` renews its 30-second lease only when somebody
+    calls ``is_writer()`` -- that is, only when something is audited. A process
+    that governs nothing for half a minute therefore loses writer status
+    **silently**, and never regains it, because nothing re-acquires. Every
+    later mutation commits unaudited.
+
+    Phase 10.9 found this with a long harness run: grants were issued, the log
+    said "was not audited", and the ledger was untouched. An audit gap that
+    appears only after a system has been quiet is exactly the gap nobody
+    notices, so a lapsed lease is re-acquired once and the append retried.
+
+    The retry is deliberately once. If a *different* process legitimately holds
+    the lease, this one must not fight it for the pen -- the fence is doing its
+    job, and the honest outcome is the loud log rather than a tug of war.
+    """
+    from backend.platform.audit.runtime import AuditWriterNotOwned
+
+    try:
+        audit.record(kind, scope, **fields)
+        return
+    except AuditWriterNotOwned:
+        if writer is None:
+            raise
+        writer.acquire()
+        audit.record(kind, scope, **fields)
 
 
 def _scope_for(audit: Any, tenant_id: str) -> Any:

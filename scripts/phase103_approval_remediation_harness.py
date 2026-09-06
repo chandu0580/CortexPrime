@@ -234,6 +234,12 @@ def build_engine(runtime, definitions):
     from backend.contexts.connectivity.infrastructure.sql_authority_grant import (
         SqlAuthorityGrantRepository,
     )
+    # Phase 10.9: without this, every authority answers
+    # membership_store_unavailable -- correctly, since a store that is not
+    # there cannot say anybody belongs anywhere.
+    from backend.contexts.connectivity.infrastructure.sql_membership import (
+        SqlMembershipRepository,
+    )
     from backend.contracts.execution import ExecutionEnvironment
     from backend.intelligence.application.investigation_service import (
         InvestigationService,
@@ -274,6 +280,7 @@ def build_engine(runtime, definitions):
         lineage_policy=lineage,
         approvals=SqlApprovalRepository(store),
         grants=SqlAuthorityGrantRepository(store),
+        memberships=SqlMembershipRepository(store),
         remediation=RemediationService(
             definitions=definitions, approvals=SqlApprovalRepository(store),
             writer_factory=writer_factory,

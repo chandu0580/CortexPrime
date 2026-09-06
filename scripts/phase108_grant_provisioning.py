@@ -67,6 +67,38 @@ def clear_grants(store, *, tenant_id: str, principal_id: str) -> int:
     return int(getattr(result, "rowcount", 0) or 0)
 
 
+
+def ensure_membership(store, *, tenant_id: str, principal_id: str,
+                      role: str = "member", status: str = "active") -> str:
+    """Give one subject a live durable membership of one tenant.
+
+    Phase 10.9. Authority resolution and product access both now require an
+    active membership row, so a harness persona needs one before any of the
+    earlier phases' checks can even be attempted. This is the out-of-band
+    provisioning path -- the same shape as ``bootstrap_grant``: a real operator
+    seeding a tenant's first member does exactly this, because a tenant with no
+    members has nobody who could admit one.
+    """
+    import uuid
+
+    from backend.contexts.connectivity.infrastructure.sql_membership import (
+        SqlMembershipRepository)
+
+    repo = SqlMembershipRepository(store)
+    existing = repo.find(tenant_id=tenant_id, subject_principal_id=principal_id)
+    if existing is not None:
+        if existing.status != status:
+            repo.set_status(tenant_id=tenant_id,
+                            membership_id=existing.membership_id,
+                            status=status, updated_by="harness:provisioning")
+        return existing.membership_id
+    record = repo.admit(
+        membership_id=f"mbr-{uuid.uuid4().hex[:16]}", tenant_id=tenant_id,
+        subject_principal_id=principal_id, role=role,
+        created_by="harness:provisioning", source="migrated", status=status)
+    return record.membership_id
+
+
 def provision(repository, store, *, tenant_id: str, principal_id: str,
               grants: Iterable[str], capability_version: str = "1",
               reason: str = "harness provisioning: out-of-band root of trust",

@@ -102,6 +102,7 @@ WRONG_TENANT = "membership_in_another_tenant"
 TENANT_INACTIVE = "tenant_inactive"
 NOT_AN_APPROVER = "no_approver_authority"
 STORE_UNAVAILABLE = "authority_store_unavailable"
+MEMBERSHIP_STORE_UNAVAILABLE = "membership_store_unavailable"
 GRANTED = "approver_authority_granted"
 
 
@@ -152,8 +153,45 @@ def durable_grants(repository: Any, *, tenant_id: str, principal_id: str,
     return tuple(render_grant(r) for r in records)
 
 
+
+def durable_membership(memberships, *, tenant_id: str, principal_id: str):
+    """(membership, reason) for this subject in this tenant. Fail closed.
+
+    Phase 10.9. Membership no longer comes from ``data/tenants/
+    tenant_users.json``; it comes from ``cp_tenant_membership``, where every row
+    names who created it and removal is a status change rather than a delete.
+
+    The reason code comes back alongside the row because the three ways of not
+    being a member here are three different things to tell somebody: you have no
+    membership, your membership is switched off, or you belong to a different
+    tenant. Collapsing them would be the same mistake as answering every
+    authority question with "forbidden".
+    """
+    if memberships is None:
+        return None, MEMBERSHIP_STORE_UNAVAILABLE
+    try:
+        record = memberships.find(tenant_id=tenant_id,
+                                  subject_principal_id=principal_id)
+    except Exception:  # noqa: BLE001 - an unreadable store confers nothing
+        log.warning("membership store unavailable", exc_info=True)
+        return None, MEMBERSHIP_STORE_UNAVAILABLE
+    if record is not None:
+        if record.is_active:
+            return record, GRANTED
+        return None, MEMBERSHIP_INACTIVE
+    # Not a member HERE. Distinguishing "member elsewhere" preserves the reason
+    # code Phase 10.7 proved, and discloses nothing the previous implementation
+    # did not already say to this same caller.
+    try:
+        elsewhere = memberships.find_any(subject_principal_id=principal_id)
+    except Exception:  # noqa: BLE001
+        elsewhere = None
+    return None, (WRONG_TENANT if elsewhere is not None else NO_MEMBERSHIP)
+
+
 def resolve_approver_authority(
-    *, principal_id: str, tenant_id: str, grants: Any = None
+    *, principal_id: str, tenant_id: str, grants: Any = None,
+    memberships: Any = None,
 ) -> ApproverAuthority:
     """May this human decide approvals in this tenant? Read live, fail closed.
 
@@ -169,27 +207,20 @@ def resolve_approver_authority(
     if not principal_id or not tenant_id:
         return ApproverAuthority(False, NO_MEMBERSHIP, principal_id, tenant_id)
 
+    # Phase 10.9: membership is durable and tenant-scoped by predicate, so a
+    # member of tenant B is not merely refused here -- they are not found.
+    member, reason = durable_membership(memberships, tenant_id=tenant_id,
+                                        principal_id=principal_id)
+    if member is None:
+        return ApproverAuthority(False, reason, principal_id, tenant_id)
+
     try:
         from backend.auth.tenant import get_tenant_manager
 
-        manager = get_tenant_manager()
-        member = manager.get_user_by_email(principal_id)
-        tenant = manager.get_tenant(tenant_id)
+        tenant = get_tenant_manager().get_tenant(tenant_id)
     except Exception:  # noqa: BLE001 - an unreadable store grants nothing
-        log.warning("approver authority store unavailable", exc_info=True)
+        log.warning("tenant store unavailable", exc_info=True)
         return ApproverAuthority(False, STORE_UNAVAILABLE, principal_id, tenant_id)
-
-    if member is None:
-        return ApproverAuthority(False, NO_MEMBERSHIP, principal_id, tenant_id)
-    if not getattr(member, "is_active", False):
-        return ApproverAuthority(False, MEMBERSHIP_INACTIVE, principal_id, tenant_id,
-                                 getattr(member, "role", None))
-    # The membership must be in the tenant the SESSION resolved, not merely in
-    # some tenant. A member of tenant B holding an approver grant there has no
-    # authority over tenant A's queue.
-    if member.tenant_id != tenant_id:
-        return ApproverAuthority(False, WRONG_TENANT, principal_id, tenant_id,
-                                 member.role)
     if tenant is None or not tenant.is_active:
         return ApproverAuthority(False, TENANT_INACTIVE, principal_id, tenant_id,
                                  member.role)
@@ -426,7 +457,7 @@ class ScopedAuthority:
 def resolve_scoped_authority(
     *, principal_id: str, tenant_id: str, action: str,
     capability_ref: str, environment: str, risk: str,
-    grants: Any = None,
+    grants: Any = None, memberships: Any = None,
 ) -> ScopedAuthority:
     """May this human take ``action`` on an approval with these properties?
 
@@ -449,25 +480,22 @@ def resolve_scoped_authority(
         return ScopedAuthority(False, NO_MEMBERSHIP, action,
                                principal_id=principal_id, tenant_id=tenant_id)
 
+    # Phase 10.9. An inactive membership stops every authority here, which is
+    # the direction that matters: a grant must never resurrect a membership
+    # somebody took away.
+    member, reason = durable_membership(memberships, tenant_id=tenant_id,
+                                        principal_id=principal_id)
+    if member is None:
+        return ScopedAuthority(False, reason, action,
+                               principal_id=principal_id, tenant_id=tenant_id)
+
     try:
         from backend.auth.tenant import get_tenant_manager
 
-        manager = get_tenant_manager()
-        member = manager.get_user_by_email(principal_id)
-        tenant = manager.get_tenant(tenant_id)
+        tenant = get_tenant_manager().get_tenant(tenant_id)
     except Exception:  # noqa: BLE001 - an unreadable store grants nothing
-        log.warning("scoped authority store unavailable", exc_info=True)
+        log.warning("tenant store unavailable", exc_info=True)
         return ScopedAuthority(False, STORE_UNAVAILABLE, action,
-                               principal_id=principal_id, tenant_id=tenant_id)
-
-    if member is None:
-        return ScopedAuthority(False, NO_MEMBERSHIP, action,
-                               principal_id=principal_id, tenant_id=tenant_id)
-    if not getattr(member, "is_active", False):
-        return ScopedAuthority(False, MEMBERSHIP_INACTIVE, action,
-                               principal_id=principal_id, tenant_id=tenant_id)
-    if member.tenant_id != tenant_id:
-        return ScopedAuthority(False, WRONG_TENANT, action,
                                principal_id=principal_id, tenant_id=tenant_id)
     if tenant is None or not tenant.is_active:
         return ScopedAuthority(False, TENANT_INACTIVE, action,

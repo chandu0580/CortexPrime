@@ -57,6 +57,7 @@ OTHER_CAPABILITY = "platform.github.issue.comment@1"
 ENVIRONMENT = "development"
 GRANT_REPO = None
 GRANT_STORE = None
+MEMBER_REPO = None
 
 
 def check(name, ok, detail=""):
@@ -119,7 +120,7 @@ def _resolve_capability_reference() -> None:
 
 
 def register_people() -> None:
-    global GRANT_REPO, GRANT_STORE
+    global GRANT_REPO, GRANT_STORE, MEMBER_REPO
     from backend.auth.tenant import get_tenant_manager
     from backend.contexts.connectivity.infrastructure.sql_authority_grant import (
         SqlAuthorityGrantRepository)
@@ -127,6 +128,9 @@ def register_people() -> None:
 
     GRANT_STORE = build_development_store(dsn=os.environ["CORTEX_DURABLE_URL"])
     GRANT_REPO = SqlAuthorityGrantRepository(GRANT_STORE)
+    from backend.contexts.connectivity.infrastructure.sql_membership import (
+        SqlMembershipRepository)
+    MEMBER_REPO = SqlMembershipRepository(GRANT_STORE)
 
     tm = get_tenant_manager()
     for slug in (TENANT_A, TENANT_B):
@@ -160,6 +164,10 @@ def register_people() -> None:
         if member is None:
             member = tm.add_user(TENANTS[slug], email, role="member")
         MEMBERS[email] = member
+        # Phase 10.9: a live durable membership is now a precondition for any
+        # authority at all.
+        provisioning.ensure_membership(GRANT_STORE, tenant_id=TENANTS[slug],
+                                       principal_id=email)
         provisioning.provision(GRANT_REPO, GRANT_STORE,
                                tenant_id=TENANTS[slug], principal_id=email,
                                grants=grants)
@@ -216,6 +224,8 @@ def main() -> None:
     from backend.api.product.approval_routes import MUTATING_ROUTES
     from backend.api.product.authority_routes import (
         MUTATING_ROUTES as AUTHORITY_ROUTES)
+    from backend.api.product.membership_routes import (
+        MUTATING_ROUTES as MEMBERSHIP_ROUTES)
     from backend.database.durable.tables import DURABLE_TABLES
 
     p103.ensure_env()
@@ -238,11 +248,13 @@ def main() -> None:
               if m not in ("GET", "HEAD", "OPTIONS")
               and getattr(r, "path", "").startswith("/api")}
     check("A1. the product's write surface is exactly the enumerated set — "
-          "Phase 10.3's three plus this phase's two",
-          actual == set(MUTATING_ROUTES) | set(AUTHORITY_ROUTES),
+          "Phase 10.3's three, this phase's two, and Phase 10.9's three",
+          actual == (set(MUTATING_ROUTES) | set(AUTHORITY_ROUTES)
+                     | set(MEMBERSHIP_ROUTES)),
           str(sorted(actual)))
     check("A2. ONE new table (cp_authority_grant), stopped for and documented "
-          "before it was written", len(DURABLE_TABLES) == 23
+          "before it was written; Phase 10.9 added cp_tenant_membership as the "
+          "24th", len(DURABLE_TABLES) == 24
           and any(t.name == "cp_authority_grant" for t in DURABLE_TABLES),
           f"{len(DURABLE_TABLES)} tables")
     check("A3. exactly ONE commissioned write capability — none was added",
@@ -451,7 +463,8 @@ def run_non_escalation(client) -> None:
                       tenant_id=TENANTS[TENANT_A], subject_principal_id=SUBJECT,
                       authority_type="issue", capability=facts,
                       environment=ENVIRONMENT, max_risk=None,
-                      reason="direct call bypassing the route model")
+                      reason="direct call bypassing the route model",
+                      memberships=MEMBER_REPO)
     check("E4. and refused BELOW the route too — calling the service directly "
           "with authority_type='issue' is still refused, so the control is not "
           "in the HTTP model alone",
@@ -540,7 +553,7 @@ def run_wildcards(client) -> None:
     v = resolve_scoped_authority(
         principal_id=SUBJECT_TWO, tenant_id=TENANTS[TENANT_A], action="approve",
         capability_ref=CAPABILITY, environment=ENVIRONMENT, risk="high",
-        grants=GRANT_REPO)
+        grants=GRANT_REPO, memberships=MEMBER_REPO)
     check("G7. a wildcard row planted DIRECTLY in the store still authorizes "
           "nothing — the matcher compares by strict equality",
           not v.permitted, v.reason)
@@ -561,7 +574,7 @@ def run_digest(client) -> None:
     before = resolve_scoped_authority(
         principal_id=SUBJECT_TWO, tenant_id=TENANTS[TENANT_A], action="execute",
         capability_ref=CAPABILITY, environment=ENVIRONMENT, risk="high",
-        grants=GRANT_REPO)
+        grants=GRANT_REPO, memberships=MEMBER_REPO)
     check("H1. the issued grant authorizes what it names", before.permitted,
           before.reason)
 
@@ -578,7 +591,7 @@ def run_digest(client) -> None:
             tenant_id=TENANTS[TENANT_A],
             action="execute" if column != "authority_type" else "approve",
             capability_ref=CAPABILITY, environment=ENVIRONMENT, risk="high",
-            grants=GRANT_REPO)
+            grants=GRANT_REPO, memberships=MEMBER_REPO)
         check(f"H. a direct DATABASE edit of the {label} stops the grant "
               "authorizing — authority is immutable by construction",
               not v.permitted, f"{column}={value} → {v.reason}")
@@ -610,7 +623,7 @@ def run_revocation(client) -> None:
     v = resolve_scoped_authority(
         principal_id=SUBJECT, tenant_id=TENANTS[TENANT_A], action="approve",
         capability_ref=CAPABILITY, environment=ENVIRONMENT, risk="high",
-        grants=GRANT_REPO)
+        grants=GRANT_REPO, memberships=MEMBER_REPO)
     check("I1. before revocation the subject holds the authority", v.permitted)
 
     r = client.post(f"{GRANTS}/{grant_id}/revocation",
@@ -629,7 +642,7 @@ def run_revocation(client) -> None:
     v = resolve_scoped_authority(
         principal_id=SUBJECT, tenant_id=TENANTS[TENANT_A], action="approve",
         capability_ref=CAPABILITY, environment=ENVIRONMENT, risk="high",
-        grants=GRANT_REPO)
+        grants=GRANT_REPO, memberships=MEMBER_REPO)
     check("I4. authority is gone on the NEXT check, with the SAME token that "
           "worked a moment ago — nothing is cached",
           not v.permitted, v.reason)
@@ -758,21 +771,21 @@ def run_positive_matrix(client, engine) -> None:
     v = resolve_scoped_authority(
         principal_id=SUBJECT, tenant_id=TENANTS[TENANT_A], action="approve",
         capability_ref=CAPABILITY, environment=ENVIRONMENT, risk="high",
-        grants=GRANT_REPO)
+        grants=GRANT_REPO, memberships=MEMBER_REPO)
     check("L2. the issued grant authorizes the intended operation", v.permitted,
           v.reason)
 
     v = resolve_scoped_authority(
         principal_id=SUBJECT, tenant_id=TENANTS[TENANT_A], action="execute",
         capability_ref=CAPABILITY, environment=ENVIRONMENT, risk="high",
-        grants=GRANT_REPO)
+        grants=GRANT_REPO, memberships=MEMBER_REPO)
     check("L3. and NOT the unrelated one — approve does not imply execute",
           not v.permitted, v.reason)
 
     v = resolve_scoped_authority(
         principal_id=SUBJECT, tenant_id=TENANTS[TENANT_A], action="approve",
         capability_ref=OTHER_CAPABILITY, environment=ENVIRONMENT, risk="high",
-        grants=GRANT_REPO)
+        grants=GRANT_REPO, memberships=MEMBER_REPO)
     check("L4. nor a different capability", not v.permitted, v.reason)
 
     r = post(client, auth(ISSUER), subject=SUBJECT, authority="execute",
@@ -782,7 +795,7 @@ def run_positive_matrix(client, engine) -> None:
     v = resolve_scoped_authority(
         principal_id=SUBJECT, tenant_id=TENANTS[TENANT_A], action="execute",
         capability_ref=CAPABILITY, environment=ENVIRONMENT, risk="high",
-        grants=GRANT_REPO)
+        grants=GRANT_REPO, memberships=MEMBER_REPO)
     check("L6. and now execution is authorized too — two grants, two acts",
           v.permitted, v.reason)
 
@@ -938,7 +951,7 @@ def run_negative_matrix(client, engine) -> None:
     v = resolve_scoped_authority(
         principal_id=SUBJECT_TWO, tenant_id=TENANTS[TENANT_A], action="approve",
         capability_ref=CAPABILITY, environment=ENVIRONMENT, risk="critical",
-        grants=GRANT_REPO)
+        grants=GRANT_REPO, memberships=MEMBER_REPO)
     record_negative("N36. direct DB mutation of a live grant",
                     "grant_state" if not v.permitted else "NOT STOPPED",
                     v.reason, 0 if not v.permitted else 1)
@@ -1023,7 +1036,7 @@ def run_performance(client) -> None:
     p50, p95 = timed(lambda: resolve_scoped_authority(
         principal_id=SUBJECT, tenant_id=TENANTS[TENANT_A], action="approve",
         capability_ref=CAPABILITY, environment=ENVIRONMENT, risk="high",
-        grants=GRANT_REPO))
+        grants=GRANT_REPO, memberships=MEMBER_REPO))
     measure("grant_validation_p50_ms", p50)
     measure("grant_validation_p95_ms", p95)
 

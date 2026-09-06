@@ -222,7 +222,10 @@ def issue(body: IssueGrantBody,
         max_risk=body.max_risk,
         reason=body.reason,
         members=get_tenant_manager(),
-        audit=getattr(getattr(engine, "runtime", None), "audit", None))
+        memberships=getattr(engine, "memberships", None),
+        audit=getattr(getattr(engine, "runtime", None), "audit", None),
+        audit_writer=getattr(getattr(engine, "runtime", None),
+                             "audit_writer", None))
 
     if outcome.refused:
         if outcome.reason == "grant_store_unavailable":
@@ -252,7 +255,10 @@ def revoke(grant_id: str, body: RevokeGrantBody,
         repository=getattr(engine, "grants", None),
         revoker_principal_id=ctx.principal.principal_id,
         tenant_id=ctx.tenant_id, grant_id=grant_id, reason=body.reason,
-        audit=getattr(getattr(engine, "runtime", None), "audit", None))
+        memberships=getattr(engine, "memberships", None),
+        audit=getattr(getattr(engine, "runtime", None), "audit", None),
+        audit_writer=getattr(getattr(engine, "runtime", None),
+                             "audit_writer", None))
 
     if outcome.refused:
         if outcome.reason == "grant_store_unavailable":

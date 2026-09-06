@@ -55,6 +55,31 @@ class TenantUserResponse(BaseModel):
     created_at: str
 
 
+def _same_tenant_or_refuse(current_user: dict, tenant_id: str) -> None:
+    """The path tenant must be the caller's OWN tenant. **Phase 10.9.**
+
+    Before this, these routes took ``tenant_id`` from the URL and guarded it
+    with ``require_admin``, which checks a JWT ``role == "admin"`` claim and
+    nothing else -- no tenant. An admin of tenant A could therefore admit
+    members to tenant B, relabel them, list them, and deactivate tenant B
+    outright, which stops every approval and execution in it.
+
+    The claim is the caller's own tenant, and a mismatch is a 404 rather than a
+    403: a tenant may not learn that another tenant exists.
+
+    These routes are also no longer authoritative for membership. The durable
+    store (``cp_tenant_membership``) is, and the governed path is
+    ``/api/v1/tenants/members`` on the product API, where the tenant cannot be
+    named by a caller at all.
+    """
+    claimed = current_user.get("tenant_id")
+    if not claimed or claimed != tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tenant not found",
+        )
+
+
 def _tenant_to_response(t: Tenant) -> TenantResponse:
     return TenantResponse(
         tenant_id=t.tenant_id,
@@ -121,6 +146,7 @@ async def get_tenant(
     current_user: dict = Depends(require_admin),
 ):
     """Get tenant details (admin only)."""
+    _same_tenant_or_refuse(current_user, tenant_id)
     tm = get_tenant_manager()
     tenant = tm.get_tenant(tenant_id)
     if not tenant:
@@ -138,6 +164,7 @@ async def add_user_to_tenant(
     current_user: dict = Depends(require_admin),
 ):
     """Add a user to a tenant (admin only)."""
+    _same_tenant_or_refuse(current_user, tenant_id)
     tm = get_tenant_manager()
     tenant = tm.get_tenant(tenant_id)
     if not tenant:
@@ -166,6 +193,7 @@ async def list_tenant_users(
     current_user: dict = Depends(require_admin),
 ):
     """List users in a tenant (admin only)."""
+    _same_tenant_or_refuse(current_user, tenant_id)
     tm = get_tenant_manager()
     tenant = tm.get_tenant(tenant_id)
     if not tenant:
@@ -184,6 +212,7 @@ async def update_user_role(
     current_user: dict = Depends(require_admin),
 ):
     """Update a user's role within a tenant (admin only)."""
+    _same_tenant_or_refuse(current_user, tenant_id)
     tm = get_tenant_manager()
     tenant = tm.get_tenant(tenant_id)
     if not tenant:
@@ -213,6 +242,7 @@ async def deactivate_tenant(
     current_user: dict = Depends(require_admin),
 ):
     """Deactivate a tenant (admin only)."""
+    _same_tenant_or_refuse(current_user, tenant_id)
     tm = get_tenant_manager()
     tenant = tm.get_tenant(tenant_id)
     if not tenant:

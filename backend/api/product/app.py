@@ -93,6 +93,11 @@ class ProductEngine:
     #: phase the grants those functions read lived in a gitignored JSON file
     #: that nobody had to be authorized to write.
     grants: Any = None
+    #: Phase 10.9. The durable membership STORE -- who belongs to this tenant.
+    #: It decides nothing about what they may DO; that stays with the Phase
+    #: 10.8 grants above. Before this phase the answer lived in a gitignored
+    #: JSON file whose only mutation route took the tenant from the URL.
+    memberships: Any = None
 
 
 def current_engine() -> Optional[ProductEngine]:
@@ -140,6 +145,9 @@ def compose_engine() -> Optional[ProductEngine]:
         from backend.contexts.connectivity.infrastructure.sql_authority_grant import (
             SqlAuthorityGrantRepository,
         )
+        from backend.contexts.connectivity.infrastructure.sql_membership import (
+            SqlMembershipRepository,
+        )
 
         # The durable approval store, installed through the DECLARED seam. It
         # supplies storage; ApprovalFacts and the gateway still decide.
@@ -175,6 +183,7 @@ def compose_engine() -> Optional[ProductEngine]:
             lineage_policy=lineage_policy,
             approvals=SqlApprovalRepository(store),
             grants=SqlAuthorityGrantRepository(store),
+            memberships=SqlMembershipRepository(store),
             remediation=_compose_remediation(runtime),
             runtime=runtime,
             execution_context_factory=_execution_context,
@@ -285,6 +294,7 @@ def build_product_app(*, engine: Optional[ProductEngine] = None) -> FastAPI:
     if engine is not None:
         set_engine(engine)
     from backend.api.product.authority_routes import router as authority_router
+    from backend.api.product.membership_routes import router as membership_router
 
     app.include_router(router)
     # The ONLY module carrying non-GET routes. Kept a separate include so the
@@ -295,4 +305,7 @@ def build_product_app(*, engine: Optional[ProductEngine] = None) -> FastAPI:
     # be a short list a reviewer can hold in their head. These routes issue and
     # revoke authority; they decide nothing about it.
     app.include_router(authority_router)
+    # Phase 10.9. Membership administration: admit, activate, deactivate and
+    # relabel. It confers no authority -- that is still the grant routes above.
+    app.include_router(membership_router)
     return app

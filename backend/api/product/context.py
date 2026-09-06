@@ -118,6 +118,29 @@ async def product_context(
             detail="the authenticated identity is not well formed",
         ) from None
 
+    # Phase 10.9. Being able to prove who you are, and that your tenant is
+    # active, is NOT the same as belonging to that tenant. Until this phase the
+    # product API asked only the former: a subject with no membership at all --
+    # or one whose membership had been switched off -- could read every
+    # investigation and every authority grant in the tenant, because the token's
+    # tenant claim was the only thing consulted.
+    #
+    # Membership is resolved LIVE from the durable store, so a deactivation
+    # takes effect on the next request rather than at token expiry.
+    from backend.api.product.app import current_engine
+    from backend.auth.approver import durable_membership
+
+    engine = current_engine()
+    memberships = getattr(engine, "memberships", None)
+    if memberships is not None:
+        member, membership_reason = durable_membership(
+            memberships, tenant_id=tenant_id, principal_id=subject)
+        if member is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"{membership_reason}: you are not an active member of "
+                       "this tenant")
+
     return ProductContext(
         tenant=tenant, principal=principal, roles=(role,) if role else ()
     )
@@ -141,4 +164,5 @@ def approver_authority(ctx: "ProductContext"):
     engine = current_engine()
     return resolve_approver_authority(
         principal_id=ctx.principal.principal_id, tenant_id=ctx.tenant_id,
-        grants=getattr(engine, "grants", None))
+        grants=getattr(engine, "grants", None),
+        memberships=getattr(engine, "memberships", None))

@@ -197,24 +197,33 @@ def register_people() -> None:
     # out-of-band root of trust a real operator would use to seed a first
     # issuer. Nothing about what 10.7 proves changes; only where the grant
     # lives.
-    global GRANT_REPO, GRANT_STORE
+    global GRANT_REPO, GRANT_STORE, MEMBER_REPO
     from backend.contexts.connectivity.infrastructure.sql_authority_grant import (
         SqlAuthorityGrantRepository)
     from backend.database.durable.config import build_development_store
 
     GRANT_STORE = build_development_store(dsn=os.environ["CORTEX_DURABLE_URL"])
     GRANT_REPO = SqlAuthorityGrantRepository(GRANT_STORE)
+    from backend.contexts.connectivity.infrastructure.sql_membership import (
+        SqlMembershipRepository)
+    MEMBER_REPO = SqlMembershipRepository(GRANT_STORE)
 
     for email, (slug, grants) in people.items():
         member = tm.get_user_by_email(email)
         if member is None:
             member = tm.add_user(TENANTS[slug], email, role="member")
         MEMBERS[email] = member
+        # Phase 10.9: authority and product access both require a live durable
+        # membership. Seeded out of band, exactly as a real tenant's first
+        # member must be.
+        provisioning.ensure_membership(GRANT_STORE, tenant_id=TENANTS[slug],
+                                       principal_id=email)
         set_grants(email, grants)
 
 
 GRANT_REPO = None
 GRANT_STORE = None
+MEMBER_REPO = None
 
 
 def set_grants(email, grants) -> None:
@@ -315,18 +324,22 @@ def main() -> None:
               and getattr(r, "path", "").startswith("/api")}
     from backend.api.product.authority_routes import (
         MUTATING_ROUTES as AUTHORITY_ROUTES)
+    from backend.api.product.membership_routes import (
+        MUTATING_ROUTES as MEMBERSHIP_ROUTES)
 
     # Phase 10.8 added two: issuing and revoking an authority grant. They are
     # enumerated in their own module, so the product's write surface is still a
     # closed list rather than whatever happens to be registered.
-    expected = set(MUTATING_ROUTES) | set(AUTHORITY_ROUTES)
+    expected = (set(MUTATING_ROUTES) | set(AUTHORITY_ROUTES)
+                | set(MEMBERSHIP_ROUTES))
     check("A1. the product's non-GET routes are exactly the three from Phase "
-          "10.3 plus Phase 10.8's two authority routes — a closed, enumerated "
-          "set", actual == expected, str(sorted(actual ^ expected)))
+          "10.3 plus Phase 10.8's two authority routes and Phase 10.9's "
+          "three membership routes — a closed, enumerated set", actual == expected, str(sorted(actual ^ expected)))
     check("A2. NO new table for SCOPE — every scope dimension was already a "
           "column or a contract field. The 23rd table is Phase 10.8's "
           "cp_authority_grant, which holds who ISSUED a grant, not what one "
-          "means", len(DURABLE_TABLES) == 23, f"{len(DURABLE_TABLES)}")
+          "means; the 24th is Phase 10.9's cp_tenant_membership",
+          len(DURABLE_TABLES) == 24, f"{len(DURABLE_TABLES)}")
     check("A3. exactly ONE commissioned write capability — none was added",
           set(definitions) == {OPERATION}, str(sorted(definitions)))
 
@@ -395,7 +408,7 @@ def run_scope_unit() -> None:
         return resolve_scoped_authority(
             principal_id=who, tenant_id=TENANTS[TENANT_A], action=action,
             capability_ref=capability, environment=environment, risk=risk,
-            grants=GRANT_REPO)
+            grants=GRANT_REPO, memberships=MEMBER_REPO)
 
     check("B1. a correctly scoped approver is permitted",
           verdict(APPROVER).permitted, verdict(APPROVER).matched_grant)
@@ -439,7 +452,7 @@ def run_scope_unit() -> None:
     v = resolve_scoped_authority(
         principal_id=APPROVER, tenant_id=TENANTS[TENANT_A], action=APPROVE_ACTION,
         capability_ref=CAPABILITY, environment=ENVIRONMENT, risk="critical",
-        grants=GRANT_REPO)
+        grants=GRANT_REPO, memberships=MEMBER_REPO)
     check("B10. an UNRECOGNISED or higher risk than the ceiling refuses — a "
           "ceiling nobody can rank is a ceiling nobody agreed to",
           v.denied and v.reason == OUT_OF_SCOPE_RISK, v.reason)
@@ -951,7 +964,7 @@ def run_restart(engine) -> None:
         return resolve_scoped_authority(
             principal_id=who, tenant_id=TENANTS[TENANT_A], action=action,
             capability_ref=CAPABILITY, environment=ENVIRONMENT, risk="high",
-            grants=GRANT_REPO)
+            grants=GRANT_REPO, memberships=MEMBER_REPO)
 
     check("K3. authority resolves identically after the restart — and a restart "
           "cannot widen it",

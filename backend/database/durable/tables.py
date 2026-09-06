@@ -1009,6 +1009,61 @@ authority_grant_table = sa.Table(
 )
 
 
+# ----------------------------------------------------------------------
+# Tenant membership — who belongs here (Phase 10.9)
+# ----------------------------------------------------------------------
+
+tenant_membership_table = sa.Table(
+    "cp_tenant_membership",
+    DURABLE_METADATA,
+    # Phase 10.9, ADR-102. Phase 10.8 gave authority a durable, attributed home
+    # and left it pointing at subjects defined by ``data/tenants/
+    # tenant_users.json`` -- a gitignored file with no delete, no deactivate and
+    # no audit, whose only mutation path was a V1 route that took the tenant
+    # from the URL.
+    #
+    # This table answers exactly one question: **is this subject a member of
+    # this tenant, and is that membership live?** It answers nothing about what
+    # they may DO. Approval, execution and issuance remain the explicit scoped
+    # grants of Phase 10.8, and no column here maps to any of them.
+    #
+    # It is deliberately NOT a user table. There is no credential, no display
+    # name and no profile: it stores the RELATION and its state, so it cannot
+    # become a second identity system.
+    sa.Column("membership_id", sa.String(64), primary_key=True),
+    sa.Column("tenant_id", sa.String(128), nullable=False),
+    # The same identity Phase 10.8's grants already use in
+    # ``subject_principal_id``. Changing the format here would orphan every
+    # existing grant, which is why this phase inherits it rather than improving
+    # it.
+    sa.Column("subject_principal_id", sa.String(256), nullable=False),
+    # active | inactive. **Never deleted.** A membership row that vanishes
+    # leaves historical grants and approvals pointing at an identity nobody can
+    # resolve, so removal is a state change and the row stays.
+    sa.Column("status", sa.String(16), nullable=False),
+    # Informational, and staying that way. Phase 10.5 established that a tenant
+    # owner is not an approver; nothing reads this column to decide anything,
+    # and a role that started deciding would be the second RBAC this phase is
+    # forbidden to build.
+    sa.Column("role", sa.String(32), nullable=False),
+    # ``migrated`` (imported from the JSON bootstrap) or ``admitted`` (created
+    # through the governed path). An auditor can tell provenance at a glance.
+    sa.Column("source", sa.String(16), nullable=False),
+    sa.Column("created_by", sa.String(256), nullable=False),
+    sa.Column("created_at", _TS, nullable=False),
+    sa.Column("updated_by", sa.String(256), nullable=True),
+    sa.Column("updated_at", _TS, nullable=True),
+    sa.Column("schema_version", sa.Integer(), nullable=False),
+    # One membership per (tenant, subject). Admitting somebody twice collides
+    # rather than creating a second row that a later deactivation would miss --
+    # the same reasoning that shapes cp_authority_grant.
+    sa.UniqueConstraint("tenant_id", "subject_principal_id",
+                        name="uq_cp_tenant_membership"),
+    sa.Index("ix_cp_tenant_membership_subject",
+             "subject_principal_id", "status"),
+)
+
+
 #: Every durable table, in creation order. Used by the migration and by the
 #: bootstrap check that the schema a process needs is the schema it found.
 DURABLE_TABLES = (
@@ -1035,4 +1090,5 @@ DURABLE_TABLES = (
     world_investigation_table,
     approval_table,
     authority_grant_table,
+    tenant_membership_table,
 )
