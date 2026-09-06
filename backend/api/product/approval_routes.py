@@ -31,7 +31,7 @@ Where authority actually lives
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
@@ -40,6 +40,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from backend.api.product.context import ProductContext, product_context
 from backend.api.product.schemas import (
     ApprovalList,
+    ApprovalQueue,
+    ApprovalQueueItem,
     ApprovalView,
     ErrorResponse,
     RemediationOutcomeView,
@@ -243,28 +245,165 @@ def get_remediation(
     return _proposal_view(proposal)
 
 
-@router.get("/approvals", response_model=ApprovalList, responses=_ERRORS,
-            summary="Approvals for the authenticated tenant")
+#: Which stored outcomes each queue filter selects. A filter names a STATE a
+#: responder thinks in; the mapping to stored outcomes happens here, server-side,
+#: so a client cannot ask for a raw outcome value the projection does not model.
+_STATUS_FILTERS = {
+    "actionable": ("pending",),
+    "pending": ("pending",),
+    "decided": ("granted", "denied", "withdrawn"),
+    "approved": ("granted",),
+    "rejected": ("denied",),
+    "revoked": ("withdrawn",),
+    "all": None,
+}
+
+
+@router.get("/approvals", response_model=ApprovalQueue, responses=_ERRORS,
+            summary="The tenant's approval queue, across every investigation")
 def list_approvals(
     ctx: ProductContext = Depends(product_context),
     limit: int = Query(25, ge=1, le=100),
+    status: str = Query(
+        "all",
+        pattern="^(actionable|pending|decided|approved|rejected|revoked|all)$"),
+    risk: Optional[str] = Query(default=None, pattern="^(low|medium|high|critical)$"),
+    capability_ref: Optional[str] = Query(default=None, max_length=200),
+    operation: Optional[str] = Query(default=None, max_length=200),
     investigation_ref: Optional[str] = Query(default=None, max_length=200),
-) -> ApprovalList:
+    older_than_minutes: Optional[int] = Query(default=None, ge=0, le=525600),
+) -> ApprovalQueue:
+    """Every approval this tenant may see, from one place.
+
+    The primary product goal: a responder should not have to know which
+    investigation raised a request in order to find it.
+
+    Tenant scope is applied by the repository as the FIRST predicate, and every
+    filter narrows that set. No filter can widen it and none is evaluated before
+    it -- a filter that could be would be a filter that escapes the tenant
+    boundary.
+    """
+    from backend.api.product.approval_queue import (
+        ACTIONABLE_STATES, order_queue, project_queue_item, utc_now,
+    )
+
     engine = _engine()
     approvals = _require(getattr(engine, "approvals", None), "the approval store")
+    now = utc_now()
+
+    requested_before = None
+    if older_than_minutes is not None:
+        requested_before = now - timedelta(minutes=older_than_minutes)
+
     records = approvals.list_for_tenant(
-        tenant_id=ctx.tenant_id, limit=limit, investigation_ref=investigation_ref)
-    items = tuple(_approval_view(r) for r in records)
-    return ApprovalList(items=items, count=len(items), limit=limit)
+        tenant_id=ctx.tenant_id,
+        # Over-fetch before the derived filters below, so a page is not silently
+        # short. Still bounded, and still tenant-scoped in SQL.
+        limit=min(limit * 4, 400),
+        investigation_ref=investigation_ref,
+        outcomes=_STATUS_FILTERS.get(status),
+        capability_ref=capability_ref,
+        operation=operation,
+        requested_before=requested_before,
+    )
+
+    definitions = getattr(
+        getattr(engine, "remediation", None), "_definitions", {}) or {}
+
+    # Two passes, deliberately.
+    #
+    # The first projects every candidate WITHOUT investigation context, because
+    # none of the governed fields, the derived state or the ordering depends on
+    # it -- they come from the approval row and the capability contract. The
+    # second enriches only the rows that survived filtering and truncation.
+    #
+    # Reconstructing an investigation is an event-sourced replay. Doing it for
+    # every over-fetched candidate meant replaying up to four times more
+    # investigations than the page returns, which measured as a slow list for no
+    # benefit to the caller. This is an algorithmic fix, not an index added to
+    # flatter a benchmark.
+    candidates = []
+    for record in records:
+        item = project_queue_item(
+            record, definition=definitions.get(record.operation), now=now)
+        # Derived filters, applied AFTER the tenant-scoped read. "actionable" is
+        # a derived state -- a pending approval past its expiry is not
+        # actionable -- so it cannot be expressed as a stored-outcome predicate.
+        if status == "actionable" and item["state"] not in ACTIONABLE_STATES:
+            continue
+        if risk is not None and item["risk"] != risk:
+            continue
+        candidates.append((record, item))
+
+    page = order_queue([item for _, item in candidates])[:limit]
+    wanted = {item["approval_id"] for item in page}
+    context = {
+        record.approval_id: _investigation_context(ctx, record)
+        for record, _ in candidates if record.approval_id in wanted
+    }
+    ordered = [
+        project_queue_item(
+            record, definition=definitions.get(record.operation), now=now,
+            investigation=context.get(record.approval_id))
+        for record, item in candidates if item["approval_id"] in wanted
+    ]
+    ordered = order_queue(ordered)[:limit]
+    return ApprovalQueue(
+        items=tuple(ApprovalQueueItem(**item) for item in ordered),
+        count=len(ordered),
+        actionable_count=sum(1 for i in ordered if i["actionable"]),
+        limit=limit,
+        filters={
+            "status": status, "risk": risk, "capability_ref": capability_ref,
+            "operation": operation, "investigation_ref": investigation_ref,
+            "older_than_minutes": older_than_minutes,
+        },
+        note=("Every approval this tenant may see, from every investigation. "
+              "Only rows marked actionable can still be decided."),
+    )
 
 
-@router.get("/approvals/{approval_id}", response_model=ApprovalView,
-            responses=_ERRORS, summary="One approval, with its exact binding")
+def _investigation_context(ctx: ProductContext, record):
+    """Triage context for one approval, or nothing.
+
+    Read under the AUTHENTICATED tenant through the same service the workspace
+    uses, so an approval cannot become a way to reach an investigation the
+    caller could not otherwise read. A failure here degrades the row's context
+    and never its safety: every governed field comes from the approval row and
+    the capability contract, not from here.
+    """
+    if not getattr(record, "investigation_ref", None):
+        return None
+    try:
+        engine = _engine()
+        return engine.investigations.reconstruct(
+            tenant=ctx.tenant, investigation_ref=record.investigation_ref)
+    except Exception:  # noqa: BLE001 - context is optional; safety is not
+        return None
+
+
+@router.get("/approvals/{approval_id}", response_model=ApprovalQueueItem,
+            responses=_ERRORS,
+            summary="One approval, with the full authoritative action preview")
 def get_approval(
     approval_id: str = Path(min_length=1, max_length=200),
     ctx: ProductContext = Depends(product_context),
-) -> ApprovalView:
-    return _approval_view(_load_approval(ctx, approval_id))
+) -> ApprovalQueueItem:
+    """The same projection the queue shows, for one approval.
+
+    Deliberately the SAME function as the list. Two projections of one approval
+    would be two chances to show different actions for the same digest, and the
+    row a responder triaged must be the action they decide on.
+    """
+    from backend.api.product.approval_queue import project_queue_item, utc_now
+
+    engine = _engine()
+    record = _load_approval(ctx, approval_id)
+    definitions = getattr(
+        getattr(engine, "remediation", None), "_definitions", {}) or {}
+    return ApprovalQueueItem(**project_queue_item(
+        record, definition=definitions.get(record.operation), now=utc_now(),
+        investigation=_investigation_context(ctx, record)))
 
 
 @router.get("/remediations/{execution_ref}", response_model=RemediationOutcomeView,

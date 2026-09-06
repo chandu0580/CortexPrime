@@ -37,6 +37,8 @@ from pydantic import BaseModel, Field
 
 __all__ = [
     "ApprovalList",
+    "ApprovalQueue",
+    "ApprovalQueueItem",
     "ApprovalView",
     "AssuranceList",
     "AuthorityAlternativeView",
@@ -529,3 +531,104 @@ class RemediationOutcomeView(BaseModel):
                     "An empty tuple means Assurance has not ruled.")
     read_at: Optional[str] = None
     note: Optional[str] = None
+
+
+# ----------------------------------------------------------------------
+# The approval queue (Phase 10.4)
+# ----------------------------------------------------------------------
+
+class ApprovalQueueItem(BaseModel):
+    """One pending decision, with everything a responder needs to judge it.
+
+    Every governed value is read from the capability contract or from the
+    approval row. **The client computes none of them**, and two are deliberately
+    absent rather than invented: the ADR-038 action digest, which does not exist
+    until resolution binds a worker, and an autonomy decision, which the queue
+    is not entitled to make.
+    """
+
+    approval_id: str
+    investigation_ref: Optional[str] = None
+    incident_ref: Optional[str] = None
+    requested_by: str
+    decided_by: Optional[str] = None
+    requested_at: Optional[str] = None
+    decided_at: Optional[str] = None
+    expires_at: Optional[str] = Field(
+        default=None,
+        description="Every approval expires. An expired one is never actionable.")
+
+    capability_ref: str
+    capability_version: int = 0
+    capability_digest: str = ""
+    operation: str = ""
+    provider: Optional[str] = None
+    environment: str = ""
+    namespace: str = ""
+    workload: str = ""
+    parameters: dict = Field(default_factory=dict)
+
+    approval_digest: str = Field(
+        description="ADR-090. Binds this approval to this exact action; the "
+                    "payload is inside it, so an approval for one workload "
+                    "cannot authorize another.")
+    action_digest: Optional[str] = Field(
+        default=None,
+        description="Null on purpose. See action_digest_note.")
+    action_digest_note: str = ""
+
+    side_effect_class: Optional[str] = None
+    effect_semantics: Optional[str] = None
+    code_trust: Optional[str] = None
+    isolation_tier: Optional[str] = None
+    reversible: bool = False
+    risk: str = Field(
+        description="low / medium / high / critical, from the platform's own "
+                    "implied-risk derivation. An UNDECLARED effect is CRITICAL, "
+                    "never low.")
+    blast_radius: str = ""
+
+    autonomy_ceiling: str = ""
+    autonomy_requested: Optional[str] = None
+    autonomy_allowed: Optional[str] = Field(
+        default=None,
+        description="Null unless an AutonomyDecision was actually recorded. The "
+                    "queue does not compute one.")
+    autonomy_note: str = ""
+
+    assurance_status: str = Field(
+        description="verified / not_verified. Not a verdict about the world -- "
+                    "it says whether Assurance has ruled at all.")
+    assurance_note: str = ""
+    verification_refs: tuple[str, ...] = ()
+    evidence_count: int = 0
+    evidence_refs: tuple[str, ...] = ()
+
+    state: str = Field(
+        description="pending / approved / rejected / revoked / expired / "
+                    "consumed / invalid. Derived from the approval row; there "
+                    "is no stored queue status.")
+    actionable: bool = Field(
+        description="True only while a decision can still be taken. Everything "
+                    "else is history and offers no button.")
+    expired: bool = False
+    consumed_by_execution: Optional[str] = None
+    justification: Optional[str] = None
+
+
+class ApprovalQueue(BaseModel):
+    """A bounded, deterministically ordered page of the tenant's approvals."""
+
+    items: tuple[ApprovalQueueItem, ...] = ()
+    count: int = 0
+    actionable_count: int = 0
+    limit: int = 25
+    ordering: str = Field(
+        default="actionable first, then risk (critical→low), then oldest first",
+        description="Deterministic and policy-backed. No score, no model, no "
+                    "learned ranking -- a reload shows the same order.")
+    filters: dict = Field(
+        default_factory=dict,
+        description="The filters the SERVER applied, echoed so a client can see "
+                    "what it actually got rather than assume.")
+    note: str = ""

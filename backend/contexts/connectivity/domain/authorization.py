@@ -294,6 +294,36 @@ class AuthorizationRequest:
         }
 
 
+
+def implied_risk_for(
+    effect_semantics: Optional["EffectSemantics"],
+    side_effect_class: Optional["SideEffectClass"],
+) -> RiskLevel:
+    """Risk implied by the declared effect, never lowered by omission.
+
+    An undeclared effect is CRITICAL, not LOW. The reason is the same one that
+    runs through the whole capability model: the field most often missing is the
+    one that says how much damage the thing can do.
+
+    Extracted from ``AuthorizationSnapshot.implied_risk`` (Phase 10.4) so a
+    product projection can show the SAME risk an authorization would derive,
+    without constructing an authorization snapshot to ask and without copying
+    the rule. The property delegates here; there is exactly one implementation,
+    and a change to the taxonomy cannot leave a second copy behind.
+    """
+    if effect_semantics is None or side_effect_class is None:
+        return RiskLevel.CRITICAL
+    if effect_semantics is EffectSemantics.UNKNOWN:
+        return RiskLevel.CRITICAL
+    if side_effect_class is SideEffectClass.DESTRUCTIVE:
+        return RiskLevel.CRITICAL
+    if side_effect_class is SideEffectClass.IRREVERSIBLE_WRITE:
+        return RiskLevel.HIGH
+    if side_effect_class is SideEffectClass.REVERSIBLE_WRITE:
+        return RiskLevel.MEDIUM
+    return RiskLevel.LOW
+
+
 @dataclass(frozen=True)
 class AuthorizationSnapshot:
     """Everything a decision rests on, frozen at one instant.
@@ -340,23 +370,8 @@ class AuthorizationSnapshot:
 
     @property
     def implied_risk(self) -> RiskLevel:
-        """Risk implied by the declared effect, never lowered by omission.
-
-        An undeclared effect is CRITICAL, not LOW. The reason is the same one
-        that runs through the whole capability model: the field most often
-        missing is the one that says how much damage the thing can do.
-        """
-        if self.effect_semantics is None or self.side_effect_class is None:
-            return RiskLevel.CRITICAL
-        if self.effect_semantics is EffectSemantics.UNKNOWN:
-            return RiskLevel.CRITICAL
-        if self.side_effect_class is SideEffectClass.DESTRUCTIVE:
-            return RiskLevel.CRITICAL
-        if self.side_effect_class is SideEffectClass.IRREVERSIBLE_WRITE:
-            return RiskLevel.HIGH
-        if self.side_effect_class is SideEffectClass.REVERSIBLE_WRITE:
-            return RiskLevel.MEDIUM
-        return RiskLevel.LOW
+        """Risk implied by the declared effect, never lowered by omission."""
+        return implied_risk_for(self.effect_semantics, self.side_effect_class)
 
     def to_dict(self) -> dict:
         return {

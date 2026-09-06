@@ -266,3 +266,72 @@ export interface RemediationOutcome {
     read_at: string | null
     note: string | null
 }
+
+// ---------------------------------------------------------------------
+// The approval queue (Phase 10.4)
+// ---------------------------------------------------------------------
+
+export interface ApprovalQueueItem {
+    approval_id: string
+    investigation_ref: string | null
+    incident_ref: string | null
+    requested_by: string
+    decided_by: string | null
+    requested_at: string | null
+    decided_at: string | null
+    expires_at: string | null
+
+    capability_ref: string
+    capability_version: number
+    capability_digest: string
+    operation: string
+    provider: string | null
+    environment: string
+    namespace: string
+    workload: string
+    parameters: Record<string, unknown>
+
+    /** ADR-090. Binds this approval to this exact action. */
+    approval_digest: string
+    /** Null on purpose — see action_digest_note. */
+    action_digest: string | null
+    action_digest_note: string
+
+    side_effect_class: string | null
+    effect_semantics: string | null
+    code_trust: string | null
+    isolation_tier: string | null
+    reversible: boolean
+    /** low / medium / high / critical, from the platform's own derivation. */
+    risk: string
+    blast_radius: string
+
+    autonomy_ceiling: string
+    autonomy_requested: string | null
+    /** Null unless an AutonomyDecision was recorded. Never computed here. */
+    autonomy_allowed: string | null
+    autonomy_note: string
+
+    assurance_status: string
+    assurance_note: string
+    verification_refs: string[]
+    evidence_count: number
+    evidence_refs: string[]
+
+    state: string
+    /** True only while a decision can still be taken. */
+    actionable: boolean
+    expired: boolean
+    consumed_by_execution: string | null
+    justification: string | null
+}
+
+export interface ApprovalQueue {
+    items: ApprovalQueueItem[]
+    count: number
+    actionable_count: number
+    limit: number
+    ordering: string
+    filters: Record<string, unknown>
+    note: string
+}

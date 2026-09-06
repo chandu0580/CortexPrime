@@ -19,6 +19,7 @@ import { describe, expect, it } from "vitest"
 const ROOT = path.resolve(__dirname, "../..")
 
 const WORKSPACE_DIRS = [
+    "app/approvals",
     "app/investigator",
     "components/investigator",
     "hooks/queries/useInvestigator.ts",
@@ -185,13 +186,30 @@ describe("no autonomy control exists anywhere in the workspace", () => {
         expect(workspace).not.toMatch(/type="checkbox"/i)
     })
 
-    it("the approval screen has no autonomy input either", () => {
-        const panel = read(path.join(ROOT, "components/investigator/RemediationPanel.tsx"))
-        // It does have inputs — a justification and a confirmation — so the
-        // assertion is about what they are for, not that none exist.
-        expect(panel).not.toMatch(/<select/i)
-        expect(panel).not.toMatch(/name=["']autonomy/i)
-        expect(panel).toMatch(/autonomy_ceiling/)
+    it("the approval screens have no autonomy input either", () => {
+        for (const file of ["components/investigator/RemediationPanel.tsx",
+                            "components/investigator/ApprovalQueue.tsx"]) {
+            const panel = read(path.join(ROOT, file))
+            // Both DO have inputs — a justification and a confirmation, and the
+            // queue has a risk filter — so the assertion is about what they are
+            // for, not that none exist.
+            expect(panel, `${file} must not name an autonomy control`)
+                .not.toMatch(/name=["']autonomy/i)
+            expect(panel).toMatch(/autonomy_ceiling|autonomy_note/)
+        }
+    })
+
+    it("the queue offers no bulk action", () => {
+        // `code`, not `read`: the component's own comments say "no approve
+        // all", and a test that failed on that would punish saying out loud
+        // what the code does not do.
+        const queue = code(path.join(ROOT, "components/investigator/ApprovalQueue.tsx"))
+        // Each approval authorizes exactly one action; a bulk control would be a
+        // way to authorize actions nobody looked at.
+        for (const pattern of [/approve\s*all/i, /select\s*all/i, /bulk/i,
+                               /type=["']checkbox["']/i, /run\s*all/i]) {
+            expect(queue, `the queue must not contain ${pattern}`).not.toMatch(pattern)
+        }
     })
 })
 

@@ -327,12 +327,40 @@ class SqlApprovalRepository:
             ).mappings().fetchone()
         return self._record(row) if row else None
 
-    def list_for_tenant(self, *, tenant_id: str, limit: int = 50,
-                        investigation_ref: Optional[str] = None) -> tuple:
+    def list_for_tenant(
+        self, *, tenant_id: str, limit: int = 50,
+        investigation_ref: Optional[str] = None,
+        outcomes: Optional[tuple] = None,
+        capability_ref: Optional[str] = None,
+        operation: Optional[str] = None,
+        requested_before: Optional[datetime] = None,
+        requested_after: Optional[datetime] = None,
+    ) -> tuple:
+        """Approvals for one tenant, with server-side filters.
+
+        The tenant predicate is applied FIRST and unconditionally; every filter
+        below narrows that set and none can widen it. That ordering is the whole
+        security property of a filtered list: a filter that could be evaluated
+        before the tenant scope is a filter that can escape it.
+
+        Filters are keyword-only and typed. There is no free-text predicate and
+        no caller-supplied SQL fragment -- a queue that accepted one would be a
+        query surface, not a projection.
+        """
         with self._store.atomic() as work:
             stmt = sa.select(T).where(T.c.tenant_id == tenant_id)
             if investigation_ref:
                 stmt = stmt.where(T.c.investigation_ref == investigation_ref)
+            if outcomes:
+                stmt = stmt.where(T.c.outcome.in_(tuple(outcomes)))
+            if capability_ref:
+                stmt = stmt.where(T.c.capability_ref == capability_ref)
+            if operation:
+                stmt = stmt.where(T.c.operation == operation)
+            if requested_before is not None:
+                stmt = stmt.where(T.c.requested_at <= requested_before)
+            if requested_after is not None:
+                stmt = stmt.where(T.c.requested_at >= requested_after)
             rows = work.execute(
                 stmt.order_by(T.c.requested_at.desc()).limit(limit)
             ).mappings().fetchall()

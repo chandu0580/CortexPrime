@@ -15,6 +15,8 @@ import { productGet, productPost } from "@/lib/product-api"
 import type {
     Approval,
     ApprovalList,
+    ApprovalQueue,
+    ApprovalQueueItem,
     AssuranceList,
     InvestigationDetail,
     InvestigationList,
@@ -203,5 +205,57 @@ export function useExecuteApproval(investigationRef: string) {
             productPost<RemediationOutcome>(
                 `/api/v1/approvals/${encodeURIComponent(approvalId)}/execute`, {}),
         onSuccess: invalidate,
+    })
+}
+
+// ---------------------------------------------------------------------
+// The approval queue (Phase 10.4)
+// ---------------------------------------------------------------------
+
+export interface QueueFilters {
+    status?: "actionable" | "pending" | "decided" | "approved" | "rejected" | "revoked" | "all"
+    risk?: "low" | "medium" | "high" | "critical"
+    investigation_ref?: string
+    older_than_minutes?: number
+}
+
+/**
+ * The tenant's approval queue, across every investigation.
+ *
+ * `staleTime: 0` for the same reason the per-investigation list uses it:
+ * whether an approval is still decidable is a governance fact a responder is
+ * about to act on, and serving it from a cache is how two people decide the
+ * same approval. The filters are sent as query parameters and applied by the
+ * SERVER after tenant scope; none of them can widen what the tenant may see.
+ */
+export function useApprovalQueue(filters: QueueFilters = {}) {
+    return useQuery({
+        queryKey: ["investigator", "queue", filters] as const,
+        queryFn: ({ signal }) =>
+            productGet<ApprovalQueue>("/api/v1/approvals", {
+                limit: 50,
+                status: filters.status ?? "actionable",
+                ...(filters.risk ? { risk: filters.risk } : {}),
+                ...(filters.investigation_ref
+                    ? { investigation_ref: filters.investigation_ref } : {}),
+                ...(filters.older_than_minutes !== undefined
+                    ? { older_than_minutes: filters.older_than_minutes } : {}),
+            }, signal),
+        staleTime: 0,
+        gcTime: 0,
+        retry: retryPolicy,
+    })
+}
+
+export function useApprovalDetail(approvalId: string) {
+    return useQuery({
+        queryKey: ["investigator", "queue-detail", approvalId] as const,
+        queryFn: ({ signal }) =>
+            productGet<ApprovalQueueItem>(
+                `/api/v1/approvals/${encodeURIComponent(approvalId)}`, undefined, signal),
+        enabled: Boolean(approvalId),
+        staleTime: 0,
+        gcTime: 0,
+        retry: retryPolicy,
     })
 }
