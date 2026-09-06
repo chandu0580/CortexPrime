@@ -319,8 +319,19 @@ export interface ApprovalQueueItem {
     evidence_refs: string[]
 
     state: string
-    /** True only while a decision can still be taken. */
+    /** True while a decision can still be taken by ANYONE. About the approval. */
     actionable: boolean
+    /**
+     * True only when the approval is actionable AND the authenticated caller
+     * holds approver authority in this tenant.
+     *
+     * Presentation only. The decision route re-resolves the same authority from
+     * the same store and enforces it, so flipping this in a browser changes what
+     * a button looks like and nothing else.
+     */
+    can_approve: boolean
+    /** Why the caller may or may not decide — a stable code, not prose. */
+    authority_reason: string
     expired: boolean
     consumed_by_execution: string | null
     justification: string | null
@@ -333,5 +344,8 @@ export interface ApprovalQueue {
     limit: number
     ordering: string
     filters: Record<string, unknown>
+    /** Whether this caller holds approver authority at all. Server-resolved. */
+    viewer_can_approve: boolean
+    viewer_authority_reason: string
     note: string
 }

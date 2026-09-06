@@ -106,6 +106,45 @@ class TenantManager:
                     return u
         return None
 
+    def grant_permission(self, tenant_id: str, user_id: str, permission: str) -> bool:
+        """Grant one explicit permission to a tenant membership (Phase 10.5).
+
+        Tenant-scoped and durable: the membership is found within the named
+        tenant, never across tenants, and the grant is persisted immediately.
+        Idempotent -- granting twice leaves one grant, so a repeated
+        administrative action cannot produce a duplicate nobody can revoke.
+
+        This is deliberately separate from ``update_user_role``. Approver
+        authority is an ADDITIVE grant, not a role: ``role`` is a single field,
+        and making approval a role would force an owner who needs to approve to
+        stop being an owner.
+        """
+        if not permission or ":" not in permission:
+            raise ValueError(
+                "a permission must be a namespaced action:resource grant")
+        for u in self._tenant_users.get(tenant_id, []):
+            if u.user_id == user_id:
+                if permission not in u.permissions:
+                    u.permissions.append(permission)
+                    self._save()
+                return True
+        return False
+
+    def revoke_permission(self, tenant_id: str, user_id: str, permission: str) -> bool:
+        """Withdraw one explicit permission. Persisted immediately.
+
+        Revocation is the half that matters. It is written through before this
+        returns, so the next authority resolution -- which reads the store, not
+        a token claim -- sees the grant gone.
+        """
+        for u in self._tenant_users.get(tenant_id, []):
+            if u.user_id == user_id:
+                if permission in u.permissions:
+                    u.permissions.remove(permission)
+                    self._save()
+                return True
+        return False
+
     def update_user_role(self, tenant_id: str, user_id: str, role: str) -> bool:
         for u in self._tenant_users.get(tenant_id, []):
             if u.user_id == user_id:

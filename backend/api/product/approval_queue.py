@@ -164,6 +164,7 @@ def _governance_of(definition: Any) -> _Governance:
 def project_queue_item(
     record: Any, *, definition: Any, now: datetime,
     investigation: Any = None, autonomy_ceiling: str = "a3_approved_action",
+    authority: Any = None,
 ) -> dict:
     """One queue row. Every governed value comes from a contract or a column.
 
@@ -239,7 +240,21 @@ def project_queue_item(
         "evidence_count": len(evidence_refs),
         "evidence_refs": evidence_refs[:20],
         "state": state,
+        # Whether the approval CAN still be decided by anyone. A property of the
+        # approval, not of the viewer.
         "actionable": state in ACTIONABLE_STATES,
+        # Whether THIS caller may decide it: the approval's own state AND the
+        # caller's authority, resolved server-side. Two different questions,
+        # kept as two fields, because collapsing them would make "you may not"
+        # and "nobody may" indistinguishable to a responder.
+        #
+        # This is a PROJECTION. The decision route re-resolves the same
+        # authority from the same store and enforces it; a client that flipped
+        # this to true would change what a button looks like and nothing else.
+        "can_approve": bool(
+            state in ACTIONABLE_STATES
+            and authority is not None and getattr(authority, "permitted", False)),
+        "authority_reason": _text(getattr(authority, "reason", None)) or "unknown",
         "expired": bool(record.is_expired_at(now)),
         "consumed_by_execution": _text(
             getattr(record, "consumed_by_execution", None)) or None,

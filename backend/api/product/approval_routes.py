@@ -286,7 +286,12 @@ def list_approvals(
     from backend.api.product.approval_queue import (
         ACTIONABLE_STATES, order_queue, project_queue_item, utc_now,
     )
+    from backend.api.product.context import approver_authority
 
+    # Resolved ONCE per request, from the store. The queue reports whether this
+    # caller may decide each row; it does not decide anything, and the answer it
+    # shows is the same one the decision route will enforce.
+    authority = approver_authority(ctx)
     engine = _engine()
     approvals = _require(getattr(engine, "approvals", None), "the approval store")
     now = utc_now()
@@ -325,7 +330,8 @@ def list_approvals(
     candidates = []
     for record in records:
         item = project_queue_item(
-            record, definition=definitions.get(record.operation), now=now)
+            record, definition=definitions.get(record.operation), now=now,
+            authority=authority)
         # Derived filters, applied AFTER the tenant-scoped read. "actionable" is
         # a derived state -- a pending approval past its expiry is not
         # actionable -- so it cannot be expressed as a stored-outcome predicate.
@@ -344,7 +350,7 @@ def list_approvals(
     ordered = [
         project_queue_item(
             record, definition=definitions.get(record.operation), now=now,
-            investigation=context.get(record.approval_id))
+            investigation=context.get(record.approval_id), authority=authority)
         for record, item in candidates if item["approval_id"] in wanted
     ]
     ordered = order_queue(ordered)[:limit]
@@ -359,7 +365,10 @@ def list_approvals(
             "older_than_minutes": older_than_minutes,
         },
         note=("Every approval this tenant may see, from every investigation. "
-              "Only rows marked actionable can still be decided."),
+              "Only rows marked actionable can still be decided, and only by a "
+              "caller holding approver authority in this tenant."),
+        viewer_can_approve=authority.permitted,
+        viewer_authority_reason=authority.reason,
     )
 
 
@@ -396,6 +405,7 @@ def get_approval(
     row a responder triaged must be the action they decide on.
     """
     from backend.api.product.approval_queue import project_queue_item, utc_now
+    from backend.api.product.context import approver_authority
 
     engine = _engine()
     record = _load_approval(ctx, approval_id)
@@ -403,7 +413,8 @@ def get_approval(
         getattr(engine, "remediation", None), "_definitions", {}) or {}
     return ApprovalQueueItem(**project_queue_item(
         record, definition=definitions.get(record.operation), now=utc_now(),
-        investigation=_investigation_context(ctx, record)))
+        investigation=_investigation_context(ctx, record),
+        authority=approver_authority(ctx)))
 
 
 @router.get("/remediations/{execution_ref}", response_model=RemediationOutcomeView,
@@ -527,10 +538,26 @@ def decide_approval(
     because there is no route that could express one: this handler decides
     exactly the approval named in the path and nothing else.
     """
+    from backend.api.product.context import approver_authority
     from backend.contracts.approval import ApprovalOutcome
 
     engine = _engine()
     approvals = _require(getattr(engine, "approvals", None), "the approval store")
+
+    # Phase 10.5. Tenant membership is no longer sufficient to decide an
+    # irreversible action: the caller must hold an explicit approver grant in
+    # THIS tenant, resolved live from the authoritative store.
+    #
+    # It is checked here, before the approval is even loaded, so a caller
+    # without authority learns nothing about which approvals exist. And it is
+    # read from the store rather than the token, so a revoked grant stops
+    # working on the next request instead of at token expiry.
+    authority = approver_authority(ctx)
+    if authority.denied:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"no approver authority in this tenant ({authority.reason})")
+
     record = _load_approval(ctx, approval_id)
 
     if body.decision == "approve":
@@ -546,12 +573,18 @@ def decide_approval(
             raise HTTPException(status_code=status.HTTP_409_CONFLICT,
                                 detail="this approval request has expired")
 
+    # The authority actually used is recorded alongside the reason. An audit
+    # trail that says who decided but not what entitled them to is an audit
+    # trail that cannot answer the question it exists for.
+    justification = body.justification or ""
+    provenance = (f"[authority={authority.reason}"
+                  f" membership_role={authority.membership_role}]")
     decided = approvals.decide(
         approval_id=approval_id, tenant_id=ctx.tenant_id,
         outcome=(ApprovalOutcome.GRANTED if body.decision == "approve"
                  else ApprovalOutcome.DENIED),
         decided_by=_principal_ref(ctx), decided_at=_now(),
-        justification=body.justification)
+        justification=(f"{justification} {provenance}".strip())[:2000])
     if not decided:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

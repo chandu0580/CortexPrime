@@ -63,6 +63,8 @@ const BASE: ApprovalQueueItem = {
     expired: false,
     consumed_by_execution: null,
     justification: "crashloop remediation",
+    can_approve: true,
+    authority_reason: "approver_authority_granted",
 }
 
 function respond(items: ApprovalQueueItem[]) {
@@ -72,7 +74,11 @@ function respond(items: ApprovalQueueItem[]) {
             actionable_count: items.filter((i) => i.actionable).length,
             limit: 50,
             ordering: "actionable first, then risk (critical→low), then oldest first",
-            filters: {}, note: "Every approval this tenant may see.",
+            filters: {},
+            viewer_can_approve: items.some((i) => i.can_approve),
+            viewer_authority_reason: items.some((i) => i.can_approve)
+                ? "approver_authority_granted" : "no_approver_authority",
+            note: "Every approval this tenant may see.",
         }), { status: 200, headers: { "Content-Type": "application/json" } }))
 }
 
@@ -243,5 +249,89 @@ describe("accessibility, structurally", () => {
         ;(await screen.findByRole("button", { name: "Review" })).click()
         const confirm = await screen.findByLabelText(/Type/)
         expect(confirm).toHaveAttribute("aria-describedby", "queue-confirm-help")
+    })
+})
+
+
+describe("approver authority is the server's verdict, rendered", () => {
+    it("a caller WITHOUT authority is told so, plainly, on the queue", async () => {
+        vi.stubGlobal("fetch", respond([
+            { ...BASE, can_approve: false, authority_reason: "no_approver_authority" },
+        ]))
+        wrap(<ApprovalQueue />)
+        expect(await screen.findAllByText(/do not have approval authority/i))
+            .not.toHaveLength(0)
+        expect(screen.getByText(/not implied by membership/i)).toBeInTheDocument()
+    })
+
+    it("and the row says it, without hiding the row", async () => {
+        vi.stubGlobal("fetch", respond([
+            { ...BASE, can_approve: false, authority_reason: "no_approver_authority" },
+        ]))
+        wrap(<ApprovalQueue />)
+        // Visible, so a responder can see what is waiting and tell a permission
+        // boundary from a tenant one.
+        expect(await screen.findByText("payments-api")).toBeInTheDocument()
+        expect(screen.getByText("you cannot approve")).toBeInTheDocument()
+    })
+
+    it("offers NO decision form to a caller without authority", async () => {
+        vi.stubGlobal("fetch", respond([
+            { ...BASE, can_approve: false, authority_reason: "no_approver_authority" },
+        ]))
+        wrap(<ApprovalQueue />)
+        ;(await screen.findByRole("button", { name: "Review" })).click()
+        await waitFor(() =>
+            expect(screen.getAllByText(/do not have approval authority/i))
+                .not.toHaveLength(0))
+        expect(screen.queryByRole("button", { name: /Approve this action/ })).toBeNull()
+        expect(screen.queryByRole("button", { name: "Reject" })).toBeNull()
+    })
+
+    it("distinguishes 'you may not' from 'nobody may'", async () => {
+        vi.stubGlobal("fetch", respond([
+            { ...BASE, can_approve: false, authority_reason: "no_approver_authority" },
+        ]))
+        wrap(<ApprovalQueue />)
+        ;(await screen.findByRole("button", { name: "Review" })).click()
+        await waitFor(() =>
+            expect(screen.getByText(/someone with approver authority can decide it/i))
+                .toBeInTheDocument())
+        // The other sentence, for an approval nobody can decide, is different.
+        expect(screen.queryByText(/can no longer be decided/i)).toBeNull()
+    })
+
+    it("shows the decision form to a caller WITH authority", async () => {
+        vi.stubGlobal("fetch", respond([BASE]))
+        wrap(<ApprovalQueue />)
+        ;(await screen.findByRole("button", { name: "Review" })).click()
+        expect(await screen.findByRole("button", { name: /Approve this action/ }))
+            .toBeInTheDocument()
+    })
+
+    it("surfaces the server's reason code rather than a generic refusal", async () => {
+        vi.stubGlobal("fetch", respond([
+            { ...BASE, can_approve: false, authority_reason: "membership_inactive" },
+        ]))
+        wrap(<ApprovalQueue />)
+        ;(await screen.findByRole("button", { name: "Review" })).click()
+        await waitFor(() =>
+            expect(screen.getByText("membership_inactive")).toBeInTheDocument())
+    })
+
+    it("has no control anywhere that could grant authority", async () => {
+        vi.stubGlobal("fetch", respond([
+            { ...BASE, can_approve: false, authority_reason: "no_approver_authority" },
+        ]))
+        wrap(<ApprovalQueue />)
+        await screen.findByText("payments-api")
+        // A CONTROL, not the word. The banner legitimately explains that
+        // authority "is granted per tenant by an administrator", and a test
+        // that failed on that would punish the screen for telling the truth.
+        for (const pattern of [/grant/i, /become an approver/i, /request access/i,
+                               /elevate/i, /override/i, /superuser/i, /admin/i]) {
+            expect(screen.queryByRole("button", { name: pattern })).toBeNull()
+            expect(screen.queryByRole("link", { name: pattern })).toBeNull()
+        }
     })
 })

@@ -609,8 +609,19 @@ class ApprovalQueueItem(BaseModel):
                     "consumed / invalid. Derived from the approval row; there "
                     "is no stored queue status.")
     actionable: bool = Field(
-        description="True only while a decision can still be taken. Everything "
-                    "else is history and offers no button.")
+        description="True only while a decision can still be taken by ANYONE. "
+                    "A property of the approval, not of the viewer.")
+    can_approve: bool = Field(
+        default=False,
+        description="True only when this approval is actionable AND the "
+                    "authenticated caller holds approver authority in this "
+                    "tenant. Presentation only: the decision route re-resolves "
+                    "the same authority from the same store and enforces it.")
+    authority_reason: str = Field(
+        default="unknown",
+        description="Why the caller may or may not decide — a stable code, so a "
+                    "refusal can be attributed rather than collapsed into "
+                    "'forbidden'.")
     expired: bool = False
     consumed_by_execution: Optional[str] = None
     justification: Optional[str] = None
@@ -631,4 +642,10 @@ class ApprovalQueue(BaseModel):
         default_factory=dict,
         description="The filters the SERVER applied, echoed so a client can see "
                     "what it actually got rather than assume.")
+    viewer_can_approve: bool = Field(
+        default=False,
+        description="Whether the authenticated caller holds approver authority "
+                    "in this tenant at all. Tenant membership alone does not "
+                    "confer it.")
+    viewer_authority_reason: str = "unknown"
     note: str = ""

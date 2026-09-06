@@ -50,6 +50,7 @@ __all__ = [
     "NoV1IntelligenceImportRule",
     "IntelligenceCannotBypassWorldRule",
     "WorldCannotImportV1MemoryRule",
+    "AuthCannotExecuteRule",
     "ProductCannotBypassExecutionRule",
     "AutonomyNotModelDrivenRule",
     "default_boundary_rules",
@@ -1575,6 +1576,81 @@ class IntelligenceCannotBypassWorldRule:
 
 
 
+
+@dataclass(frozen=True)
+class AuthCannotExecuteRule:
+    """The plane that decides WHO you are and WHAT you may do never acts
+    (Phase 10.5, ADR-098).
+
+    Why an existing rule does not already cover this
+    ------------------------------------------------
+    ``BND-PRODUCT-CANNOT-BYPASS-EXECUTION`` scopes to ``backend/api/product``;
+    ``BND-DIRECT-HTTP`` to the bounded contexts and the credential fabric; the
+    three ``*-CANNOT-EXECUTE`` rules each to their own plane. **None names
+    ``backend/auth``.** Injecting ``from backend.platform.transport import
+    broker`` into the approver-authority module left the gate PASS -- a real,
+    measured gap, which is the only justification for a new rule (Part R).
+
+    Why it matters more than it looks
+    ---------------------------------
+    Authorization code runs BEFORE every governed decision, holds the caller's
+    identity, and is the one place a reviewer least expects to find a side
+    effect. A module that answers "may this person approve?" and can also reach
+    a gateway, a worker, the transport broker or the credential broker could
+    decide and act in the same breath -- which is the shape of a system
+    authorizing itself.
+
+    Deliberately NOT forbidden: ``backend.infrastructure.redis``. The token
+    blacklist needs it, and reading a revocation list is not executing.
+    """
+
+    rule_id: str = "BND-AUTH-CANNOT-EXECUTE"
+    description: str = (
+        "the authentication/authorization plane imports no gateway, dispatcher, "
+        "connector, adapter, transport, credential broker or scheduler — it "
+        "decides who you are and what you may do, and never acts"
+    )
+    auth_root: str = "backend.auth"
+    forbidden_roots: tuple[str, ...] = (
+        "backend.platform.transport",
+        "backend.platform.credentials",
+        "backend.contexts.execution",
+        "backend.contexts.connectivity.infrastructure.adapters",
+        "backend.api.capability_execution_composition",
+        "backend.api.application_runtime",
+    )
+    severity: Severity = Severity.ERROR
+
+    def evaluate(self, graph: ModuleGraph) -> RuleResult:
+        violations: list[Violation] = []
+        checked = 0
+        for module in graph.modules():
+            if not (module.name.startswith(self.auth_root + ".")
+                    or module.name == self.auth_root):
+                continue
+            checked += 1
+            for imported, line in module.imports:
+                if any(imported == f or imported.startswith(f + ".")
+                       for f in self.forbidden_roots):
+                    violations.append(
+                        Violation(
+                            rule_id=self.rule_id, severity=self.severity,
+                            module=module.name, line=line, offender=imported,
+                            detail=(
+                                f"the auth plane imports {imported!r}; a module "
+                                "that decides whether somebody may approve must "
+                                "not also be able to execute, dispatch, reach a "
+                                "provider or mint a credential -- deciding and "
+                                "acting in one place is the shape of a system "
+                                "authorizing itself (ADR-098)"
+                            ),
+                        )
+                    )
+        return RuleResult(
+            rule_id=self.rule_id, description=self.description,
+            violations=tuple(violations), modules_checked=checked)
+
+
 @dataclass(frozen=True)
 class ProductCannotBypassExecutionRule:
     """The product API reaches the world only through the one execution door
@@ -1803,4 +1879,5 @@ def default_boundary_rules() -> tuple:
         WorldCannotImportV1MemoryRule(),
         AutonomyNotModelDrivenRule(),
         ProductCannotBypassExecutionRule(),
+        AuthCannotExecuteRule(),
     )

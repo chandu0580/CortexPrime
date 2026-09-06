@@ -121,3 +121,16 @@ async def product_context(
     return ProductContext(
         tenant=tenant, principal=principal, roles=(role,) if role else ()
     )
+
+def approver_authority(ctx: "ProductContext"):
+    """This caller's approver authority, resolved LIVE from the store.
+
+    A method on the context rather than a dependency, because it is asked in two
+    places -- the queue projection and the decision route -- and both must ask
+    the same question of the same source. Neither may consult a token claim: the
+    session says who is calling, the store says what they may do.
+    """
+    from backend.auth.approver import resolve_approver_authority
+
+    return resolve_approver_authority(
+        principal_id=ctx.principal.principal_id, tenant_id=ctx.tenant_id)

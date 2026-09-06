@@ -138,7 +138,10 @@ function QueueRow({
             </td>
             <td className="px-3 py-3">
                 {/* "Review", never "Run". Nothing executes from a list row: the
-                    only way to a decision is a screen showing the whole action. */}
+                    only way to a decision is a screen showing the whole action.
+                    A viewer without authority still gets Review -- hiding the row
+                    would leave them unable to see what is waiting, or to tell a
+                    tenant boundary from a permission one. */}
                 <button
                     type="button"
                     onClick={() => onReview(item.approval_id)}
@@ -147,6 +150,11 @@ function QueueRow({
                 >
                     Review
                 </button>
+                {item.actionable && !item.can_approve && (
+                    <p className="mt-1 text-[10px]" style={{ color: "var(--text-muted)" }}>
+                        you cannot approve
+                    </p>
+                )}
             </td>
         </tr>
     )
@@ -193,6 +201,10 @@ function ApprovalDetail({
     const decide = useDecideApproval(item.investigation_ref ?? "")
     const confirmed = confirm.trim() === item.workload
     const stage = readStage(item.state)
+    // The SERVER decided this. The component renders it and never computes it:
+    // whether this person may approve is a governance question, and a frontend
+    // that answered it would be a second authority however carefully written.
+    const mayDecide = item.can_approve
 
     return (
         <Panel
@@ -276,6 +288,28 @@ function ApprovalDetail({
                 >
                     This approval can no longer be decided. It is shown for the record.
                 </p>
+            ) : !mayDecide ? (
+                /* Two different sentences, deliberately. "Nobody may decide
+                   this" and "you may not decide this" are different facts, and
+                   a responder who cannot tell them apart cannot tell whether to
+                   find a colleague or let it expire. */
+                <div
+                    className="mt-4 rounded border px-3 py-2"
+                    style={{ borderColor: "var(--border-strong)" }}
+                    role="note"
+                >
+                    <p className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
+                        You do not have approval authority in this tenant
+                    </p>
+                    <p className="mt-1 text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                        This approval is still open and someone with approver authority
+                        can decide it. Tenant membership alone does not confer that
+                        authority, and it is not something this page can grant.
+                    </p>
+                    <p className="mt-1 font-mono text-[11px]" style={{ color: "var(--text-muted)" }}>
+                        {item.authority_reason}
+                    </p>
+                </div>
             ) : (
                 <form
                     className="mt-4 space-y-2 border-t pt-3"
@@ -407,6 +441,24 @@ export default function ApprovalQueue() {
                     <option value="low">Low</option>
                 </select>
             </div>
+
+            {query.data && !query.data.viewer_can_approve && (
+                <div
+                    className="rounded border px-3 py-2"
+                    style={{ borderColor: "var(--border-strong)", background: "var(--surface-raised)" }}
+                    role="note"
+                >
+                    <p className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
+                        You do not have approval authority in this tenant
+                    </p>
+                    <p className="mt-1 text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                        You can see what is waiting, and you cannot decide any of it.
+                        Approver authority is granted per tenant by an administrator; it
+                        is not implied by membership and there is no control here that
+                        could grant it.
+                    </p>
+                </div>
+            )}
 
             {query.isPending && <Loading label="the approval queue" />}
             {query.isError && <RequestFailure error={query.error} label="the approval queue" />}
