@@ -421,19 +421,25 @@ def run_create_all_trap() -> None:
           "all, so create_all has nothing to create — Phase 10.13's harness "
           "recorded the opposite state (H2: all three registered)",
           "IAM_IN_METADATA []" in out, out.strip()[:160])
-    check("D3. create_all itself fails on a PRE-EXISTING defect unrelated to "
-          "IAM — reflection_history -> missions, a table no model declares — "
-          "and the failure names missions, not iam",
-          "missions" in out and "NoReferencedTableError" in out
-          and "iam_" not in out.split("CREATE_ALL_ERROR")[-1].split("IAM_AFTER")[0],
+    # Re-pointed by Phase 10.16. This check used to assert that create_all
+    # FAILED with NoReferencedTableError on reflection_history -> missions,
+    # "a table no model declares" -- a pre-existing defect Phase 10.14 found,
+    # proved unrelated to IAM, and deliberately did not repair.
+    #
+    # Phase 10.16 repaired exactly that, by adding the missing ORM mapping for
+    # the existing `missions` table (ADR-111). The check is INVERTED rather
+    # than deleted, so it now fails if the mapping ever disappears again and
+    # the metadata graph reopens.
+    check("D3. the reflection_history -> missions mapping gap this phase "
+          "reported is REPAIRED (Phase 10.16): create_all no longer raises "
+          "NoReferencedTableError, and no failure names missions",
+          "NoReferencedTableError" not in out
+          and "could not find table" not in out,
           out.split("CREATE_ALL_ERROR")[-1].strip()[:150])
-    deferred("D4. init_db() on a fresh database",
-             "PRE-EXISTING and out of scope: Base.metadata.create_all raises on "
-             "reflection_history -> missions, a mapping gap older than this "
-             "phase. No model declares 'missions'; the module deleted here "
-             "defined only the three iam_ tables, so it cannot be the cause. "
-             "Reported rather than repaired, because repairing it means "
-             "mapping or removing a V1 table this brief does not authorise")
+    check("D4. and the repair did not resurrect IAM — create_all still has no "
+          "iam_ table to create, which is what THIS phase is about",
+          "IAM_IN_METADATA []" in out and "IAM_AFTER []" in out,
+          out.strip()[:160])
 
 
 def run_iam_tables() -> None:

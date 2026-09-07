@@ -8,6 +8,7 @@ from backend.database.models.cost_intelligence import (
 from backend.database.models.embedding_cache import EmbeddingCacheRecord
 from backend.database.models.episodic_memory import EpisodicMemoryRecord
 from backend.database.models.fleet import FleetAgentModel, FleetDeploymentModel, FleetMetricsSnapshotModel, FleetModel
+from backend.database.models.mission import MissionRecord
 from backend.database.models.reflection_history import ReflectionHistoryRecord
 from backend.database.models.runtime_analytics import RuntimeAnalyticsRecord
 from backend.database.models.semantic_memory import SemanticMemoryRecord
@@ -16,6 +17,7 @@ from backend.database.models.workflow import WorkflowEdgeModel, WorkflowModel, W
 __all__ = [
     "EpisodicMemoryRecord",
     "SemanticMemoryRecord",
+    "MissionRecord",
     "ReflectionHistoryRecord",
     "RuntimeAnalyticsRecord",
     "EmbeddingCacheRecord",

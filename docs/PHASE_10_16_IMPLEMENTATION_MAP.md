@@ -1,12 +1,20 @@
 # Phase 10.16 — Restore the missing `missions` ORM mapping
 ## Implementation Map
 
-**Written before any code, as this phase family requires. No code was
-subsequently written: the phase STOPPED at implementation rule 5.**
+**Written before any code, as this phase family requires.**
 
-- **Parent:** `df4f046` — Phase 10.15 discovery (STATUS=GO)
-- **Status:** **STOPPED** at rule 5 / stop condition 1
-- **Production code changed:** none
+**First attempt: STOPPED at implementation rule 5** — migration `0001` and
+`infra/postgres/init.sql` defined different `missions` tables and `init.sql` was
+still mounted, so no model could be correct for both (ADR-108). Sections 3-5
+below record that stop and remain as written.
+
+**Resumed after Phase 10.18** (`1e0f29a`, ADR-110) removed the competing
+authority: `init.sql` is unmounted, Alembic owns the application schema, and a
+Compose-bootstrapped database now produces the `0001` shape. The model in §6 was
+then implemented as specified, with the one correction noted there.
+
+- **Parents:** `df4f046` (10.15 discovery) → `183a34c` (10.17) → `1e0f29a` (10.18)
+- **Status:** §6 **implemented**; see `docs/PHASE_10_16_VERIFICATION_REPORT.md`
 - **Migrations added:** none
 - **Schema changed:** no
 
@@ -99,14 +107,18 @@ Rule 5 is unambiguous:
 > *If migration 0001 and init.sql disagree: STOP. Do not choose one silently.
 > Report the discrepancy.*
 
-and stop condition 1 repeats it. **The phase stops here.** No model file was
-created.
+and stop condition 1 repeats it. **The first attempt stopped here.** No model
+file was created then. Phase 10.18 removed the disagreement by unmounting
+`init.sql`, after which `0001` is the only authority and §6 became
+unambiguous.
 
 ## 6. The model that is ready to be written, once the discrepancy is decided
 
 Recorded so the decision phase inherits it rather than re-deriving it. This
 reproduces migration `0001`, which is what every *migratable* database actually
-contains (verification report §3). It is **not** written to disk.
+contains. **It is now written to disk** as
+`backend/database/models/mission.py`, with the correction noted at the end of
+this section.
 
 ```python
 class MissionRecord(Base):
@@ -115,7 +127,8 @@ class MissionRecord(Base):
     __tablename__ = "missions"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        sa.Uuid(), primary_key=True, server_default=sa.text("gen_random_uuid()"))
+        sa.UUID(as_uuid=True), primary_key=True,
+        server_default=sa.text("gen_random_uuid()"))
     title: Mapped[str] = mapped_column(Text, nullable=False)
     objective: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(
@@ -151,7 +164,19 @@ Two deliberate choices worth recording:
   forbids reinterpreting fields, and a mixin is a reinterpretation.
 - **`metadata` is mapped as the attribute `meta`**, exactly as
   `reflection_history` does, because `metadata` is reserved on a declarative
-  class.
+  class. Proven, not assumed: declaring the attribute raises
+  `InvalidRequestError: Attribute name 'metadata' is reserved when using the
+  Declarative API`, while `mapped_column("metadata", ...)` yields a column
+  genuinely named `metadata`.
+
+**Corrected during Phase 10.16 implementation.** This section originally wrote
+the primary key as `sa.Uuid()`. Migration `0001` uses `sa.UUID(as_uuid=True)`,
+and this model must represent `0001` exactly, so the shipped model uses the
+latter. Both render as `UUID` on PostgreSQL — the correction is about
+fidelity to the source of truth, not about behaviour. The shipped class also
+carries a note about the unrelated `MissionRecord` dataclass in
+`backend/services/enterprise_executive_runtime.py:90`, which shares the name
+and nothing else.
 
 ## 7. What was verified before the stop
 
