@@ -65,7 +65,6 @@ const navSections: NavSection[] = [
         items: [
             { href: "/settings/autonomy",  label: "Autonomy Settings", icon: Settings },
             { href: "/settings/retention", label: "Data Retention",    icon: Database },
-            { href: "/settings/tenants",   label: "Tenants",           icon: Building2 },
         ],
     },
 ]

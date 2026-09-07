@@ -54,6 +54,19 @@ class TenantUserResponse(BaseModel):
     created_at: str
 
 
+#: Phase 10.13. **Nothing here reads a tenant any more.** The three GET routes
+#: that projected durable rows into the legacy shape were deleted after Phase
+#: 10.12 proved they had no consumer anywhere -- not in the backend, and not in
+#: the compiled browser bundle -- and that their shape actively misled: three
+#: fields had no authoritative source, four real provenance columns were
+#: dropped, ``permissions`` was empty by construction, and ``user_id`` had
+#: silently become a membership id while keeping its name.
+#:
+#: What remains is four refusals, deliberately. Each names where the governed
+#: operation moved, so an operator following an old runbook gets an explanation
+#: rather than a 404. The response models stay because these four still declare
+#: them.
+#:
 #: Phase 10.10. Tenant records are authoritative in ``cp_tenant``, and tenant
 #: administration is deliberately OUT-OF-BAND: the authority grammar is
 #: capability+environment scoped, a tenant is neither, and inventing a
@@ -76,59 +89,6 @@ MEMBERSHIP_IS_GOVERNED = (
     "POST /api/v1/tenants/members. This route wrote a file no governed path "
     "reads, so it returned 201 and granted nothing"
 )
-
-
-def _durable():
-    """The authoritative tenant and membership stores, or ``None``.
-
-    Phase 10.11. These routes used to read ``tenants.json`` and
-    ``tenant_users.json``. Those files stopped being authoritative in Phases
-    10.9 and 10.10, so reading them here meant this API could describe a tenant
-    or a member that no governed path would recognise.
-    """
-    from backend.api.product.app import current_engine
-
-    engine = current_engine()
-    return (getattr(engine, "tenants", None),
-            getattr(engine, "memberships", None))
-
-
-def _record_to_response(t) -> TenantResponse:
-    """A durable ``cp_tenant`` row, in the shape this V1 contract promises.
-
-    ``domain``, ``plan`` and ``settings`` are absent from the durable record on
-    purpose (Phase 10.10, Part C: no unnecessary metadata), so they are
-    reported as empty rather than invented.
-    """
-    return TenantResponse(
-        tenant_id=t.tenant_id,
-        name=t.name,
-        slug=t.slug,
-        domain=None,
-        plan="",
-        is_active=t.is_active,
-        settings={},
-        created_at=t.created_at.isoformat() if t.created_at else "",
-    )
-
-
-def _membership_to_response(m) -> TenantUserResponse:
-    """A durable ``cp_tenant_membership`` row, in the V1 shape.
-
-    ``permissions`` is empty by construction: authority lives in
-    ``cp_authority_grant`` and is deliberately not projected here, because a
-    permission list beside a member is exactly the thing Phase 10.5 spent a
-    phase separating from membership.
-    """
-    return TenantUserResponse(
-        user_id=m.membership_id,
-        tenant_id=m.tenant_id,
-        email=m.subject_principal_id,
-        role=m.role,
-        is_active=m.is_active,
-        permissions=[],
-        created_at=m.created_at.isoformat() if m.created_at else "",
-    )
 
 
 def _same_tenant_or_refuse(current_user: dict, tenant_id: str) -> None:
@@ -201,45 +161,6 @@ async def create_tenant(
     )
 
 
-@router.get("", response_model=List[TenantResponse])
-async def list_tenants(
-    current_user: dict = Depends(require_admin),
-):
-    """The caller's OWN tenant. **Phase 10.10 closed a disclosure here.**
-
-    This route returned every tenant in the system -- id, slug, domain, plan
-    and state -- to any token carrying ``role == "admin"``. That is the map an
-    attacker uses to pick the next target, and Phase 10.9's path-tenant guard
-    could not reach it because there is no tenant in the path to compare.
-    """
-    claimed = current_user.get("tenant_id")
-    if not claimed:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tenant association in token",
-        )
-    tenants, _ = _durable()
-    own = tenants.get(tenant_id=claimed) if tenants is not None else None
-    return [_record_to_response(own)] if own else []
-
-
-@router.get("/{tenant_id}", response_model=TenantResponse)
-async def get_tenant(
-    tenant_id: str,
-    current_user: dict = Depends(require_admin),
-):
-    """Get tenant details (admin only)."""
-    _same_tenant_or_refuse(current_user, tenant_id)
-    tenants, _ = _durable()
-    tenant = tenants.get(tenant_id=tenant_id) if tenants is not None else None
-    if not tenant:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tenant not found",
-        )
-    return _record_to_response(tenant)
-
-
 @router.post("/{tenant_id}/users", response_model=TenantUserResponse, status_code=status.HTTP_201_CREATED)
 async def add_user_to_tenant(
     tenant_id: str,
@@ -259,24 +180,6 @@ async def add_user_to_tenant(
         status_code=status.HTTP_403_FORBIDDEN,
         detail=MEMBERSHIP_IS_GOVERNED,
     )
-
-
-@router.get("/{tenant_id}/users", response_model=List[TenantUserResponse])
-async def list_tenant_users(
-    tenant_id: str,
-    current_user: dict = Depends(require_admin),
-):
-    """List users in a tenant (admin only)."""
-    _same_tenant_or_refuse(current_user, tenant_id)
-    tenants, memberships = _durable()
-    tenant = tenants.get(tenant_id=tenant_id) if tenants is not None else None
-    if not tenant or memberships is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tenant not found",
-        )
-    return [_membership_to_response(m)
-            for m in memberships.list_for_tenant(tenant_id=tenant_id)]
 
 
 @router.patch("/{tenant_id}/users/{user_id}", response_model=TenantUserResponse)

@@ -630,7 +630,8 @@ def run_tenant_isolation(client) -> None:
 
     # The V1 route this phase repaired.
     check("I5. the V1 tenant routes now refuse a foreign tenant in the PATH — "
-          "the hole that let an admin of one tenant deactivate another",
+          "the hole that let an admin of one tenant deactivate another "
+          "(the read it also covered was retired in Phase 10.13)",
           _v1_cross_tenant_refused(), "backend/api/tenant_routes.py")
 
 
@@ -647,14 +648,19 @@ def _v1_cross_tenant_refused() -> bool:
                                 tenant_id=TENANTS[TENANT_A], user_role="admin")
     headers = {"Authorization": f"Bearer {token}"}
     base = f"/api/tenants/{TENANTS[TENANT_B]}"
-    codes = [
+    # Phase 10.13 deleted the V1 tenant READ routes, so the member listing is
+    # gone. The path still exists for POST, which is why FastAPI answers 405
+    # rather than 404 -- and 405 for a retired route is a stronger outcome than
+    # the 404 this check used to require: the surface is not there at all.
+    writes = [
         c.post(f"{base}/users", json={"email": "x@y.test", "role": "owner"},
                headers=headers).status_code,
-        c.get(f"{base}/users", headers=headers).status_code,
         c.post(f"{base}/deactivate", headers=headers).status_code,
     ]
-    print(f"    [note] V1 cross-tenant attempts returned {codes}")
-    return all(code == 404 for code in codes)
+    retired_read = c.get(f"{base}/users", headers=headers).status_code
+    print(f"    [note] V1 cross-tenant writes returned {writes}; the retired "
+          f"read returned {retired_read}")
+    return all(code == 404 for code in writes) and retired_read in (404, 405)
 
 
 def run_audit(client, runtime) -> None:

@@ -14,11 +14,14 @@ refused all four, for two different reasons that are worth keeping straight:
   it wrote ``tenant_users.json``, which stopped being authoritative in Phase
   10.9, so an operator received 201 and the person got nothing at all.
 
-The reads were repointed at the durable stores rather than removed, because a
-V1 client asking "who is in my tenant" deserves the real answer.
+Phase 10.11 repointed the reads at the durable stores rather than removing
+them. **Phase 10.13 removed them**, after Phase 10.12 proved they had no
+consumer anywhere — including in the compiled browser bundle — and that their
+shape misled: `user_id` had silently become a membership id while keeping its
+name.
 
-So the tests for the removed behaviour are gone, and what remains guards the
-refusals, the scoping, and that the reads no longer touch a file.
+So what remains guards the refusals, the cross-tenant scoping on every route
+that still names a tenant, and that the three reads are gone.
 """
 
 from __future__ import annotations
@@ -94,15 +97,18 @@ class TestCrossTenantStaysRefused:
     """
 
     @pytest.mark.parametrize("call", [
-        lambda c: c.get("/api/tenants/tenant-other"),
         lambda c: c.post("/api/tenants/tenant-other/users",
                          json={"email": "x@y.test", "role": "member"}),
-        lambda c: c.get("/api/tenants/tenant-other/users"),
         lambda c: c.patch("/api/tenants/tenant-other/users/u",
                           json={"role": "owner"}),
         lambda c: c.post("/api/tenants/tenant-other/deactivate"),
     ])
     def test_a_foreign_tenant_is_not_found(self, client, call):
+        """The guard covers every surviving route that names a tenant.
+
+        Phase 10.13 deleted the two reads this list used to include, so they
+        are asserted as retired below rather than as scoped.
+        """
         assert call(client).status_code == 404
 
 
@@ -130,12 +136,18 @@ class TestReadsUseTheDurableStore:
         assert "get_tenant_manager" not in imported
         assert "TenantManager" not in imported
 
-    def test_listing_without_a_composed_engine_is_empty_not_a_crash(self, client):
-        """No engine means no authoritative store, so there is nothing to say.
+    @pytest.mark.parametrize("path", [
+        "/api/tenants",
+        "/api/tenants/tenant-aaa",
+        "/api/tenants/tenant-aaa/users",
+    ])
+    def test_the_read_routes_were_retired(self, client, path):
+        """Phase 10.13 deleted all three, after Phase 10.12 proved they had no
+        consumer anywhere -- including in the compiled browser bundle.
 
-        Empty rather than a 500, and empty rather than falling back to a file:
-        a missing store is not permission to consult one nobody governs.
+        405 where a surviving POST shares the path, 404 where nothing does.
+        Either way the method is gone and no tenant data comes back.
         """
-        r = client.get("/api/tenants")
-        assert r.status_code == 200
-        assert r.json() == []
+        r = client.get(path)
+        assert r.status_code in (404, 405)
+        assert "tenant_id" not in r.text

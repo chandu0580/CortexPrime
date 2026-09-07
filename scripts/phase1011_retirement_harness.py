@@ -563,16 +563,17 @@ def run_v1_routes(client) -> None:
           MEMBER_REPO.find(tenant_id=TENANTS[TENANT_A],
                            subject_principal_id=PLAIN).role == "member")
 
+    # Phase 10.13 deleted the three V1 tenant READ routes. These two checks
+    # used to assert that the listings read the durable store; there is nothing
+    # left to read, so they now assert the routes are gone. 405 where a POST
+    # still shares the path, 404 where nothing does.
     r = c.get(f"/api/tenants/{TENANTS[TENANT_A]}/users", headers=h)
-    subjects = {u["email"] for u in r.json()} if r.status_code == 200 else set()
-    check("I3. the member listing now reads the DURABLE store",
-          r.status_code == 200 and PLAIN in subjects,
-          f"HTTP {r.status_code} {sorted(subjects)[:3]}")
+    check("I3. the V1 member listing was RETIRED in Phase 10.13",
+          r.status_code in (404, 405), f"HTTP {r.status_code}")
 
     r = c.get("/api/tenants", headers=h)
-    check("I4. the tenant listing reads the durable store, own tenant only",
-          r.status_code == 200 and len(r.json()) <= 1,
-          f"HTTP {r.status_code} {r.json() if r.status_code == 200 else ''}")
+    check("I4. the V1 tenant listing was RETIRED in Phase 10.13",
+          r.status_code in (404, 405), f"HTTP {r.status_code}")
 
 
 def run_concurrency() -> None:

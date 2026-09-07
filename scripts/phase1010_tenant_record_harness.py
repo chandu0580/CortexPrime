@@ -611,9 +611,14 @@ def run_v1_routes() -> None:
 
     r = c.get("/api/tenants", headers=headers)
     slugs = [t["slug"] for t in r.json()] if r.status_code == 200 else []
-    check("I1. GET /api/tenants no longer discloses every tenant in the system "
-          "— it returned the full list before this phase",
-          r.status_code == 200 and len(slugs) <= 1,
+    # Phase 10.10 narrowed this route from "every tenant in the system" to the
+    # caller's own. Phase 10.13 deleted it outright, which satisfies the same
+    # intent more strongly -- there is no listing left to disclose anything.
+    check("I1. GET /api/tenants discloses nothing — it returned every tenant "
+          "in the system before Phase 10.10 narrowed it, and Phase 10.13 "
+          "retired it altogether",
+          (r.status_code in (404, 405) and not slugs)
+          or (r.status_code == 200 and len(slugs) <= 1),
           f"HTTP {r.status_code} slugs={slugs}")
 
     r = c.post("/api/tenants", headers=headers,
