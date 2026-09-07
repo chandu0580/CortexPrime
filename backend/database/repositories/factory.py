@@ -20,7 +20,6 @@ from backend.database.repositories.governance import (
     ComplianceRuleRepository,
     PolicyRepository,
 )
-from backend.database.repositories.iam import ApiKeyRepository, RoleRepository, UserRepository
 from backend.database.repositories.knowledge import (
     KnowledgeEntryRepository,
     KnowledgeRelationshipRepository,
@@ -38,15 +37,6 @@ class RepositoryFactory:
         if self._session is None:
             return AsyncSessionLocal()
         return self._session
-
-    async def user_repo(self) -> UserRepository:
-        return UserRepository(await self._get_session())
-
-    async def role_repo(self) -> RoleRepository:
-        return RoleRepository(await self._get_session())
-
-    async def api_key_repo(self) -> ApiKeyRepository:
-        return ApiKeyRepository(await self._get_session())
 
     async def mission_repo(self) -> MissionRepository:
         return MissionRepository(await self._get_session())

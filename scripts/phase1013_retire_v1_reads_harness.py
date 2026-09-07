@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import pathlib
 import statistics
 import subprocess
 import sys
@@ -197,7 +198,14 @@ def main() -> None:
           str(sorted(p for m, p in paths)))
     check("A3. NO new table — a deletion phase adds nothing",
           len(DURABLE_TABLES) == 25, f"{len(DURABLE_TABLES)}")
-    check("A4. NO new migration", _migration_count() == 22, _migration_head())
+    # Re-pointed by Phase 10.14. The original form asserted the lineage was
+    # exactly 22 files, which was true when this phase shipped and became
+    # false the moment a LATER phase legitimately added one. The claim it
+    # was making is about THIS phase's delivery -- 10.13 added no migration
+    # -- so it now asserts that, and stays true as the lineage grows.
+    check("A4. NO new migration was added BY THIS PHASE — 0022_tenant_record "
+          "was the head when it shipped and no revision here is its own",
+          _no_migration_from_this_phase(), _migration_head())
     check("A5. the response models STAY — the four refusals still declare "
           "them, so they are not 'solely for the reads'", _models_present())
 
@@ -230,6 +238,13 @@ def main() -> None:
 
 def _migration_count():
     return len(list(Path("backend/database/migrations/versions").glob("0*.py")))
+
+
+def _no_migration_from_this_phase():
+    versions = pathlib.Path("backend/database/migrations/versions")
+    names = [q.name for q in versions.glob("0*.py")]
+    return ("0022_tenant_record.py" in names
+            and not any("1013" in n or "v1_read" in n for n in names))
 
 
 def _migration_head():
@@ -428,31 +443,56 @@ def run_isolation(product, v1) -> None:
 
 
 def run_iam(product) -> None:
-    section("H. the IAM module — kept, and why")
+    """Section H — re-pointed by Phase 10.14.
+
+    When this phase shipped, H1-H3 asserted that ``repositories/iam.py`` was
+    IMPORTED at V1 boot, that its three models were registered on
+    ``Base.metadata``, and that ``iam_api_keys`` held a foreign key to
+    ``iam_users``. All three were true, and together they were this phase's
+    stated REASON for declining to delete the module: a drop migration would
+    have been undone by ``create_all``.
+
+    Phase 10.14 was authorised to remove exactly that coupling and did. The
+    checks are not deleted -- deleting them would erase the evidence that the
+    condition was ever real -- they are INVERTED, so they now fail if the
+    subsystem ever comes back.
+    """
+    section("H. the IAM module — retired by Phase 10.14")
     import backend.identity.di  # noqa: F401  (what backend/main.py imports)
 
     imported = "backend.database.repositories.iam" in sys.modules
-    check("H1. repositories/iam.py is imported at V1 boot — the condition for "
-          "deleting it is NOT met, and Phase 10.12 missed this coupling",
-          imported, "backend/main.py -> identity.di -> authentication package "
-                    "__init__ -> providers -> repositories.iam")
+    check("H1. repositories/iam.py is NOT imported at V1 boot — the coupling "
+          "this phase named as its reason for declining is cut (Phase 10.14)",
+          not imported,
+          "was: main.py -> identity.di -> authentication package __init__ -> "
+          "providers -> repositories.iam")
 
     from backend.database.base import Base
     tables = sorted(t for t in Base.metadata.tables if t.startswith("iam_"))
-    check("H2. and its three models are registered on Base.metadata, which "
-          "init_db()'s create_all would create",
-          tables == ["iam_api_keys", "iam_roles", "iam_users"], str(tables))
-    check("H3. a THIRD table the brief did not name has a foreign key to "
-          "iam_users, so the two named ones cannot be dropped alone",
-          "iam_api_keys" in tables)
-    check("H4. nothing QUERIES them — the repositories are never called, which "
-          "is what Phase 10.12 established and remains true",
+    check("H2. and its three models are NOT registered on Base.metadata, so "
+          "init_db()'s create_all has nothing to recreate", tables == [],
+          str(tables))
+    check("H3. the module itself is gone, so the iam_api_keys -> iam_users "
+          "foreign key that blocked a partial drop no longer exists in any "
+          "model", not Path("backend/database/repositories/iam.py").exists())
+    check("H4. nothing QUERIES them — still true, and now vacuously so: the "
+          "three RepositoryFactory accessors are gone with the module",
           _no_repo_calls())
-    deferred("H5. dropping the IAM tables",
-             "not done: they are in the current HEAD migration lineage AND a "
-             "live boot path registers them, so a drop migration would be "
-             "recreated by create_all. Retiring them needs the authentication "
-             "subtree this brief preserves")
+    check("H5. the tables are dropped by a FORWARD migration, not by editing "
+          "history — 0007 still creates them and 0023 still drops them",
+          _lineage_keeps_0007_and_adds_0023())
+
+
+def _lineage_keeps_0007_and_adds_0023() -> bool:
+    versions = Path("backend/database/migrations/versions")
+    names = [q.name for q in versions.glob("0*.py")]
+    if not any(n.startswith("0007") for n in names):
+        return False
+    drop = [q for q in versions.glob("0023*.py")]
+    if not drop:
+        return False
+    text = drop[0].read_text(encoding="utf-8", errors="ignore")
+    return "iam_users" in text and "drop_table" in text
 
 
 def _no_repo_calls() -> bool:

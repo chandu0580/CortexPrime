@@ -93,7 +93,6 @@ GRANDFATHERED_REPOSITORIES: frozenset[str] = frozenset(
         "AgentConfigRepository",
         "AgentStateRepository",
         "AnalyticsRepository",
-        "ApiKeyRepository",
         "ApprovalRequestRepository",
         "BaseRepository",
         "ComplianceRuleRepository",
@@ -121,10 +120,8 @@ GRANDFATHERED_REPOSITORIES: frozenset[str] = frozenset(
         "PolicyRepository",
         "ProjectRepository",
         "ReflectionRepository",
-        "RoleRepository",
         "SemanticRepository",
         "UsageRecordRepository",
-        "UserRepository",
         # Repositories outside backend/database/
         "CostRepository",
         "FleetRepository",

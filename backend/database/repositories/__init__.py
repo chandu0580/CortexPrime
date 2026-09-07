@@ -17,7 +17,6 @@ from backend.database.repositories.governance import (
     ComplianceRuleRepository,
     PolicyRepository,
 )
-from backend.database.repositories.iam import ApiKeyRepository, RoleRepository, UserRepository
 from backend.database.repositories.knowledge import (
     KnowledgeEntryRepository,
     KnowledgeRelationshipRepository,
@@ -28,7 +27,6 @@ from backend.database.repositories.platform import FeatureFlagRepository, Platfo
 
 __all__ = [
     "BaseRepository",
-    "UserRepository", "RoleRepository", "ApiKeyRepository",
     "MissionRepository", "MissionStepRepository",
     "ExecutionRepository", "ExecutionEventRepository",
     "KnowledgeEntryRepository", "KnowledgeRelationshipRepository",

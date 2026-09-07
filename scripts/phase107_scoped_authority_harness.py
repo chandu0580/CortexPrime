@@ -535,7 +535,7 @@ def run_executor_scope(client, engine) -> None:
     check("D6. a correctly-scoped EXECUTOR runs it through the existing "
           "gateway, mutating exactly one deployment",
           r.status_code == 200 and writes == 1,
-          f"HTTP {r.status_code}, writes={writes}")
+          f"HTTP {r.status_code}, writes={writes} {r.text[:200]}")
     SEEDED["executed"] = approval_id
 
 
@@ -560,7 +560,7 @@ def run_three_identities(client, engine) -> None:
           "accidentally turned into requester != executor",
           r.status_code == 200
           and p103.cluster_writes(before, p103.generations()) == 1,
-          f"HTTP {r.status_code}")
+          f"HTTP {r.status_code} {r.text[:200]}")
 
     # The approver executing their own approval is likewise permitted.
     approval_id = approved(client, engine)
@@ -572,7 +572,7 @@ def run_three_identities(client, engine) -> None:
           "person, and inventing one would be inventing governance",
           r.status_code == 200
           and p103.cluster_writes(before, p103.generations()) == 1,
-          f"HTTP {r.status_code}")
+          f"HTTP {r.status_code} {r.text[:200]}")
 
     check("E5. and the separation rule is still exactly one rule",
           decision_separation(requested_by="human:a", actor="human:a").denied

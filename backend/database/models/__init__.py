@@ -46,7 +46,10 @@ def _ensure_bc_models() -> None:
     import backend.database.repositories.digital_twin  # noqa: F401
     import backend.database.repositories.executions  # noqa: F401
     import backend.database.repositories.governance  # noqa: F401
-    import backend.database.repositories.iam  # noqa: F401
+    # Phase 10.14: the IAM models were retired. Re-adding this
+    # import would put iam_users, iam_roles and iam_api_keys back
+    # on Base.metadata, and init_db()'s create_all would recreate
+    # the tables migration 0023 drops.
     import backend.database.repositories.knowledge  # noqa: F401
     import backend.database.repositories.learning  # noqa: F401
     import backend.database.repositories.missions  # noqa: F401
