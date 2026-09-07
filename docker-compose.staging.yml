@@ -182,7 +182,12 @@ services:
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - cortex-postgres-data:/var/lib/postgresql/data
-      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+      # init.sql is NOT mounted. Alembic owns the application schema (ADR-109).
+      # It used to run here on first volume init and create 8 tables -- 6 of them
+      # duplicates of migration 0001 in a DIFFERENT shape -- after which
+      # `alembic upgrade head` died on 0001 with DuplicateTableError and this
+      # stack could not start from a fresh volume. postgresql.conf below is a
+      # separate file and IS still required: `command:` names it as config_file.
       - ./infra/postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
     command: >
       postgres -c config_file=/etc/postgresql/postgresql.conf
