@@ -182,9 +182,10 @@ def _tenant_claims(user_id: str) -> dict:
     ---------------
     The governed Product API refuses any token with no tenant claim (403), and
     until now login minted tokens with none -- so no browser session could ever
-    reach it. This is the missing wire, not a new mechanism: ``TenantManager``
-    already maps a user to a tenant and a role, and ``create_access_token``
-    already accepts ``tenant_id`` / ``tenant_slug`` / ``user_role``.
+    reach it. This is the missing wire, not a new mechanism:
+    ``cp_tenant_membership`` maps a subject to a tenant and a role, and
+    ``create_access_token`` already accepts ``tenant_id`` / ``tenant_slug`` /
+    ``user_role``. Phase 10.11 moved this read off ``tenant_users.json``.
 
     Fail-closed by construction
     ---------------------------
@@ -195,14 +196,29 @@ def _tenant_claims(user_id: str) -> dict:
     reaches this function, so a client can neither choose nor suggest a tenant.
     """
     try:
-        from backend.auth.tenant import get_tenant_manager
+        # Phase 10.11. The claim now comes from the SAME stores that will judge
+        # it. Until this phase login read ``tenant_users.json``, so a token
+        # could be minted carrying a tenant claim the governed stores had never
+        # heard of -- and every governed path would then refuse it. Reading the
+        # durable stores here means a session that authenticates is a session
+        # that can actually do something.
+        from backend.api.product.app import current_engine
+        from backend.auth.tenants import resolve_tenant
 
-        tm = get_tenant_manager()
-        member = tm.get_user_by_email(user_id)
-        if member is None or not getattr(member, "is_active", False):
+        engine = current_engine()
+        memberships = getattr(engine, "memberships", None)
+        tenants = getattr(engine, "tenants", None)
+        if memberships is None or tenants is None:
+            # No composed engine means no authoritative store to ask, and a
+            # guess here would be a tenant claim nobody granted.
             return {}
-        tenant = tm.get_tenant(member.tenant_id)
-        if tenant is None or not tenant.is_active:
+
+        member = memberships.find_any(subject_principal_id=user_id)
+        if member is None or not member.is_active:
+            return {}
+        tenant, _reason = resolve_tenant(tenant_id=member.tenant_id,
+                                         tenants=tenants)
+        if tenant is None:
             return {}
         return {
             "tenant_id": tenant.tenant_id,

@@ -1,209 +1,171 @@
+"""The legacy tenant JSON importer — Phase 10.11 (ADR-104).
+
+What changed
+------------
+This module used to test ``TenantManager`` as a *store*: creating tenants,
+adding users, updating roles, deactivating. Phase 10.11 deleted every one of
+those methods, because they were the only code in the repository that wrote
+``tenants.json`` or ``tenant_users.json`` and, after Phases 10.9 and 10.10, a
+write there changed nothing any governed path reads.
+
+So the tests for them are gone too. That is not a correct test being bent to
+pass — it is a test of a mechanism that no longer exists.
+
+What remains here guards the retirement itself:
+
+* the dataclasses, which the importer still yields;
+* the read path, which the two migrations depend on;
+* **that the mutators stay gone** — a regression guard, because reintroducing
+  one would silently re-add a file store to a frozen inventory that may only
+  shrink;
+* that a missing directory is an empty import rather than a crash, which is
+  what a fresh installation looks like.
+"""
+
 from __future__ import annotations
 
+import ast
+import inspect
 import json
-import os
-import sys
-import tempfile
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+import pathlib
 
 import pytest
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from backend.auth.tenant import Tenant, TenantManager, TenantUser
 
 
 @pytest.fixture
-def temp_storage():
-    with tempfile.TemporaryDirectory() as tmp:
-        yield str(tmp)
+def legacy_store(tmp_path):
+    """A legacy JSON store, written directly.
+
+    Written by the test rather than through the class, because the class can no
+    longer write anything — which is the point of this phase.
+    """
+    tenants = [
+        {"tenant_id": "tenant-aaa", "name": "Alpha", "slug": "alpha",
+         "domain": None, "plan": "free", "is_active": True, "settings": {},
+         "created_at": "2026-01-01T00:00:00+00:00"},
+        {"tenant_id": "tenant-bbb", "name": "Beta", "slug": "beta",
+         "domain": None, "plan": "free", "is_active": False, "settings": {},
+         "created_at": "2026-01-01T00:00:00+00:00"},
+    ]
+    users = {
+        "tenant-aaa": [
+            {"user_id": "user-1", "tenant_id": "tenant-aaa",
+             "email": "a@example.test", "role": "owner", "is_active": True,
+             "permissions": [], "created_at": "2026-01-01T00:00:00+00:00"},
+        ],
+    }
+    (tmp_path / "tenants.json").write_text(json.dumps(tenants), encoding="utf-8")
+    (tmp_path / "tenant_users.json").write_text(json.dumps(users), encoding="utf-8")
+    return TenantManager(storage_path=str(tmp_path))
 
 
-@pytest.fixture
-def manager(temp_storage):
-    return TenantManager(storage_path=temp_storage)
+class TestDataclasses:
+    def test_tenant_defaults(self):
+        tenant = Tenant(tenant_id="t", name="N", slug="s")
+        assert tenant.is_active is True
+        assert tenant.plan == "free"
+
+    def test_tenant_user_defaults(self):
+        user = TenantUser(user_id="u", tenant_id="t", email="e@x.test")
+        assert user.role == "member"
+        assert user.is_active is True
+        assert user.permissions == []
 
 
-class TestTenantDataclass:
-    def test_create_tenant_dataclass(self):
-        t = Tenant(tenant_id="t1", name="Acme", slug="acme")
-        assert t.tenant_id == "t1"
-        assert t.name == "Acme"
-        assert t.slug == "acme"
-        assert t.domain is None
-        assert t.plan == "free"
-        assert t.is_active is True
-        assert t.settings == {}
-        assert isinstance(t.created_at, str)
+class TestReadPath:
+    """The migrations read through these. Nothing else does."""
 
-    def test_tenant_with_all_fields(self):
-        t = Tenant(
-            tenant_id="t2", name="Corp", slug="corp",
-            domain="corp.com", plan="enterprise",
-            is_active=False, settings={"theme": "dark"},
-        )
-        assert t.domain == "corp.com"
-        assert t.plan == "enterprise"
-        assert t.is_active is False
-        assert t.settings == {"theme": "dark"}
+    def test_reads_tenants(self, legacy_store):
+        assert {t.slug for t in legacy_store.list_tenants()} == {"alpha", "beta"}
 
+    def test_reads_one_tenant(self, legacy_store):
+        assert legacy_store.get_tenant("tenant-aaa").name == "Alpha"
 
-class TestTenantUserDataclass:
-    def test_create_tenant_user_dataclass(self):
-        u = TenantUser(user_id="u1", tenant_id="t1", email="a@b.com")
-        assert u.user_id == "u1"
-        assert u.tenant_id == "t1"
-        assert u.email == "a@b.com"
-        assert u.role == "member"
-        assert u.is_active is True
-        assert u.permissions == []
-        assert isinstance(u.created_at, str)
+    def test_unknown_tenant_is_none(self, legacy_store):
+        assert legacy_store.get_tenant("tenant-nope") is None
 
-    def test_tenant_user_with_all_fields(self):
-        u = TenantUser(
-            user_id="u2", tenant_id="t2", email="b@b.com",
-            role="admin", is_active=False, permissions=["read"],
-        )
-        assert u.role == "admin"
-        assert u.is_active is False
-        assert u.permissions == ["read"]
+    def test_reads_by_slug(self, legacy_store):
+        assert legacy_store.get_tenant_by_slug("beta").tenant_id == "tenant-bbb"
+
+    def test_preserves_inactive_state(self, legacy_store):
+        """The migration must import inactive tenants AS inactive."""
+        assert legacy_store.get_tenant("tenant-bbb").is_active is False
+
+    def test_reads_users(self, legacy_store):
+        users = legacy_store.get_users("tenant-aaa")
+        assert [u.email for u in users] == ["a@example.test"]
+
+    def test_reads_user_by_email(self, legacy_store):
+        assert legacy_store.get_user_by_email("a@example.test").role == "owner"
+
+    def test_unknown_email_is_none(self, legacy_store):
+        assert legacy_store.get_user_by_email("nobody@example.test") is None
+
+    def test_absent_directory_is_an_empty_import(self, tmp_path):
+        """A fresh installation has no legacy data. That is not an error."""
+        empty = TenantManager(storage_path=str(tmp_path / "does-not-exist"))
+        assert empty.list_tenants() == []
+        assert empty.get_tenant("anything") is None
 
 
-class TestTenantManager:
-    def test_create_tenant(self, manager):
-        t = manager.create_tenant(name="Test", slug="test")
-        assert t.name == "Test"
-        assert t.slug == "test"
-        assert t.tenant_id.startswith("tenant-")
-        assert t.is_active is True
-        assert t.plan == "free"
+class TestTheMutatorsStayGone:
+    """A regression guard, not a formality.
 
-    def test_get_tenant(self, manager):
-        created = manager.create_tenant(name="Foo", slug="foo")
-        fetched = manager.get_tenant(created.tenant_id)
-        assert fetched is not None
-        assert fetched.name == "Foo"
+    Reintroducing any of these would put a write back into a module named in
+    ``GRANDFATHERED_STORES`` -- an inventory that may only shrink -- and would
+    silently re-create the trap Phase 10.11 removed: a write that returns
+    success and changes nothing a governed path reads.
+    """
 
-    def test_get_tenant_nonexistent(self, manager):
-        assert manager.get_tenant("nonexistent") is None
+    RETIRED = ("create_tenant", "add_user", "update_user_role",
+               "deactivate_tenant", "grant_permission", "revoke_permission",
+               "_save")
 
-    def test_get_tenant_by_slug(self, manager):
-        manager.create_tenant(name="Bar", slug="bar")
-        fetched = manager.get_tenant_by_slug("bar")
-        assert fetched is not None
-        assert fetched.name == "Bar"
+    @pytest.mark.parametrize("name", RETIRED)
+    def test_mutator_is_absent(self, name):
+        assert not hasattr(TenantManager, name), (
+            f"{name} was retired in Phase 10.11; re-adding it re-adds a file "
+            "store to a frozen inventory")
 
-    def test_get_tenant_by_slug_nonexistent(self, manager):
-        assert manager.get_tenant_by_slug("nope") is None
+    def test_no_file_write_call_survives(self):
+        """AST, not a substring search.
 
-    def test_list_tenants(self, manager):
-        manager.create_tenant(name="A", slug="a")
-        manager.create_tenant(name="B", slug="b")
-        assert len(manager.list_tenants()) == 2
+        The docstrings in this module legitimately *name* the removed methods,
+        so a text search would match its own explanation -- the exact false
+        positive this codebase has hit repeatedly.
+        """
+        source = inspect.getsource(
+            __import__("backend.auth.tenant", fromlist=["tenant"]))
+        tree = ast.parse(source)
+        writes = [
+            node.func.attr for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in ("write_text", "write", "dump", "mkdir")
+        ]
+        assert writes == [], f"a write path survived: {writes}"
 
-    def test_list_tenants_empty(self, manager):
-        assert manager.list_tenants() == []
 
-    def test_add_user(self, manager):
-        t = manager.create_tenant(name="T", slug="t")
-        u = manager.add_user(t.tenant_id, "user@test.com", role="admin")
-        assert u is not None
-        assert u.email == "user@test.com"
-        assert u.role == "admin"
-        assert u.tenant_id == t.tenant_id
-        assert u.user_id.startswith("user-")
+class TestNotAnAuthority:
+    def test_the_module_decides_nothing(self):
+        """It must not import an authority resolver or a durable store.
 
-    def test_add_user_nonexistent_tenant(self, manager):
-        u = manager.add_user("no-such-tenant", "test@test.com")
-        assert u is None
-
-    def test_get_users(self, manager):
-        t = manager.create_tenant(name="T", slug="t")
-        manager.add_user(t.tenant_id, "a@test.com")
-        manager.add_user(t.tenant_id, "b@test.com")
-        users = manager.get_users(t.tenant_id)
-        assert len(users) == 2
-
-    def test_get_users_empty(self, manager):
-        assert manager.get_users("nonexistent") == []
-
-    def test_get_user_by_email(self, manager):
-        t = manager.create_tenant(name="T", slug="t")
-        manager.add_user(t.tenant_id, "find@test.com")
-        u = manager.get_user_by_email("find@test.com")
-        assert u is not None
-        assert u.email == "find@test.com"
-
-    def test_get_user_by_email_nonexistent(self, manager):
-        assert manager.get_user_by_email("nobody@test.com") is None
-
-    def test_update_user_role(self, manager):
-        t = manager.create_tenant(name="T", slug="t")
-        u = manager.add_user(t.tenant_id, "u@test.com", role="member")
-        result = manager.update_user_role(t.tenant_id, u.user_id, "admin")
-        assert result is True
-        updated = manager.get_user_by_email("u@test.com")
-        assert updated is not None
-        assert updated.role == "admin"
-
-    def test_update_user_role_nonexistent_user(self, manager):
-        t = manager.create_tenant(name="T", slug="t")
-        result = manager.update_user_role(t.tenant_id, "no-such-user", "admin")
-        assert result is False
-
-    def test_update_user_role_nonexistent_tenant(self, manager):
-        result = manager.update_user_role("no-tenant", "user1", "admin")
-        assert result is False
-
-    def test_deactivate_tenant(self, manager):
-        t = manager.create_tenant(name="T", slug="t")
-        result = manager.deactivate_tenant(t.tenant_id)
-        assert result is True
-        fetched = manager.get_tenant(t.tenant_id)
-        assert fetched is not None
-        assert fetched.is_active is False
-
-    def test_deactivate_nonexistent_tenant(self, manager):
-        result = manager.deactivate_tenant("no-such-tenant")
-        assert result is False
-
-    def test_save_load_round_trip(self, temp_storage):
-        m1 = TenantManager(storage_path=temp_storage)
-        t = m1.create_tenant(name="Persist", slug="persist")
-        m1.add_user(t.tenant_id, "p@test.com")
-
-        m2 = TenantManager(storage_path=temp_storage)
-        assert len(m2.list_tenants()) == 1
-        loaded = m2.get_tenant(t.tenant_id)
-        assert loaded is not None
-        assert loaded.name == "Persist"
-        users = m2.get_users(t.tenant_id)
-        assert len(users) == 1
-        assert users[0].email == "p@test.com"
-
-    def test_create_tenant_with_domain_and_plan(self, manager):
-        t = manager.create_tenant(name="Biz", slug="biz", domain="biz.com", plan="enterprise")
-        assert t.domain == "biz.com"
-        assert t.plan == "enterprise"
-
-    def test_add_user_default_role(self, manager):
-        t = manager.create_tenant(name="T", slug="t")
-        u = manager.add_user(t.tenant_id, "default@test.com")
-        assert u.role == "member"
-
-    def test_get_tenant_by_slug_multiple(self, manager):
-        manager.create_tenant(name="A", slug="same")
-        manager.create_tenant(name="B", slug="same")
-        fetched = manager.get_tenant_by_slug("same")
-        assert fetched is not None
-        assert fetched.name == "A"
-
-    def test_get_user_by_email_multiple_tenants(self, manager):
-        t1 = manager.create_tenant(name="T1", slug="t1")
-        t2 = manager.create_tenant(name="T2", slug="t2")
-        manager.add_user(t1.tenant_id, "shared@test.com")
-        manager.add_user(t2.tenant_id, "shared@test.com")
-        u = manager.get_user_by_email("shared@test.com")
-        assert u is not None
-        assert u.tenant_id == t1.tenant_id
+        An importer that started consulting authority would be a second place
+        answering questions Phases 10.8-10.10 gave exactly one home each.
+        """
+        source = inspect.getsource(
+            __import__("backend.auth.tenant", fromlist=["tenant"]))
+        tree = ast.parse(source)
+        imported = {
+            alias.name for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom) for alias in node.names
+        } | {
+            node.module or "" for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom)
+        }
+        forbidden = [name for name in imported
+                     if "approver" in name or "grants" in name
+                     or "sql_" in name or "durable" in name]
+        assert forbidden == [], f"the importer reached for authority: {forbidden}"

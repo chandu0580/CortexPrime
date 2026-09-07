@@ -58,6 +58,28 @@ STORE = TENANT_REPO = MEMBER_REPO = GRANT_REPO = None
 IDS: dict = {}
 
 
+
+def mutate_legacy_json(filename, mutate):
+    """Edit a legacy JSON file on disk and return a restore callable.
+
+    Phase 10.11 removed every writer from ``TenantManager``, so these proofs
+    can no longer go through it -- which is an improvement. Writing the file
+    directly is what an operator or an attacker with disk access would do, and
+    it depends on nothing this codebase still ships.
+    """
+    import json
+    from pathlib import Path
+
+    path = Path("data/tenants") / filename
+    if not path.exists():
+        return None, (lambda: None)
+    original = path.read_text(encoding="utf-8")
+    data = json.loads(original)
+    mutate(data)
+    path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+    return data, (lambda: path.write_text(original, encoding="utf-8"))
+
+
 def check(name, ok, detail=""):
     (PASSED if ok else FAILED).append(name)
     print(f"  [{'OK ' if ok else 'FAIL'}] {name}{' — ' + str(detail) if detail else ''}")
@@ -153,7 +175,6 @@ def _resolve_capability_reference() -> None:
 
 def register_people() -> None:
     global STORE, TENANT_REPO, MEMBER_REPO, GRANT_REPO
-    from backend.auth.tenant import get_tenant_manager
     from backend.contexts.connectivity.infrastructure.sql_authority_grant import (
         SqlAuthorityGrantRepository)
     from backend.contexts.connectivity.infrastructure.sql_membership import (
@@ -167,13 +188,11 @@ def register_people() -> None:
     MEMBER_REPO = SqlMembershipRepository(STORE)
     GRANT_REPO = SqlAuthorityGrantRepository(STORE)
 
-    tm = get_tenant_manager()
     for slug in (TENANT_A, TENANT_B, TENANT_DOOMED):
-        tenant = tm.get_tenant_by_slug(slug) or tm.create_tenant(
-            name=f"Phase 10.10 {slug}", slug=slug)
-        TENANTS[slug] = tenant.tenant_id
-        provisioning.ensure_tenant(STORE, tenant_id=tenant.tenant_id,
-                                   slug=slug, name=slug)
+        # Phase 10.11: the tenant id comes from the DURABLE store. The
+        # legacy JSON writer is gone, so nothing here touches a file.
+        TENANTS[slug] = provisioning.tenant_id_for(
+            STORE, slug=slug, name=slug)
 
     people = {
         ADMIN: (TENANT_A, [grant_string("issue", max_risk="high")]),
@@ -187,8 +206,6 @@ def register_people() -> None:
             grant_string("issue", max_risk="high")]),
     }
     for email, (slug, grants) in people.items():
-        if tm.get_user_by_email(email) is None:
-            tm.add_user(TENANTS[slug], email, role="member")
         IDS[email] = provisioning.ensure_membership(
             STORE, tenant_id=TENANTS[slug], principal_id=email)
         provisioning.provision(GRANT_REPO, STORE, tenant_id=TENANTS[slug],
@@ -321,12 +338,15 @@ def _one_tenant_authority() -> bool:
 
 def run_migration(client) -> None:
     section("B. migration from JSON — and JSON stops deciding")
-    from backend.auth.tenant import get_tenant_manager
     from backend.auth.tenants import migrate_json_tenants, resolve_tenant
-
-    tm = get_tenant_manager()
     members_before = MEMBER_REPO.count_all()
     grants_before = GRANT_REPO.count_all()
+    # Phase 10.11: the legacy importer is read-only now, and this
+    # is its one sanctioned use -- reading the JSON once so the
+    # durable store can own it.
+    from backend.auth.tenant import get_tenant_manager
+
+    tm = get_tenant_manager()
     result = migrate_json_tenants(repository=TENANT_REPO, manager=tm)
     check("B1. the JSON tenant file was imported deterministically",
           TENANT_REPO.count_all() > 0,
@@ -348,9 +368,12 @@ def run_migration(client) -> None:
           str({r.source for r in rows}))
 
     # The load-bearing one.
-    json_tenant = tm.get_tenant(TENANTS[TENANT_A])
-    json_tenant.is_active = False
-    tm._save()
+    def _switch_off(data):
+        for row in data:
+            if row.get("tenant_id") == TENANTS[TENANT_A]:
+                row["is_active"] = False
+
+    _, restore = mutate_legacy_json("tenants.json", _switch_off)
     record, reason = resolve_tenant(tenant_id=TENANTS[TENANT_A],
                                     tenants=TENANT_REPO)
     check("B5. the JSON file is NO LONGER authoritative — flipping is_active "
@@ -360,8 +383,7 @@ def run_migration(client) -> None:
     r = client.get("/api/v1/approvals", headers=auth(PLAIN))
     check("B6. and a product request still succeeds while the file says the "
           "tenant is off", r.status_code == 200, f"HTTP {r.status_code}")
-    json_tenant.is_active = True
-    tm._save()
+    restore()
 
 
 def run_tenant_is_not_authority(client) -> None:
@@ -852,17 +874,17 @@ def run_negative_matrix(client, engine) -> None:
         record_negative(name, layer, f"HTTP {code}", writes())
 
     # JSON mutation after migration.
-    from backend.auth.tenant import get_tenant_manager
-    tm = get_tenant_manager()
-    victim = tm.get_tenant(TENANTS[TENANT_A])
-    victim.is_active = False
-    tm._save()
+    def _switch_off_again(data):
+        for row in data:
+            if row.get("tenant_id") == TENANTS[TENANT_A]:
+                row["is_active"] = False
+
+    _, restore_json = mutate_legacy_json("tenants.json", _switch_off_again)
     r = client.get("/api/v1/approvals", headers=auth(PLAIN))
     record_negative("N33. JSON mutation after migration", "governance",
                     f"file says inactive; HTTP {r.status_code}",
                     0 if r.status_code == 200 else 1)
-    victim.is_active = True
-    tm._save()
+    restore_json()
 
     # Direct database mutation. Tenant state is INTENTIONALLY mutable, so this
     # is legitimate store behaviour, not tamper detection.

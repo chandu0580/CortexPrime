@@ -418,8 +418,6 @@ GRANDFATHERED_STORES: frozenset[str] = frozenset(
         "sandboxes.json",
         "service_graph.json",
         "tasks.json",
-        "tenant_users.json",
-        "tenants.json",
         "traces.json",
         "trigger_history.json",
         "trigger_policies.json",

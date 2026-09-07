@@ -90,6 +90,34 @@ def clear_membership(store, *, tenant_id: str, principal_id: str) -> int:
     return int(getattr(result, "rowcount", 0) or 0)
 
 
+
+def tenant_id_for(store, *, slug: str, name: str = "") -> str:
+    """The durable tenant id for a slug, provisioning the boundary if absent.
+
+    Phase 10.11. Harnesses used to reach for ``TenantManager.create_tenant`` to
+    mint a tenant id, which wrote ``tenants.json``. That write is gone -- the
+    class is a read-only importer now -- so the id comes from the durable store
+    that actually decides, and is generated here when the boundary is new.
+    """
+    import uuid
+
+    from backend.contexts.connectivity.infrastructure.sql_tenant import (
+        SqlTenantRepository)
+
+    repo = SqlTenantRepository(store)
+    existing = repo.get_by_slug(slug=slug)
+    if existing is not None:
+        if existing.status != "active":
+            repo.set_status(tenant_id=existing.tenant_id, status="active",
+                            updated_by="harness:provisioning")
+        return existing.tenant_id
+    record = repo.provision(
+        tenant_id=f"tenant-{uuid.uuid4().hex[:12]}", slug=slug,
+        name=name or slug, created_by="harness:provisioning",
+        source="migrated", status="active")
+    return record.tenant_id
+
+
 def ensure_tenant(store, *, tenant_id: str, slug: str, name: str = "",
                   status: str = "active") -> str:
     """Give one tenant a durable record.

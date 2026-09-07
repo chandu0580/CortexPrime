@@ -1,5 +1,36 @@
-"""
-Multi-tenant authentication and organization isolation.
+"""Read-only import of the legacy tenant JSON — Phase 10.11 (ADR-104).
+
+**This is no longer a store. It is an importer.**
+
+Phases 10.8, 10.9 and 10.10 moved authority, membership and the tenant boundary
+into PostgreSQL (``cp_authority_grant``, ``cp_tenant_membership``,
+``cp_tenant``). Those are authoritative; nothing here decides anything.
+
+What was removed, and why
+-------------------------
+Every mutator -- ``create_tenant``, ``add_user``, ``update_user_role``,
+``deactivate_tenant``, ``grant_permission``, ``revoke_permission`` -- and the
+``_save`` that backed them. They were the only code in the repository that
+**wrote** ``tenants.json`` or ``tenant_users.json``, and by Phase 10.11 every
+one of them was either unreachable or a silent no-op: a write that appeared to
+work and changed nothing the governed paths read.
+
+Removing them is what lets both filenames leave the frozen
+``GRANDFATHERED_STORES`` inventory, which may only shrink. The inventory
+shrinks because the writes are gone -- not because the list was edited.
+``FileStateRule`` flags a module that *writes* a state file; reading one is
+explicitly fine, which is why the loader below stays.
+
+What remains
+------------
+Reads, for exactly one purpose: ``migrate_json_tenants`` and
+``migrate_json_memberships`` import these files **once** into the durable
+stores. After that first import the files are inert, and the harness proves it
+by mutating them, then removing them, and showing no governed answer moves.
+
+If the files are absent the importer yields nothing, the migrations import
+nothing, and the durable stores stay as they are. That is correct behaviour,
+not a failure -- a fresh installation has no legacy data to import.
 """
 from __future__ import annotations
 
@@ -33,14 +64,21 @@ class TenantUser:
 
 
 class TenantManager:
-    """Manages tenants and tenant-user associations with file persistence."""
+    """Reads the legacy tenant JSON. **No mutator, and no ``_save``.**
+
+    Every method here is a read. There is deliberately no way to create,
+    modify or delete anything through this class: the durable stores own
+    that, and a write here would produce a row no governed path consults.
+    """
 
     def __init__(self, storage_path: str = "data/tenants"):
         from pathlib import Path
         self._tenants: Dict[str, Tenant] = {}
         self._tenant_users: Dict[str, List[TenantUser]] = {}
+        # A reader creates nothing. The directory may be absent -- on a
+        # fresh installation there is no legacy data to import, and
+        # ``_load`` treats that as the empty import it is.
         self._storage_path = Path(storage_path)
-        self._storage_path.mkdir(parents=True, exist_ok=True)
         self._load()
 
     def _load(self):
@@ -56,23 +94,6 @@ class TenantManager:
             for tenant_id, users in data.items():
                 self._tenant_users[tenant_id] = [TenantUser(**u) for u in users]
 
-    def _save(self):
-        import json
-        tenants_data = [vars(t) for t in self._tenants.values()]
-        (self._storage_path / "tenants.json").write_text(json.dumps(tenants_data, indent=2, default=str))
-        users_data = {tid: [vars(u) for u in users] for tid, users in self._tenant_users.items()}
-        (self._storage_path / "tenant_users.json").write_text(json.dumps(users_data, indent=2, default=str))
-
-    def create_tenant(self, name: str, slug: str, domain: Optional[str] = None, plan: str = "free") -> Tenant:
-        tenant = Tenant(
-            tenant_id=f"tenant-{uuid.uuid4().hex[:12]}",
-            name=name, slug=slug, domain=domain, plan=plan,
-        )
-        self._tenants[tenant.tenant_id] = tenant
-        self._tenant_users[tenant.tenant_id] = []
-        self._save()
-        return tenant
-
     def get_tenant(self, tenant_id: str) -> Optional[Tenant]:
         return self._tenants.get(tenant_id)
 
@@ -85,17 +106,6 @@ class TenantManager:
     def list_tenants(self) -> List[Tenant]:
         return list(self._tenants.values())
 
-    def add_user(self, tenant_id: str, email: str, role: str = "member") -> Optional[TenantUser]:
-        if tenant_id not in self._tenants:
-            return None
-        user = TenantUser(
-            user_id=f"user-{uuid.uuid4().hex[:12]}",
-            tenant_id=tenant_id, email=email, role=role,
-        )
-        self._tenant_users.setdefault(tenant_id, []).append(user)
-        self._save()
-        return user
-
     def get_users(self, tenant_id: str) -> List[TenantUser]:
         return self._tenant_users.get(tenant_id, [])
 
@@ -105,61 +115,6 @@ class TenantManager:
                 if u.email == email:
                     return u
         return None
-
-    def grant_permission(self, tenant_id: str, user_id: str, permission: str) -> bool:
-        """Grant one explicit permission to a tenant membership (Phase 10.5).
-
-        Tenant-scoped and durable: the membership is found within the named
-        tenant, never across tenants, and the grant is persisted immediately.
-        Idempotent -- granting twice leaves one grant, so a repeated
-        administrative action cannot produce a duplicate nobody can revoke.
-
-        This is deliberately separate from ``update_user_role``. Approver
-        authority is an ADDITIVE grant, not a role: ``role`` is a single field,
-        and making approval a role would force an owner who needs to approve to
-        stop being an owner.
-        """
-        if not permission or ":" not in permission:
-            raise ValueError(
-                "a permission must be a namespaced action:resource grant")
-        for u in self._tenant_users.get(tenant_id, []):
-            if u.user_id == user_id:
-                if permission not in u.permissions:
-                    u.permissions.append(permission)
-                    self._save()
-                return True
-        return False
-
-    def revoke_permission(self, tenant_id: str, user_id: str, permission: str) -> bool:
-        """Withdraw one explicit permission. Persisted immediately.
-
-        Revocation is the half that matters. It is written through before this
-        returns, so the next authority resolution -- which reads the store, not
-        a token claim -- sees the grant gone.
-        """
-        for u in self._tenant_users.get(tenant_id, []):
-            if u.user_id == user_id:
-                if permission in u.permissions:
-                    u.permissions.remove(permission)
-                    self._save()
-                return True
-        return False
-
-    def update_user_role(self, tenant_id: str, user_id: str, role: str) -> bool:
-        for u in self._tenant_users.get(tenant_id, []):
-            if u.user_id == user_id:
-                u.role = role
-                self._save()
-                return True
-        return False
-
-    def deactivate_tenant(self, tenant_id: str) -> bool:
-        if tenant_id in self._tenants:
-            self._tenants[tenant_id].is_active = False
-            self._save()
-            return True
-        return False
-
 
 # Singleton
 _tenant_manager: Optional[TenantManager] = None

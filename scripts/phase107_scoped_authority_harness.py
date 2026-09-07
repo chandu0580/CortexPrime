@@ -173,7 +173,6 @@ def register_people() -> None:
     proves changes -- only where each fact lives.
     """
     global GRANT_REPO, GRANT_STORE, MEMBER_REPO, TENANT_REPO
-    from backend.auth.tenant import get_tenant_manager
     from backend.contexts.connectivity.infrastructure.sql_authority_grant import (
         SqlAuthorityGrantRepository)
     from backend.contexts.connectivity.infrastructure.sql_membership import (
@@ -188,16 +187,11 @@ def register_people() -> None:
     MEMBER_REPO = SqlMembershipRepository(GRANT_STORE)
     TENANT_REPO = SqlTenantRepository(GRANT_STORE)
 
-    tm = get_tenant_manager()
     for slug in (TENANT_A, TENANT_B):
-        tenant = tm.get_tenant_by_slug(slug)
-        if tenant is None:
-            tenant = tm.create_tenant(name=slug, slug=slug)
-        TENANTS[slug] = tenant.tenant_id
-        # Phase 10.10: the tenant BOUNDARY must exist durably before
-        # membership, authority or product access can resolve at all.
-        provisioning.ensure_tenant(GRANT_STORE, tenant_id=tenant.tenant_id,
-                                   slug=slug, name=slug)
+        # Phase 10.11: the tenant id comes from the DURABLE store. The
+        # legacy JSON writer is gone, so nothing here touches a file.
+        TENANTS[slug] = provisioning.tenant_id_for(
+            GRANT_STORE, slug=slug, name=slug)
 
 
     people = {
@@ -219,15 +213,17 @@ def register_people() -> None:
     }
 
     for email, (slug, grants) in people.items():
-        member = tm.get_user_by_email(email)
-        if member is None:
-            member = tm.add_user(TENANTS[slug], email, role="member")
-        MEMBERS[email] = member
+        # Phase 10.11: membership is durable only; the JSON writer is gone.
         # Phase 10.9: authority and product access both require a live durable
         # membership. Seeded out of band, exactly as a real tenant's first
         # member must be.
         provisioning.ensure_membership(GRANT_STORE, tenant_id=TENANTS[slug],
                                        principal_id=email)
+        # Phase 10.11: the membership record comes from the DURABLE store now.
+        # It carries tenant_id, which is all the rest of this harness wanted
+        # from the retired JSON user object.
+        MEMBERS[email] = MEMBER_REPO.find(tenant_id=TENANTS[slug],
+                                          subject_principal_id=email)
         set_grants(email, grants)
 
 
@@ -671,9 +667,6 @@ def run_queue(client, engine) -> None:
 
 def run_revocation(client, engine) -> None:
     section("H. revocation — approver grant, executor grant, approval")
-    from backend.auth.tenant import get_tenant_manager
-
-    tm = get_tenant_manager()
     two = MEMBERS[APPROVER_TWO]
     _, approval_id = seed(engine)
     stale = auth(APPROVER_TWO)

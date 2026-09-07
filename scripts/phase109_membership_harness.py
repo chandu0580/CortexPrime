@@ -62,6 +62,28 @@ TENANT_REPO = None
 IDS: dict = {}
 
 
+
+def mutate_legacy_json(filename, mutate):
+    """Edit a legacy JSON file on disk and return a restore callable.
+
+    Phase 10.11 removed every writer from ``TenantManager``, so these proofs
+    can no longer go through it -- which is an improvement. Writing the file
+    directly is what an operator or an attacker with disk access would do, and
+    it depends on nothing this codebase still ships.
+    """
+    import json
+    from pathlib import Path
+
+    path = Path("data/tenants") / filename
+    if not path.exists():
+        return None, (lambda: None)
+    original = path.read_text(encoding="utf-8")
+    data = json.loads(original)
+    mutate(data)
+    path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+    return data, (lambda: path.write_text(original, encoding="utf-8"))
+
+
 def check(name, ok, detail=""):
     (PASSED if ok else FAILED).append(name)
     print(f"  [{'OK ' if ok else 'FAIL'}] {name}{' — ' + str(detail) if detail else ''}")
@@ -131,7 +153,6 @@ def _resolve_capability_reference() -> None:
 
 def register_people() -> None:
     global STORE, MEMBER_REPO, GRANT_REPO, TENANT_REPO
-    from backend.auth.tenant import get_tenant_manager
     from backend.contexts.connectivity.infrastructure.sql_authority_grant import (
         SqlAuthorityGrantRepository)
     from backend.contexts.connectivity.infrastructure.sql_membership import (
@@ -145,15 +166,11 @@ def register_people() -> None:
         SqlTenantRepository)
     TENANT_REPO = SqlTenantRepository(STORE)
 
-    tm = get_tenant_manager()
     for slug in (TENANT_A, TENANT_B):
-        tenant = tm.get_tenant_by_slug(slug) or tm.create_tenant(
-            name=f"Phase 10.9 {slug}", slug=slug)
-        TENANTS[slug] = tenant.tenant_id
-        # Phase 10.10: the tenant BOUNDARY must exist durably before
-        # membership, authority or product access can resolve at all.
-        provisioning.ensure_tenant(STORE, tenant_id=tenant.tenant_id,
-                                   slug=slug, name=slug)
+        # Phase 10.11: the tenant id comes from the DURABLE store. The
+        # legacy JSON writer is gone, so nothing here touches a file.
+        TENANTS[slug] = provisioning.tenant_id_for(
+            STORE, slug=slug, name=slug)
 
 
     people = {
@@ -168,8 +185,6 @@ def register_people() -> None:
     for email, (slug, grants) in people.items():
         # The JSON store still supplies the TENANT record; membership itself is
         # provisioned durably. A member here has no authority until granted.
-        if tm.get_user_by_email(email) is None:
-            tm.add_user(TENANTS[slug], email, role="member")
         IDS[email] = provisioning.ensure_membership(
             STORE, tenant_id=TENANTS[slug], principal_id=email)
         provisioning.provision(GRANT_REPO, STORE, tenant_id=TENANTS[slug],
@@ -315,10 +330,13 @@ def _no_identity_duplication() -> bool:
 def run_migration(client) -> None:
     section("B. migration from JSON — and JSON stops deciding")
     from backend.auth.membership import migrate_json_memberships
+    grants_before = GRANT_REPO.count_all()
+    # Phase 10.11: the legacy importer is read-only now, and this
+    # is its one sanctioned use -- reading the JSON once so the
+    # durable store can own it.
     from backend.auth.tenant import get_tenant_manager
 
     tm = get_tenant_manager()
-    grants_before = GRANT_REPO.count_all()
     result = migrate_json_memberships(repository=MEMBER_REPO, manager=tm)
     check("B1. the JSON store was imported deterministically",
           result["imported"] >= 0 and MEMBER_REPO.count_all() > 0,
@@ -341,12 +359,17 @@ def run_migration(client) -> None:
     # The load-bearing one: edit the JSON and prove nothing moves.
     from backend.auth.approver import durable_membership
 
-    user = tm.get_user_by_email(PLAIN)
     before, _ = durable_membership(MEMBER_REPO, tenant_id=TENANTS[TENANT_A],
                                    principal_id=PLAIN)
-    user.is_active = False
-    user.role = "owner"
-    tm._save()
+
+    def _poison(data):
+        for rows in data.values():
+            for row in rows:
+                if row.get("email") == PLAIN:
+                    row["is_active"] = False
+                    row["role"] = "owner"
+
+    _, restore = mutate_legacy_json("tenant_users.json", _poison)
     after, reason = durable_membership(MEMBER_REPO, tenant_id=TENANTS[TENANT_A],
                                        principal_id=PLAIN)
     check("B5. the JSON file is NO LONGER authoritative — flipping is_active "
@@ -354,9 +377,7 @@ def run_migration(client) -> None:
           after is not None and after.is_active and after.role == before.role,
           f"json=inactive/owner store={after.status if after else None}/"
           f"{after.role if after else None} ({reason})")
-    user.is_active = True
-    user.role = "member"
-    tm._save()
+    restore()
 
 
 def run_membership_is_not_authority(client) -> None:

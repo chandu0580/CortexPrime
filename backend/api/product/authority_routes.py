@@ -208,7 +208,6 @@ def issue(body: IssueGrantBody,
     ``ctx.tenant_id``. Neither is reachable from the body.
     """
     from backend.auth.grants import issue_grant
-    from backend.auth.tenant import get_tenant_manager
 
     engine = _engine()
     outcome = issue_grant(
@@ -221,7 +220,6 @@ def issue(body: IssueGrantBody,
         environment=body.environment,
         max_risk=body.max_risk,
         reason=body.reason,
-        members=get_tenant_manager(),
         memberships=getattr(engine, "memberships", None),
         tenants=getattr(engine, "tenants", None),
         audit=getattr(getattr(engine, "runtime", None), "audit", None),

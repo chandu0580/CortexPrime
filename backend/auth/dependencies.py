@@ -13,7 +13,6 @@ from fastapi import Cookie, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from backend.auth.jwt_handler import decode_access_token
-from backend.auth.tenant import Tenant, get_tenant_manager
 
 bearer = HTTPBearer(auto_error=False)
 
@@ -74,23 +73,16 @@ async def require_user(
         from backend.api.product.app import current_engine
         from backend.auth.tenants import resolve_tenant
 
-        tenants_store = getattr(current_engine(), "tenants", None)
-        if tenants_store is not None:
-            record, reason = resolve_tenant(tenant_id=tenant_id,
-                                            tenants=tenants_store)
-            if record is None:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail=f"Tenant is inactive or does not exist ({reason})",
-                )
-            return payload
-
-        tm = get_tenant_manager()
-        tenant = tm.get_tenant(tenant_id)
-        if not tenant or not tenant.is_active:
+        # Phase 10.11: no JSON fallback. A missing store is not permission to
+        # fall back to a file nobody governs -- it refuses, like every other
+        # unreadable authority in this codebase.
+        record, reason = resolve_tenant(
+            tenant_id=tenant_id,
+            tenants=getattr(current_engine(), "tenants", None))
+        if record is None:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Tenant is inactive or does not exist",
+                detail=f"Tenant is inactive or does not exist ({reason})",
             )
     return payload
 
@@ -128,23 +120,13 @@ async def require_tenant(current_user: dict = Depends(require_user)) -> dict:
     from backend.api.product.app import current_engine
     from backend.auth.tenants import resolve_tenant
 
-    tenants_store = getattr(current_engine(), "tenants", None)
-    if tenants_store is not None:
-        record, reason = resolve_tenant(tenant_id=tenant_id,
-                                        tenants=tenants_store)
-        if record is None:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Tenant not found or inactive ({reason})",
-            )
-        return current_user
-
-    tm = get_tenant_manager()
-    tenant = tm.get_tenant(tenant_id)
-    if not tenant or not tenant.is_active:
+    record, reason = resolve_tenant(
+        tenant_id=tenant_id,
+        tenants=getattr(current_engine(), "tenants", None))
+    if record is None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Tenant not found or inactive",
+            detail=f"Tenant not found or inactive ({reason})",
         )
     return current_user
 
@@ -159,16 +141,5 @@ def require_tenant_role(required_role: str) -> Callable:
             )
         return current_user
     return _role_checker
-
-
-async def get_current_tenant(current_user: dict = Depends(require_tenant)) -> Tenant:
-    tm = get_tenant_manager()
-    tenant = tm.get_tenant(current_user["tenant_id"])
-    if tenant is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tenant not found",
-        )
-    return tenant
 
 

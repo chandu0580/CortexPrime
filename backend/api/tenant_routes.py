@@ -9,7 +9,6 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from backend.auth.dependencies import require_admin
-from backend.auth.tenant import Tenant, TenantUser, get_tenant_manager
 
 router = APIRouter(prefix="/api/tenants", tags=["Tenants"])
 
@@ -70,6 +69,66 @@ TENANT_ADMIN_IS_OUT_OF_BAND = (
     "tenant administration is out-of-band: tenant records are authoritative in "
     "the durable store and are provisioned by an operator, not through this API"
 )
+
+
+MEMBERSHIP_IS_GOVERNED = (
+    "membership administration moved to the governed product API: "
+    "POST /api/v1/tenants/members. This route wrote a file no governed path "
+    "reads, so it returned 201 and granted nothing"
+)
+
+
+def _durable():
+    """The authoritative tenant and membership stores, or ``None``.
+
+    Phase 10.11. These routes used to read ``tenants.json`` and
+    ``tenant_users.json``. Those files stopped being authoritative in Phases
+    10.9 and 10.10, so reading them here meant this API could describe a tenant
+    or a member that no governed path would recognise.
+    """
+    from backend.api.product.app import current_engine
+
+    engine = current_engine()
+    return (getattr(engine, "tenants", None),
+            getattr(engine, "memberships", None))
+
+
+def _record_to_response(t) -> TenantResponse:
+    """A durable ``cp_tenant`` row, in the shape this V1 contract promises.
+
+    ``domain``, ``plan`` and ``settings`` are absent from the durable record on
+    purpose (Phase 10.10, Part C: no unnecessary metadata), so they are
+    reported as empty rather than invented.
+    """
+    return TenantResponse(
+        tenant_id=t.tenant_id,
+        name=t.name,
+        slug=t.slug,
+        domain=None,
+        plan="",
+        is_active=t.is_active,
+        settings={},
+        created_at=t.created_at.isoformat() if t.created_at else "",
+    )
+
+
+def _membership_to_response(m) -> TenantUserResponse:
+    """A durable ``cp_tenant_membership`` row, in the V1 shape.
+
+    ``permissions`` is empty by construction: authority lives in
+    ``cp_authority_grant`` and is deliberately not projected here, because a
+    permission list beside a member is exactly the thing Phase 10.5 spent a
+    phase separating from membership.
+    """
+    return TenantUserResponse(
+        user_id=m.membership_id,
+        tenant_id=m.tenant_id,
+        email=m.subject_principal_id,
+        role=m.role,
+        is_active=m.is_active,
+        permissions=[],
+        created_at=m.created_at.isoformat() if m.created_at else "",
+    )
 
 
 def _same_tenant_or_refuse(current_user: dict, tenant_id: str) -> None:
@@ -140,20 +199,6 @@ async def create_tenant(
         status_code=status.HTTP_403_FORBIDDEN,
         detail=TENANT_ADMIN_IS_OUT_OF_BAND,
     )
-    tm = get_tenant_manager()
-    existing = tm.get_tenant_by_slug(request.slug)
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Tenant with slug '{request.slug}' already exists",
-        )
-    tenant = tm.create_tenant(
-        name=request.name,
-        slug=request.slug,
-        domain=request.domain,
-        plan=request.plan,
-    )
-    return _tenant_to_response(tenant)
 
 
 @router.get("", response_model=List[TenantResponse])
@@ -173,9 +218,9 @@ async def list_tenants(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="No tenant association in token",
         )
-    tm = get_tenant_manager()
-    own = tm.get_tenant(claimed)
-    return [_tenant_to_response(own)] if own else []
+    tenants, _ = _durable()
+    own = tenants.get(tenant_id=claimed) if tenants is not None else None
+    return [_record_to_response(own)] if own else []
 
 
 @router.get("/{tenant_id}", response_model=TenantResponse)
@@ -185,14 +230,14 @@ async def get_tenant(
 ):
     """Get tenant details (admin only)."""
     _same_tenant_or_refuse(current_user, tenant_id)
-    tm = get_tenant_manager()
-    tenant = tm.get_tenant(tenant_id)
+    tenants, _ = _durable()
+    tenant = tenants.get(tenant_id=tenant_id) if tenants is not None else None
     if not tenant:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Tenant not found",
         )
-    return _tenant_to_response(tenant)
+    return _record_to_response(tenant)
 
 
 @router.post("/{tenant_id}/users", response_model=TenantUserResponse, status_code=status.HTTP_201_CREATED)
@@ -201,28 +246,19 @@ async def add_user_to_tenant(
     request: AddUserRequest,
     current_user: dict = Depends(require_admin),
 ):
-    """Add a user to a tenant (admin only)."""
+    """Refused. **Phase 10.11: this route granted nothing.**
+
+    It wrote a member into ``tenant_users.json``, which stopped being
+    authoritative in Phase 10.9. An operator called it, received **201**, and
+    the person had no governed membership at all -- no product access, no
+    authority, nothing. A write that appears to work and changes nothing is
+    worse than one that refuses, so it refuses.
+    """
     _same_tenant_or_refuse(current_user, tenant_id)
-    tm = get_tenant_manager()
-    tenant = tm.get_tenant(tenant_id)
-    if not tenant:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tenant not found",
-        )
-    existing = tm.get_user_by_email(request.email)
-    if existing and existing.tenant_id == tenant_id:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="User already exists in this tenant",
-        )
-    user = tm.add_user(tenant_id, request.email, request.role)
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Failed to add user",
-        )
-    return _user_to_response(user)
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=MEMBERSHIP_IS_GOVERNED,
+    )
 
 
 @router.get("/{tenant_id}/users", response_model=List[TenantUserResponse])
@@ -232,14 +268,15 @@ async def list_tenant_users(
 ):
     """List users in a tenant (admin only)."""
     _same_tenant_or_refuse(current_user, tenant_id)
-    tm = get_tenant_manager()
-    tenant = tm.get_tenant(tenant_id)
-    if not tenant:
+    tenants, memberships = _durable()
+    tenant = tenants.get(tenant_id=tenant_id) if tenants is not None else None
+    if not tenant or memberships is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Tenant not found",
         )
-    return [_user_to_response(u) for u in tm.get_users(tenant_id)]
+    return [_membership_to_response(m)
+            for m in memberships.list_for_tenant(tenant_id=tenant_id)]
 
 
 @router.patch("/{tenant_id}/users/{user_id}", response_model=TenantUserResponse)
@@ -249,28 +286,18 @@ async def update_user_role(
     request: UpdateUserRoleRequest,
     current_user: dict = Depends(require_admin),
 ):
-    """Update a user's role within a tenant (admin only)."""
+    """Refused. **Phase 10.11: this route granted nothing.**
+
+    Same reason as adding a member: it rewrote a role in a file no governed
+    path reads. The governed route is
+    ``POST /api/v1/tenants/members/{id}/role`` -- and even there the role is
+    informational, because Phase 10.5 established that no role confers
+    authority.
+    """
     _same_tenant_or_refuse(current_user, tenant_id)
-    tm = get_tenant_manager()
-    tenant = tm.get_tenant(tenant_id)
-    if not tenant:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tenant not found",
-        )
-    success = tm.update_user_role(tenant_id, user_id, request.role)
-    if not success:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found in tenant",
-        )
-    users = tm.get_users(tenant_id)
-    for u in users:
-        if u.user_id == user_id:
-            return _user_to_response(u)
     raise HTTPException(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        detail="Failed to retrieve updated user",
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=MEMBERSHIP_IS_GOVERNED,
     )
 
 
@@ -289,17 +316,3 @@ async def deactivate_tenant(
         status_code=status.HTTP_403_FORBIDDEN,
         detail=TENANT_ADMIN_IS_OUT_OF_BAND,
     )
-    tm = get_tenant_manager()
-    tenant = tm.get_tenant(tenant_id)
-    if not tenant:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tenant not found",
-        )
-    if not tenant.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Tenant is already inactive",
-        )
-    tm.deactivate_tenant(tenant_id)
-    return _tenant_to_response(tm.get_tenant(tenant_id))

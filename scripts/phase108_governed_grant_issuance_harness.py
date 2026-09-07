@@ -122,7 +122,6 @@ def _resolve_capability_reference() -> None:
 
 def register_people() -> None:
     global GRANT_REPO, GRANT_STORE, MEMBER_REPO, TENANT_REPO
-    from backend.auth.tenant import get_tenant_manager
     from backend.contexts.connectivity.infrastructure.sql_authority_grant import (
         SqlAuthorityGrantRepository)
     from backend.database.durable.config import build_development_store
@@ -136,15 +135,11 @@ def register_people() -> None:
         SqlTenantRepository)
     TENANT_REPO = SqlTenantRepository(GRANT_STORE)
 
-    tm = get_tenant_manager()
     for slug in (TENANT_A, TENANT_B):
-        tenant = tm.get_tenant_by_slug(slug) or tm.create_tenant(
-            name=f"Phase 10.8 {slug}", slug=slug)
-        TENANTS[slug] = tenant.tenant_id
-        # Phase 10.10: the tenant BOUNDARY must exist durably before
-        # membership, authority or product access can resolve at all.
-        provisioning.ensure_tenant(GRANT_STORE, tenant_id=tenant.tenant_id,
-                                   slug=slug, name=slug)
+        # Phase 10.11: the tenant id comes from the DURABLE store. The
+        # legacy JSON writer is gone, so nothing here touches a file.
+        TENANTS[slug] = provisioning.tenant_id_for(
+            GRANT_STORE, slug=slug, name=slug)
 
 
     # Each person holds a REAL grant. What differs is what it covers.
@@ -169,14 +164,15 @@ def register_people() -> None:
         OTHER_ISSUER: (TENANT_B, [issue_grant_string("issue", max_risk="high")]),
     }
     for email, (slug, grants) in people.items():
-        member = tm.get_user_by_email(email)
-        if member is None:
-            member = tm.add_user(TENANTS[slug], email, role="member")
-        MEMBERS[email] = member
+        # Phase 10.11: membership is durable only; the JSON writer is gone.
         # Phase 10.9: a live durable membership is now a precondition for any
-        # authority at all.
+        # authority at all. Phase 10.11: the record comes from the durable
+        # store, which carries the tenant_id this harness wanted from the
+        # retired JSON user object.
         provisioning.ensure_membership(GRANT_STORE, tenant_id=TENANTS[slug],
                                        principal_id=email)
+        MEMBERS[email] = MEMBER_REPO.find(tenant_id=TENANTS[slug],
+                                          subject_principal_id=email)
         provisioning.provision(GRANT_REPO, GRANT_STORE,
                                tenant_id=TENANTS[slug], principal_id=email,
                                grants=grants)
@@ -385,14 +381,21 @@ def run_issuer_authority(client) -> None:
           r.status_code == 403 and r.json()["detail"] == "no_issuer_authority",
           f"HTTP {r.status_code}")
 
-    from backend.auth.tenant import get_tenant_manager
-    owner = get_tenant_manager().get_user_by_email(PLAIN)
-    get_tenant_manager().update_user_role(owner.tenant_id, owner.user_id, "owner")
+    # Phase 10.11: the role lives in cp_tenant_membership now, so the probe
+    # relabels the DURABLE row. Relabelling a JSON row would prove nothing --
+    # nothing reads it.
+    owner = MEMBER_REPO.find(tenant_id=TENANTS[TENANT_A],
+                             subject_principal_id=PLAIN)
+    MEMBER_REPO.set_role(tenant_id=TENANTS[TENANT_A],
+                         membership_id=owner.membership_id, role="owner",
+                         updated_by="harness:probe")
     r = post(client, auth(PLAIN))
     check("B4. a tenant OWNER is not automatically an issuer — no existing role "
           "was assumed sufficient, exactly as Phase 10.5 refused to assume it "
           "for approval", r.status_code == 403, f"HTTP {r.status_code}")
-    get_tenant_manager().update_user_role(owner.tenant_id, owner.user_id, "member")
+    MEMBER_REPO.set_role(tenant_id=TENANTS[TENANT_A],
+                         membership_id=owner.membership_id, role="member",
+                         updated_by="harness:probe")
 
     r = post(client, auth(ISSUER))
     check("B5. a correctly scoped issuer CAN issue", r.status_code == 201,
