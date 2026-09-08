@@ -1,19 +1,16 @@
+# Phase 10.22 (ADR-116): the fleet, workflow-designer and cost-intelligence models
+# are gitignored v2.0 components ("not part of v1.0.0 GA") and must NOT be imported
+# here. Their re-export made a clean checkout unable to import this package,
+# load Alembic metadata, or boot. See docs/PHASE_10_21_DISCOVERY.md.
 from backend.database.models.audit_log import AuditLog
 from backend.database.models.connector_activity import ConnectorActivityModel
-from backend.database.models.cost_intelligence import (
-    CostRecordModel,
-    OptimizationRecommendationModel,
-    ProviderRateModel,
-)
 from backend.database.models.cost_tracking import CostRecord
 from backend.database.models.embedding_cache import EmbeddingCacheRecord
 from backend.database.models.episodic_memory import EpisodicMemoryRecord
-from backend.database.models.fleet import FleetAgentModel, FleetDeploymentModel, FleetMetricsSnapshotModel, FleetModel
 from backend.database.models.mission import MissionRecord
 from backend.database.models.reflection_history import ReflectionHistoryRecord
 from backend.database.models.runtime_analytics import RuntimeAnalyticsRecord
 from backend.database.models.semantic_memory import SemanticMemoryRecord
-from backend.database.models.workflow import WorkflowEdgeModel, WorkflowModel, WorkflowNodeModel
 
 __all__ = [
     "EpisodicMemoryRecord",
@@ -25,16 +22,6 @@ __all__ = [
     "EmbeddingCacheRecord",
     "AuditLog",
     "ConnectorActivityModel",
-    "FleetModel",
-    "FleetAgentModel",
-    "FleetDeploymentModel",
-    "FleetMetricsSnapshotModel",
-    "WorkflowModel",
-    "WorkflowNodeModel",
-    "WorkflowEdgeModel",
-    "ProviderRateModel",
-    "CostRecordModel",
-    "OptimizationRecommendationModel",
 ]
 
 _IMPORTED_BC_MODELS = False
