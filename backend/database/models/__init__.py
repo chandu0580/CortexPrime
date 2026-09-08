@@ -5,6 +5,7 @@ from backend.database.models.cost_intelligence import (
     OptimizationRecommendationModel,
     ProviderRateModel,
 )
+from backend.database.models.cost_tracking import CostRecord
 from backend.database.models.embedding_cache import EmbeddingCacheRecord
 from backend.database.models.episodic_memory import EpisodicMemoryRecord
 from backend.database.models.fleet import FleetAgentModel, FleetDeploymentModel, FleetMetricsSnapshotModel, FleetModel
@@ -20,6 +21,7 @@ __all__ = [
     "MissionRecord",
     "ReflectionHistoryRecord",
     "RuntimeAnalyticsRecord",
+    "CostRecord",
     "EmbeddingCacheRecord",
     "AuditLog",
     "ConnectorActivityModel",
