@@ -155,8 +155,13 @@ async def _db_append(execution_id: str, sequence: int, raw: Dict[str, Any]) -> N
             )
             session.add(row)
             await session.commit()
-    except Exception as exc:  # pragma: no cover
-        log.debug("replay_store DB write skipped: %s", exc)
+    except Exception as exc:
+        # Phase 10.26 (ADR-118): the event path stays fire-and-forget and the
+        # failure is still swallowed -- that is this store's design -- but a
+        # skipped PostgreSQL write is the loss of the durable copy, so it must be
+        # visible at a production log level, not hidden at DEBUG.
+        log.warning("replay_store DB write skipped for execution %s seq %s: %s",
+                    execution_id, sequence, exc)
 
 
 # ---------------------------------------------------------------------------
@@ -484,7 +489,17 @@ class MissionReplayStore:
 
                 result = await session.execute(q)
                 rows = result.scalars().all()
-                return [r.to_dict() for r in rows]
+                # Phase 10.26 (ADR-118): the row stores the emitted wall-clock
+                # time as ``event_ts`` (see the model); the Redis record and every
+                # reader -- get_summary, get_timeline, the routes -- call the same
+                # value ``timestamp``. Serve both names so a replay answered from
+                # PostgreSQL after the Redis window keeps its timeline.
+                events = []
+                for r in rows:
+                    d = r.to_dict()
+                    d.setdefault("timestamp", d.get("event_ts"))
+                    events.append(d)
+                return events
         except Exception as exc:
             log.debug("replay_store PG read skipped: %s", exc)
             return []

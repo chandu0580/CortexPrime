@@ -207,6 +207,11 @@ async def list_replays(
             keys = await client.keys("cx:replay:events:*")
             exec_ids = [k.replace("cx:replay:events:", "") for k in (keys or [])]
             exec_ids = exec_ids[:limit]
+            if not exec_ids:
+                # Phase 10.26 (ADR-118): Redis only holds the 72 h hot window.
+                # An empty window is not "no replays" -- consult the durable
+                # store the way an unavailable Redis already does.
+                raise RuntimeError("Redis holds no replay keys")
         else:
             raise RuntimeError("Redis unavailable")
     except Exception:

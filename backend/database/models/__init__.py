@@ -8,6 +8,10 @@ from backend.database.models.cost_tracking import CostRecord
 from backend.database.models.embedding_cache import EmbeddingCacheRecord
 from backend.database.models.episodic_memory import EpisodicMemoryRecord
 from backend.database.models.mission import MissionRecord
+# Phase 10.26 (ADR-118): the replay store imported this model only inside its
+# functions, so the table never reached Alembic metadata or a dev boot's
+# create_all until the first replay write. Migration 0025 owns the table.
+from backend.database.models.mission_replay import MissionReplayEvent
 from backend.database.models.reflection_history import ReflectionHistoryRecord
 from backend.database.models.runtime_analytics import RuntimeAnalyticsRecord
 from backend.database.models.semantic_memory import SemanticMemoryRecord
@@ -16,6 +20,7 @@ __all__ = [
     "EpisodicMemoryRecord",
     "SemanticMemoryRecord",
     "MissionRecord",
+    "MissionReplayEvent",
     "ReflectionHistoryRecord",
     "RuntimeAnalyticsRecord",
     "CostRecord",
