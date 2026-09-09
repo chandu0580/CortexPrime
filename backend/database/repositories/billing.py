@@ -15,10 +15,10 @@ from backend.database.repositories.base import BaseRepository
 class UsageRecordModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "billing_usage_records"
 
-    organization_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
-    mission_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, index=True)
-    user_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, index=True)
-    resource_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    organization_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    mission_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    user_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    resource_type: Mapped[str] = mapped_column(String(64), nullable=False)
     resource_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     quantity: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     unit: Mapped[str] = mapped_column(String(32), nullable=False, default="requests", server_default="requests")
@@ -34,17 +34,20 @@ class UsageRecordModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 class InvoiceModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "billing_invoices"
 
-    organization_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
-    invoice_number: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    organization_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    invoice_number: Mapped[str] = mapped_column(String(64), nullable=False)
     period_start: Mapped[str] = mapped_column(String(32), nullable=False)
     period_end: Mapped[str] = mapped_column(String(32), nullable=False)
-    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", server_default="pending", index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", server_default="pending")
     total_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     currency: Mapped[str] = mapped_column(String(8), nullable=False, default="USD", server_default="USD")
     line_items: Mapped[Optional[list[dict[str, Any]]]] = mapped_column(JSONB, nullable=True)
     metadata_: Mapped[Optional[dict[str, Any]]] = mapped_column("metadata", JSONB, nullable=True)
 
     __table_args__ = (
+        # Phase 10.31 (ADR-120): migrated indexes declared by their migrated names;
+        # unmigrated index=True markers removed (ADR-114 pattern). No DB change.
+        Index("idx_billing_invoices_number", "invoice_number", unique=True),
         Index("idx_billing_invoices_org", "organization_id", "status"),
         Index("idx_billing_invoices_status", "status"),
     )

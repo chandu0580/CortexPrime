@@ -11,7 +11,7 @@ import hashlib
 from typing import List
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Index, String, Text
+from sqlalchemy import Index, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.database.base import Base
@@ -34,12 +34,15 @@ class EmbeddingCacheRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     __tablename__ = "embedding_cache"
 
-    text_hash:    Mapped[str]        = mapped_column(String(64),      nullable=False, unique=True, index=True)
+    text_hash:    Mapped[str]        = mapped_column(String(64),      nullable=False)
     model:        Mapped[str]        = mapped_column(String(128),     nullable=False)
     text_preview: Mapped[str]        = mapped_column(Text,            nullable=False)
     embedding:    Mapped[List[float]] = mapped_column(Vector(_EMBED_DIM), nullable=False)
 
     __table_args__ = (
+        # Phase 10.31 (ADR-120): migrated indexes declared by their migrated names;
+        # unmigrated index=True markers removed (ADR-114 pattern). No DB change.
+        UniqueConstraint("text_hash", name="embedding_cache_text_hash_key"),
         Index("idx_emb_cache_hash", "text_hash", unique=True),
     )
 

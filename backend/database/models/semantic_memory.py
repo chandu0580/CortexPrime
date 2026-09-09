@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Float, Index, String, Text
+from sqlalchemy import Float, Index, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -43,8 +43,13 @@ class SemanticMemoryRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     meta:       Mapped[Optional[Dict[str, Any]]] = mapped_column("metadata", JSONB, nullable=True, default=dict)
 
     __table_args__ = (
+        # Phase 10.31 (ADR-120): migrated indexes declared by their migrated names;
+        # unmigrated index=True markers removed (ADR-114 pattern). No DB change.
+        Index("idx_sem_embedding", "embedding", postgresql_using="ivfflat", postgresql_ops={"embedding": "vector_cosine_ops"}, postgresql_with={"lists": 100}),
+        Index("idx_sem_concept_fts", text("to_tsvector('english'::regconfig, (concept || ' '::text) || content)"), postgresql_using="gin"),
         Index("idx_sem_confidence", "confidence"),
-        # GIN full-text index and IVFFlat vector index are in Alembic / init.sql
+        # The GIN full-text and IVFFlat vector indexes are created by migration 0001
+        # and mirrored here exactly (ADR-120) so autogenerate can never propose dropping them.
     )
 
     def to_dict(self) -> Dict[str, Any]:

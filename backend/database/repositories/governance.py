@@ -15,9 +15,9 @@ from backend.database.repositories.base import BaseRepository
 class PolicyModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "governance_policies"
 
-    name: Mapped[str] = mapped_column(String(256), nullable=False, unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(256), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    category: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    category: Mapped[str] = mapped_column(String(64), nullable=False)
     severity: Mapped[str] = mapped_column(String(32), nullable=False, default="medium", server_default="medium")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     conditions: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
@@ -25,6 +25,9 @@ class PolicyModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     metadata_: Mapped[Optional[dict[str, Any]]] = mapped_column("metadata", JSONB, nullable=True)
 
     __table_args__ = (
+        # Phase 10.31 (ADR-120): migrated indexes declared by their migrated names;
+        # unmigrated index=True markers removed (ADR-114 pattern). No DB change.
+        Index("idx_gov_policies_name", "name", unique=True),
         Index("idx_gov_policies_category", "category"),
         Index("idx_gov_policies_enabled", "enabled"),
     )
@@ -33,8 +36,8 @@ class PolicyModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 class ComplianceRuleModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "governance_compliance_rules"
 
-    name: Mapped[str] = mapped_column(String(256), nullable=False, index=True)
-    framework: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(256), nullable=False)
+    framework: Mapped[str] = mapped_column(String(64), nullable=False)
     control_id: Mapped[str] = mapped_column(String(64), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     severity: Mapped[str] = mapped_column(String(32), nullable=False, default="medium", server_default="medium")
@@ -51,19 +54,23 @@ class ComplianceRuleModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 class ApprovalRequestModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "governance_approval_requests"
 
-    request_id: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
+    request_id: Mapped[str] = mapped_column(String(128), nullable=False)
     requester: Mapped[str] = mapped_column(String(256), nullable=False)
     resource_type: Mapped[str] = mapped_column(String(64), nullable=False)
     resource_id: Mapped[str] = mapped_column(String(128), nullable=False)
     action: Mapped[str] = mapped_column(String(64), nullable=False)
     reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", server_default="pending", index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", server_default="pending")
     reviewers: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
     approved_by: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
     approved_at: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     metadata_: Mapped[Optional[dict[str, Any]]] = mapped_column("metadata", JSONB, nullable=True)
 
-    __table_args__ = (Index("idx_gov_approval_status", "status", "created_at"),)
+    __table_args__ = (
+        # Phase 10.31 (ADR-120): migrated indexes declared by their migrated names;
+        # unmigrated index=True markers removed (ADR-114 pattern). No DB change.
+        Index("idx_gov_approval_rid", "request_id", unique=True),
+        Index("idx_gov_approval_status", "status", "created_at"),)
 
 
 class PolicyRepository(BaseRepository[PolicyModel]):

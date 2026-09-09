@@ -19,11 +19,11 @@ class MissionModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     title: Mapped[str] = mapped_column(String(512), nullable=False)
     objective: Mapped[str] = mapped_column(Text, nullable=False)
-    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", server_default="pending", index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", server_default="pending")
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=5, server_default="5")
-    category: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, index=True)
-    owner: Mapped[Optional[str]] = mapped_column(String(256), nullable=True, index=True)
-    execution_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, unique=True)
+    category: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    owner: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
+    execution_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     context: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
     result: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -40,7 +40,7 @@ class MissionStepModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "mission_steps"
 
     mission_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("missions_bc.id", ondelete="CASCADE"), nullable=False, index=True
+        UUID(as_uuid=True), ForeignKey("missions_bc.id", ondelete="CASCADE"), nullable=False
     )
     step_order: Mapped[int] = mapped_column(Integer, nullable=False)
     name: Mapped[str] = mapped_column(String(256), nullable=False)

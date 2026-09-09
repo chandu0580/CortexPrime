@@ -15,9 +15,9 @@ from backend.database.repositories.base import BaseRepository
 class InfrastructureModelModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "digital_twin_models"
 
-    name: Mapped[str] = mapped_column(String(256), nullable=False, index=True)
-    resource_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    provider: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(256), nullable=False)
+    resource_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
     region: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     tags: Mapped[Optional[list[str]]] = mapped_column(JSONB, nullable=True, default=list)
     properties: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
@@ -35,9 +35,9 @@ class InfrastructureModelModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 class InfrastructureRelationshipModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "digital_twin_relationships"
 
-    source_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
-    target_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
-    relationship_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    source_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    target_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    relationship_type: Mapped[str] = mapped_column(String(64), nullable=False)
     properties: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
 
     __table_args__ = (
@@ -49,7 +49,7 @@ class InfrastructureRelationshipModel(UUIDPrimaryKeyMixin, TimestampMixin, Base)
 class InfrastructureMetricModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "digital_twin_metrics"
 
-    resource_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    resource_id: Mapped[str] = mapped_column(String(128), nullable=False)
     metric_name: Mapped[str] = mapped_column(String(64), nullable=False)
     metric_value: Mapped[float] = mapped_column(Float, nullable=False)
     unit: Mapped[str] = mapped_column(String(32), nullable=False)

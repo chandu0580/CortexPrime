@@ -18,10 +18,10 @@ _EMBED_DIM = 1536
 class KnowledgeEntryModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "knowledge_entries"
 
-    title: Mapped[str] = mapped_column(String(512), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(512), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    category: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    category: Mapped[str] = mapped_column(String(128), nullable=False)
     tags: Mapped[Optional[list[str]]] = mapped_column(JSONB, nullable=True, default=list)
     source: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
     source_url: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
@@ -39,9 +39,9 @@ class KnowledgeEntryModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 class KnowledgeRelationshipModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "knowledge_relationships"
 
-    source_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
-    target_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
-    relationship_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    source_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    target_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    relationship_type: Mapped[str] = mapped_column(String(64), nullable=False)
     strength: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, server_default="1.0")
     metadata_: Mapped[Optional[dict[str, Any]]] = mapped_column("metadata", JSONB, nullable=True)
 

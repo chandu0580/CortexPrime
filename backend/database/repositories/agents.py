@@ -15,8 +15,8 @@ from backend.database.repositories.base import BaseRepository
 class AgentConfigModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "agent_configs"
 
-    name: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
-    agent_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    agent_type: Mapped[str] = mapped_column(String(64), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     provider: Mapped[str] = mapped_column(String(64), nullable=False, default="openai", server_default="openai")
     model: Mapped[str] = mapped_column(String(128), nullable=False, default="gpt-4o", server_default="gpt-4o")
@@ -29,6 +29,9 @@ class AgentConfigModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     metadata_: Mapped[Optional[dict[str, Any]]] = mapped_column("metadata", JSONB, nullable=True)
 
     __table_args__ = (
+        # Phase 10.31 (ADR-120): migrated indexes declared by their migrated names;
+        # unmigrated index=True markers removed (ADR-114 pattern). No DB change.
+        Index("idx_agent_name", "name", unique=True),
         Index("idx_agent_configs_type", "agent_type"),
         Index("idx_agent_configs_active", "is_active"),
     )
@@ -37,15 +40,19 @@ class AgentConfigModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 class AgentStateModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "agent_states"
 
-    agent_name: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
-    status: Mapped[str] = mapped_column(String(32), nullable=False, default="idle", server_default="idle", index=True)
+    agent_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="idle", server_default="idle")
     current_mission: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     current_execution: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     last_heartbeat: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     metrics: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
     memory_snapshot: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
 
-    __table_args__ = (Index("idx_agent_states_status", "status"),)
+    __table_args__ = (
+        # Phase 10.31 (ADR-120): migrated indexes declared by their migrated names;
+        # unmigrated index=True markers removed (ADR-114 pattern). No DB change.
+        Index("idx_agent_states_name", "agent_name", unique=True),
+        Index("idx_agent_states_status", "status"),)
 
 
 class AgentConfigRepository(BaseRepository[AgentConfigModel]):

@@ -15,9 +15,9 @@ from backend.database.repositories.base import BaseRepository
 class LearningSessionModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "learning_sessions"
 
-    session_id: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
-    mission_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    status: Mapped[str] = mapped_column(String(32), nullable=False, default="active", server_default="active", index=True)
+    session_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    mission_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="active", server_default="active")
     outcome: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     patterns_extracted: Mapped[Optional[list[dict[str, Any]]]] = mapped_column(JSONB, nullable=True)
@@ -25,6 +25,9 @@ class LearningSessionModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     metadata_: Mapped[Optional[dict[str, Any]]] = mapped_column("metadata", JSONB, nullable=True)
 
     __table_args__ = (
+        # Phase 10.31 (ADR-120): migrated indexes declared by their migrated names;
+        # unmigrated index=True markers removed (ADR-114 pattern). No DB change.
+        Index("idx_learn_session_sid", "session_id", unique=True),
         Index("idx_learn_session_mission", "mission_type"),
         Index("idx_learn_session_status", "status"),
     )
@@ -33,15 +36,18 @@ class LearningSessionModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 class LearningPatternModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "learning_patterns"
 
-    name: Mapped[str] = mapped_column(String(256), nullable=False, unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(256), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    category: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    category: Mapped[str] = mapped_column(String(64), nullable=False)
     confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default="0.0")
     occurrences: Mapped[int] = mapped_column(nullable=False, default=1, server_default="1")
     pattern_data: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
 
     __table_args__ = (
+        # Phase 10.31 (ADR-120): migrated indexes declared by their migrated names;
+        # unmigrated index=True markers removed (ADR-114 pattern). No DB change.
+        Index("idx_learn_patterns_name", "name", unique=True),
         Index("idx_learn_patterns_category", "category"),
         Index("idx_learn_patterns_confidence", "confidence"),
     )

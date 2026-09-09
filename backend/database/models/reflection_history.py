@@ -39,15 +39,17 @@ class ReflectionHistoryRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     mission_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         ForeignKey("missions.id", ondelete="SET NULL"),
         nullable=True,
-        index=True,
     )
-    agent:      Mapped[str]                      = mapped_column(String(128), nullable=False, index=True)
+    agent:      Mapped[str]                      = mapped_column(String(128), nullable=False)
     reflection: Mapped[str]                      = mapped_column(Text,        nullable=False)
     embedding:  Mapped[Optional[list]]           = mapped_column(Vector(_EMBED_DIM), nullable=True)
     score:      Mapped[Optional[float]]          = mapped_column(Float,       nullable=True)
     meta:       Mapped[Optional[Dict[str, Any]]] = mapped_column("metadata", JSONB, nullable=True, default=dict)
 
     __table_args__ = (
+        # Phase 10.31 (ADR-120): migrated indexes declared by their migrated names;
+        # unmigrated index=True markers removed (ADR-114 pattern). No DB change.
+        Index("idx_refl_embedding", "embedding", postgresql_using="ivfflat", postgresql_ops={"embedding": "vector_cosine_ops"}, postgresql_with={"lists": 50}),
         Index("idx_refl_agent_created",   "agent",      "created_at"),
         Index("idx_refl_mission_created", "mission_id", "created_at"),
     )

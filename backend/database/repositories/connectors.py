@@ -15,8 +15,8 @@ from backend.database.repositories.base import BaseRepository
 class ConnectorConfigModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "connector_configs"
 
-    name: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
-    connector_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    connector_type: Mapped[str] = mapped_column(String(64), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     version: Mapped[str] = mapped_column(String(32), nullable=False, default="1.0", server_default="1.0")
     endpoint: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
@@ -27,6 +27,10 @@ class ConnectorConfigModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     metadata_: Mapped[Optional[dict[str, Any]]] = mapped_column("metadata", JSONB, nullable=True)
 
     __table_args__ = (
+        # Phase 10.31 (ADR-120): migrated indexes declared by their migrated names;
+        # unmigrated index=True markers removed (ADR-114 pattern). No DB change.
+        Index("idx_connector_name", "name", unique=True),
+        Index("idx_connector_status", "status"),
         Index("idx_connector_configs_type", "connector_type"),
         Index("idx_connector_configs_active", "is_active"),
     )

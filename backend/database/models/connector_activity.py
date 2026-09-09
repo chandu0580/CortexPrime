@@ -14,20 +14,25 @@ from backend.database.models.mixins import TimestampMixin, UUIDPrimaryKeyMixin
 class ConnectorActivityModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "connector_activity"
 
-    connector_name: Mapped[str] = mapped_column(String(256), nullable=False, index=True)
-    connector_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    operation: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    connector_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    connector_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    operation: Mapped[str] = mapped_column(String(64), nullable=False)
     resource: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
     resource_id: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
-    status: Mapped[str] = mapped_column(String(32), nullable=False, default="success", server_default="success", index=True)
-    initiated_by: Mapped[Optional[str]] = mapped_column(String(256), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="success", server_default="success")
+    initiated_by: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
     duration_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    request_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
-    correlation_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
+    request_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    correlation_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
     message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     metadata_: Mapped[Optional[Dict[str, Any]]] = mapped_column("metadata", JSONB, nullable=True, default=dict)
 
     __table_args__ = (
+        # Phase 10.31 (ADR-120): migrated indexes declared by their migrated names;
+        # unmigrated index=True markers removed (ADR-114 pattern). No DB change.
+        Index("idx_ca_connector_name", "connector_name"),
+        Index("idx_ca_request_id", "request_id"),
+        Index("idx_ca_correlation_id", "correlation_id"),
         Index("idx_ca_connector_type_created", "connector_type", "created_at"),
         Index("idx_ca_status_created", "status", "created_at"),
         Index("idx_ca_operation_created", "operation", "created_at"),

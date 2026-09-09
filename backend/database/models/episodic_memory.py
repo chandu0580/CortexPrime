@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Index, String, Text
+from sqlalchemy import Index, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -35,8 +35,8 @@ class EpisodicMemoryRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     __tablename__ = "episodic_memory"
 
-    session_id: Mapped[str]                  = mapped_column(String(255), nullable=False, index=True)
-    agent:      Mapped[str]                  = mapped_column(String(128), nullable=False, index=True)
+    session_id: Mapped[str]                  = mapped_column(String(255), nullable=False)
+    agent:      Mapped[str]                  = mapped_column(String(128), nullable=False)
     event_type: Mapped[str]                  = mapped_column(String(64),  nullable=False)
     content:    Mapped[str]                  = mapped_column(Text,        nullable=False)
     embedding:  Mapped[Optional[list]]       = mapped_column(Vector(_EMBED_DIM), nullable=True)
@@ -48,9 +48,14 @@ class EpisodicMemoryRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # Composite + vector indexes
     # -----------------------------------------------------------------------
     __table_args__ = (
+        # Phase 10.31 (ADR-120): migrated indexes declared by their migrated names;
+        # unmigrated index=True markers removed (ADR-114 pattern). No DB change.
+        Index("idx_ep_embedding", "embedding", postgresql_using="ivfflat", postgresql_ops={"embedding": "vector_cosine_ops"}, postgresql_with={"lists": 100}),
+        Index("idx_ep_content_fts", text("to_tsvector('english'::regconfig, content)"), postgresql_using="gin"),
         Index("idx_ep_session_created", "session_id", "created_at"),
         Index("idx_ep_agent_created",   "agent",      "created_at"),
-        # IVFFlat index is created via Alembic / init.sql — not expressible in DDL here
+        # The IVFFlat and GIN indexes are created by migration 0001 and mirrored here
+        # exactly (ADR-120) so autogenerate can never propose dropping them.
     )
 
     def to_dict(self) -> Dict[str, Any]:

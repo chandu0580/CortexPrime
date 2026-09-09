@@ -18,11 +18,11 @@ class ExecutionModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "executions"
 
     mission_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("missions_bc.id", ondelete="SET NULL"), nullable=True, index=True
+        UUID(as_uuid=True), ForeignKey("missions_bc.id", ondelete="SET NULL"), nullable=True
     )
-    execution_id: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
-    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", server_default="pending", index=True)
-    agent: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, index=True)
+    execution_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", server_default="pending")
+    agent: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     trigger: Mapped[str] = mapped_column(String(64), nullable=False, default="manual", server_default="manual")
     context: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
     result: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
@@ -32,6 +32,9 @@ class ExecutionModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     duration_ms: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     __table_args__ = (
+        # Phase 10.31 (ADR-120): migrated indexes declared by their migrated names;
+        # unmigrated index=True markers removed (ADR-114 pattern). No DB change.
+        Index("idx_exec_id", "execution_id", unique=True),
         Index("idx_exec_mission", "mission_id"),
         Index("idx_exec_status", "status", "created_at"),
         Index("idx_exec_agent", "agent"),
@@ -42,7 +45,7 @@ class ExecutionModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 class ExecutionEventModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "execution_events"
 
-    execution_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    execution_id: Mapped[str] = mapped_column(String(128), nullable=False)
     event_type: Mapped[str] = mapped_column(String(64), nullable=False)
     phase: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     agent: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)

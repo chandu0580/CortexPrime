@@ -42,10 +42,9 @@ class RuntimeAnalyticsRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     mission_id:    Mapped[Optional[uuid.UUID]] = mapped_column(
         ForeignKey("missions.id", ondelete="SET NULL"),
         nullable=True,
-        index=True,
     )
-    session_id:    Mapped[Optional[str]]            = mapped_column(String(255), nullable=True, index=True)
-    agent:         Mapped[str]                      = mapped_column(String(128), nullable=False, index=True)
+    session_id:    Mapped[Optional[str]]            = mapped_column(String(255), nullable=True)
+    agent:         Mapped[str]                      = mapped_column(String(128), nullable=False)
     event_type:    Mapped[str]                      = mapped_column(String(64),  nullable=False)
     model:         Mapped[Optional[str]]            = mapped_column(String(128), nullable=True)
     prompt_tokens: Mapped[Optional[int]]            = mapped_column(Integer,     nullable=True)
@@ -57,6 +56,9 @@ class RuntimeAnalyticsRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     payload:       Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB,       nullable=True, default=dict)
 
     __table_args__ = (
+        # Phase 10.31 (ADR-120): migrated indexes declared by their migrated names;
+        # unmigrated index=True markers removed (ADR-114 pattern). No DB change.
+        Index("idx_analytics_session", "session_id"),
         Index("idx_analytics_agent_created",   "agent",      "created_at"),
         Index("idx_analytics_mission_created", "mission_id", "created_at"),
         Index("idx_analytics_event_type",      "event_type"),

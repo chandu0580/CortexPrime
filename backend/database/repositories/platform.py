@@ -15,25 +15,33 @@ from backend.database.repositories.base import BaseRepository
 class FeatureFlagModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "platform_feature_flags"
 
-    name: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     is_system: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     metadata_: Mapped[Optional[dict[str, Any]]] = mapped_column("metadata", JSONB, nullable=True)
 
-    __table_args__ = (Index("idx_platform_ff_enabled", "enabled"),)
+    __table_args__ = (
+        # Phase 10.31 (ADR-120): migrated indexes declared by their migrated names;
+        # unmigrated index=True markers removed (ADR-114 pattern). No DB change.
+        Index("idx_platform_ff_name", "name", unique=True),
+        Index("idx_platform_ff_enabled", "enabled"),)
 
 
 class PlatformSettingModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "platform_settings"
 
-    key: Mapped[str] = mapped_column(String(256), nullable=False, unique=True, index=True)
+    key: Mapped[str] = mapped_column(String(256), nullable=False)
     value: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    category: Mapped[str] = mapped_column(String(64), nullable=False, default="general", server_default="general", index=True)
+    category: Mapped[str] = mapped_column(String(64), nullable=False, default="general", server_default="general")
     is_encrypted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
 
-    __table_args__ = (Index("idx_platform_settings_category", "category"),)
+    __table_args__ = (
+        # Phase 10.31 (ADR-120): migrated indexes declared by their migrated names;
+        # unmigrated index=True markers removed (ADR-114 pattern). No DB change.
+        Index("idx_platform_settings_key", "key", unique=True),
+        Index("idx_platform_settings_category", "category"),)
 
 
 class FeatureFlagRepository(BaseRepository[FeatureFlagModel]):
