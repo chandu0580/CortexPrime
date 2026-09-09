@@ -306,10 +306,28 @@ def main() -> None:
 
 
 def _organizations_is_a_different_concept() -> bool:
-    """Part B: prove semantic inequivalence rather than assume it."""
-    import ast
+    """Part B: prove semantic inequivalence rather than assume it.
 
-    src = Path("backend/database/models/organization.py").read_text(encoding="utf-8")
+    Phase 10.29 (ADR-119) retired the V1 organizational directory. On a tree
+    where the model is gone, the property is proven by execution in the
+    stronger form: no ``organization`` module resolves under
+    ``backend.database.models`` and no tracked backend file declares an
+    ``organizations`` table -- there is no V1 organization concept left to
+    confuse with a tenant. A missing file alone is NOT accepted as proof.
+    """
+    import ast
+    import importlib.util
+
+    model = Path("backend/database/models/organization.py")
+    if not model.exists():
+        spec = importlib.util.find_spec("backend.database.models.organization")
+        declares_table = [
+            p for p in Path("backend").rglob("*.py")
+            if "__tablename__ = \"organizations\"" in p.read_text(encoding="utf-8", errors="ignore")
+        ]
+        return spec is None and not declares_table
+
+    src = model.read_text(encoding="utf-8")
     tree = ast.parse(src)
     columns = {n.targets[0].id for n in ast.walk(tree)
                if isinstance(n, ast.AnnAssign) is False

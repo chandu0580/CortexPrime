@@ -3647,163 +3647,19 @@ Shortest path(s) between two agents.
 
 ## 34. Health Center – `/api/operations/health-center`
 
-### GET `/api/operations/health-center`
-
-Health dashboard.
-
-**Auth:** `require_user`
-
----
-
-### GET `/api/operations/health-center/snapshot`
-
-Save a health snapshot.
-
-**Auth:** `require_user`
-
----
-
-### GET `/api/operations/health-center/history`
-
-Snapshot history.
-
-**Auth:** `require_user`
-
-| Query | Type | Default |
-|-------|------|---------|
-| `limit` | `int` | `50` |
-
----
-
-### GET `/api/operations/health-center/status`
-
-Cached status.
-
-**Auth:** `require_user`
-
----
+> **Retired in Phase 10.29 (ADR-119).** The Health Center (enterprise operations) API/model surface was removed from the repository. Discovery (Phases 10.23, 10.27, 10.28) found no production consumer, no frontend client, no operator workflow and no table on any database; the routes had been mounted at `/api/api/…` since their introduction and answered `UndefinedTableError` on every migration-built database. The historical description is preserved in git history and in `docs/PHASE_10_27_GA_SURFACE_DECISION_DISCOVERY.md`.
 
 ## 35. Backup – `/api/operations/backup`
 
-### POST `/api/operations/backup/create`
+> **Retired in Phase 10.29 (ADR-119).** The enterprise Backup & Restore API/model surface was removed from the repository. Discovery (Phases 10.23, 10.27, 10.28) found no production consumer, no frontend client, no operator workflow and no table on any database; the routes had been mounted at `/api/api/…` since their introduction and answered `UndefinedTableError` on every migration-built database. The historical description is preserved in git history and in `docs/PHASE_10_27_GA_SURFACE_DECISION_DISCOVERY.md`.
 
-Create a backup of specified entities.
-
-**Auth:** `require_user`
-
-**Request** (`BackupCreateRequest`):
-| Field | Type | Required |
-|-------|------|----------|
-| `entities` | `list[str]` | ✓ |
-
----
-
-### POST `/api/operations/backup/restore`
-
-Restore from a backup.
-
-**Auth:** `require_user`
-
-**Request** (`BackupRestoreRequest`):
-| Field | Type | Required |
-|-------|------|----------|
-| `backup_id` | `str` | ✓ |
-| `entities` | `list[str]` | |
-
----
-
-### POST `/api/operations/backup/verify`
-
-Verify a backup's integrity.
-
-**Auth:** `require_user`
-
-**Request:** `BackupRestoreRequest`
-
----
-
-### POST `/api/operations/backup/rollback`
-
-Rollback to a backup.
-
-**Auth:** `require_user`
-
-**Request:** `BackupRestoreRequest`
-
----
-
-### GET `/api/operations/backup/list`
-
-List backups.
-
-**Auth:** `require_user`
-
-| Query | Type | Default |
-|-------|------|---------|
-| `limit` | `int` | `50` |
-
----
-
-### GET `/api/operations/backup/entities`
-
-List supported entity types for backup.
-
-**Auth:** `require_user`
-
----
+GA database backup and disaster recovery are unaffected: `scripts/backup-database.sh` and the Helm `backup-cronjob.yaml` (`pg_dump`, retention, S3 rotation) never used this API — see the Administrator Guide §11 and the Disaster Recovery Runbook §2.
 
 ## 36. Maintenance – `/api/operations/maintenance`
 
-### POST `/api/operations/maintenance/enable`
+> **Retired in Phase 10.29 (ADR-119).** The Maintenance Mode API/model surface was removed from the repository. Discovery (Phases 10.23, 10.27, 10.28) found no production consumer, no frontend client, no operator workflow and no table on any database; the routes had been mounted at `/api/api/…` since their introduction and answered `UndefinedTableError` on every migration-built database. The historical description is preserved in git history and in `docs/PHASE_10_27_GA_SURFACE_DECISION_DISCOVERY.md`.
 
-Enable maintenance mode.
-
-**Auth:** `require_admin`
-
-**Request** (`MaintenanceEnableRequest`):
-| Field | Type | Required | Default |
-|-------|------|----------|---------|
-| `banner_message` | `str` | | |
-| `allow_existing_missions` | `bool` | | `true` |
-| `block_new_missions` | `bool` | | `true` |
-
----
-
-### POST `/api/operations/maintenance/disable`
-
-Disable maintenance mode.
-
-**Auth:** `require_admin`
-
----
-
-### GET `/api/operations/maintenance/status`
-
-Get maintenance status.
-
-**Auth:** `require_user`
-
----
-
-### GET `/api/operations/maintenance/banner`
-
-Get maintenance banner message.
-
-**Auth:** `require_user`
-
----
-
-### GET `/api/operations/maintenance/events`
-
-Get maintenance event history.
-
-**Auth:** `require_user`
-
-| Query | Type | Default |
-|-------|------|---------|
-| `limit` | `int` | `100` |
-
----
+`should_block_new_mission()` was never called by the mission runtime; maintenance state never affected mission admission (Phase 10.28 census).
 
 ## 37. Diagnostics – `/api/operations/diagnostics`
 
@@ -3825,39 +3681,7 @@ Download diagnostics as a JSON file attachment.
 
 ## 38. Operational Reports – `/api/operations/reports`
 
-### POST `/api/operations/reports/generate`
-
-Generate an operational report.
-
-**Auth:** `require_user`
-
-**Request** (`ReportGenerateRequest`):
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `report_type` | `str` | ✓ | One of: `daily`, `weekly`, `monthly` |
-
----
-
-### GET `/api/operations/reports/list`
-
-List generated reports.
-
-**Auth:** `require_user`
-
-| Query | Type | Default |
-|-------|------|---------|
-| `report_type` | `str` | |
-| `limit` | `int` | `50` |
-
----
-
-### GET `/api/operations/reports/{report_id}`
-
-Get a specific report.
-
-**Auth:** `require_user`
-
----
+> **Retired in Phase 10.29 (ADR-119).** The Operational Reports API/model surface was removed from the repository. Discovery (Phases 10.23, 10.27, 10.28) found no production consumer, no frontend client, no operator workflow and no table on any database; the routes had been mounted at `/api/api/…` since their introduction and answered `UndefinedTableError` on every migration-built database. The historical description is preserved in git history and in `docs/PHASE_10_27_GA_SURFACE_DECISION_DISCOVERY.md`.
 
 ## 39. Root Routes
 

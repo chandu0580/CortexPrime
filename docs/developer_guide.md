@@ -27,12 +27,8 @@ cortexprime/
 │   │   ├── auth_routes.py
 │   │   ├── mission_replay_routes.py
 │   │   ├── enterprise_replay_routes.py
-│   │   ├── health_center_routes.py
 │   │   ├── system_health_routes.py
 │   │   ├── diagnostics_routes.py
-│   │   ├── backup_routes.py
-│   │   ├── maintenance_routes.py
-│   │   ├── operational_reports_routes.py
 │   │   ├── approval_center_routes.py
 │   │   └── ... (30+ route files)
 │   ├── auth/                   # Authentication subsystem

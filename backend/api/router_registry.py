@@ -1436,24 +1436,9 @@ def register_all_routers(app: FastAPI) -> Dict[str, bool]:
         availability["audit"] = False
         log.warning("audit_routes not available: %s", exc)
 
-    try:
-        from backend.api.backup_routes import router as backup_router
-        app.include_router(backup_router, prefix="/api")
-        log.info("Backup routes registered at /api/backup")
-        availability["backup"] = True
-    except Exception as exc:
-        availability["backup"] = False
-        log.warning("backup_routes not available: %s", exc)
-
-    try:
-        from backend.api.department_routes import router as department_router
-        app.include_router(department_router, prefix="/api")
-        log.info("Department routes registered at /api/departments")
-        availability["department"] = True
-    except Exception as exc:
-        availability["department"] = False
-        log.warning("department_routes not available: %s", exc)
-
+    # Phase 10.29 (ADR-119): the organizational-directory routers (organization,
+    # department, project, organization_department) and the enterprise-operations
+    # routers (backup, health_center, maintenance, operational_reports) were retired.
     try:
         from backend.api.diagnostics_routes import router as diagnostics_router
         app.include_router(diagnostics_router, prefix="/api")
@@ -1464,51 +1449,6 @@ def register_all_routers(app: FastAPI) -> Dict[str, bool]:
         log.warning("diagnostics_routes not available: %s", exc)
 
     try:
-        from backend.api.health_center_routes import router as health_center_router
-        app.include_router(health_center_router, prefix="/api")
-        log.info("Health Center routes registered at /api/health-center")
-        availability["health_center"] = True
-    except Exception as exc:
-        availability["health_center"] = False
-        log.warning("health_center_routes not available: %s", exc)
-
-    try:
-        from backend.api.maintenance_routes import router as maintenance_router
-        app.include_router(maintenance_router, prefix="/api")
-        log.info("Maintenance routes registered at /api/maintenance")
-        availability["maintenance"] = True
-    except Exception as exc:
-        availability["maintenance"] = False
-        log.warning("maintenance_routes not available: %s", exc)
-
-    try:
-        from backend.api.operational_reports_routes import router as operational_reports_router
-        app.include_router(operational_reports_router, prefix="/api")
-        log.info("Operational Reports routes registered at /api/operational-reports")
-        availability["operational_reports"] = True
-    except Exception as exc:
-        availability["operational_reports"] = False
-        log.warning("operational_reports_routes not available: %s", exc)
-
-    try:
-        from backend.api.organization_routes import router as organization_router
-        app.include_router(organization_router, prefix="/api")
-        log.info("Organization routes registered at /api/organization")
-        availability["organization"] = True
-    except Exception as exc:
-        availability["organization"] = False
-        log.warning("organization_routes not available: %s", exc)
-
-    try:
-        from backend.api.project_routes import router as project_router
-        app.include_router(project_router, prefix="/api")
-        log.info("Project routes registered at /api/projects")
-        availability["project"] = True
-    except Exception as exc:
-        availability["project"] = False
-        log.warning("project_routes not available: %s", exc)
-
-    try:
         from backend.api.vcs_routes import router as vcs_router
         app.include_router(vcs_router)
         log.info("VCS routes registered at /api/vcs")
@@ -1516,15 +1456,6 @@ def register_all_routers(app: FastAPI) -> Dict[str, bool]:
     except Exception as exc:
         availability["vcs"] = False
         log.warning("vcs_routes not available: %s", exc)
-
-    try:
-        from backend.api.organization_department_routes import router as organization_department_router
-        app.include_router(organization_department_router)
-        log.info("Organization Department routes registered at /api/organization/departments")
-        availability["organization_department"] = True
-    except Exception as exc:
-        availability["organization_department"] = False
-        log.warning("organization_department_routes not available: %s", exc)
 
     try:
         from backend.api.enterprise_cognition_routes import router as cognition_router

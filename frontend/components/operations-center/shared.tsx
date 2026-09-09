@@ -5,7 +5,6 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
   LayoutDashboard,
-  Building2,
   Users,
   ShieldCheck,
   Brain,
@@ -15,7 +14,6 @@ import {
   Terminal,
   FileKey,
   RefreshCw,
-  HardDrive,
   ClipboardList,
   Search,
   Bell,
@@ -126,7 +124,6 @@ interface CodeBlockProps {
 
 const NAV: NavItem[] = [
   { icon: LayoutDashboard, label: "Dashboard", href: "/operations" },
-  { icon: Building2, label: "Organizations", href: "/operations/organizations" },
   { icon: Users, label: "Users", href: "/operations/users" },
   { icon: ShieldCheck, label: "Roles & Permissions", href: "/operations/roles" },
   { icon: Brain, label: "AI Models", href: "/operations/models" },
@@ -136,7 +133,6 @@ const NAV: NavItem[] = [
   { icon: Terminal, label: "Runtime", href: "/operations/runtime" },
   { icon: FileKey, label: "Licensing", href: "/operations/licensing" },
   { icon: RefreshCw, label: "Platform Updates", href: "/operations/updates" },
-  { icon: HardDrive, label: "Backup & Restore", href: "/operations/backup" },
   { icon: ClipboardList, label: "Audit", href: "/operations/audit" },
 ]
 

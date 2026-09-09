@@ -110,15 +110,16 @@ LEGACY_PERSISTENCE_MODELS: tuple = (
     LegacyPersistenceModel(
         location="backend/database/models/mission_replay.py",
         owner="V1 mission replay",
-        callers="mission replay routes",
+        callers="event bus (every V1 event), mission replay routes, "
+        "enterprise replay routes, governance centre timeline",
         tenant_model="none",
         transaction_behaviour="per-call session",
-        decision=PersistenceDecision.REPLACE,
-        migration_risk="low",
-        note="Replay in the governed fabric reconstructs facts from the "
-        "execution record and the outbox, both of which are durable as of "
-        "Phase 5.1 and neither of which this table feeds. Superseded in "
-        "substance already.",
+        decision=PersistenceDecision.KEEP,
+        migration_risk="none; migration 0025 owns the table",
+        note="ADR-118 (Phase 10.25/10.26): PostgreSQL is the durable layer "
+        "behind the 72 h Redis window and is owned by migration 0025. The "
+        "earlier REPLACE verdict named a governed replay that serves none of "
+        "the shipped replay routes; it is recorded there as superseded.",
     ),
     # ------------------------------------------------------------------
     # Keep — genuinely different subsystems, not on the authority path
@@ -136,18 +137,11 @@ LEGACY_PERSISTENCE_MODELS: tuple = (
         "deliberately reused it rather than building a second audit system, and "
         "Phase 5.2 does the same.",
     ),
-    LegacyPersistenceModel(
-        location="backend/database/models/organization.py, department.py, project.py",
-        owner="IAM / org structure",
-        callers="IAM routes and services",
-        tenant_model="these tables largely *define* tenancy",
-        transaction_behaviour="per-call session",
-        decision=PersistenceDecision.KEEP,
-        migration_risk="high; identity depends on them",
-        note="Organisational structure is not execution state. Moving it into "
-        "the execution fabric would put identity inside the thing identity "
-        "governs.",
-    ),
+    # Retired in Phase 10.29 (ADR-119): organization.py, department.py and
+    # project.py -- the V1 organizational directory. Their KEEP entry rested on
+    # IAM (retired, ADR-107) and on "defining tenancy" (rejected, ADR-103); no
+    # migration ever created the tables, no client reached the routes, and no
+    # runtime, governance or tenant path read them.
     LegacyPersistenceModel(
         location="backend/database/models/cost_tracking.py, cost_intelligence.py",
         owner="cost intelligence",
@@ -173,10 +167,12 @@ LEGACY_PERSISTENCE_MODELS: tuple = (
         "path regardless of where it is stored.",
     ),
     LegacyPersistenceModel(
-        location="backend/database/models/health_status.py, maintenance_event.py, "
-        "operational_report.py, runtime_analytics.py",
+        # Phase 10.29 (ADR-119): health_status.py, maintenance_event.py and
+        # operational_report.py were retired with the enterprise-operations API;
+        # runtime_analytics.py stays.
+        location="backend/database/models/runtime_analytics.py",
         owner="operations and reporting",
-        callers="dashboards and health routes",
+        callers="dashboards, analytics routes",
         tenant_model="none",
         transaction_behaviour="per-call session",
         decision=PersistenceDecision.KEEP,
@@ -222,17 +218,9 @@ LEGACY_PERSISTENCE_MODELS: tuple = (
         migration_risk="low",
         note="Model-driven reflection output. Proposes, never authorizes.",
     ),
-    LegacyPersistenceModel(
-        location="backend/database/models/backup_record.py",
-        owner="backup service",
-        callers="``backup_service``",
-        tenant_model="none",
-        transaction_behaviour="per-call session",
-        decision=PersistenceDecision.STRANGLER,
-        migration_risk="medium; it records where backups went",
-        note="Operational metadata. Kept until the backup subsystem is "
-        "revisited; nothing in the execution fabric reads it.",
-    ),
+    # Retired in Phase 10.29 (ADR-119): backup_record.py and the enterprise
+    # backup API. GA backup/DR is scripts/backup-database.sh and the Helm
+    # backup CronJob (pg_dump), which never used this table.
     # ------------------------------------------------------------------
     # The one that needs a decision rather than a migration
     # ------------------------------------------------------------------
