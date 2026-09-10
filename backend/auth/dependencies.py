@@ -17,6 +17,30 @@ from backend.auth.jwt_handler import decode_access_token
 bearer = HTTPBearer(auto_error=False)
 
 
+async def verify_request_token(
+    authorization: Optional[str],
+    cortex_access: Optional[str],
+) -> Optional[dict]:
+    """Verify one access token from a raw ``Authorization`` header or the cookie.
+
+    Phase 11.1. This is the single verification used by every dependency below
+    AND by the authentication perimeter (``backend.safety.auth_perimeter``), so
+    the edge and the routes cannot disagree about what a valid token is:
+    signature and expiry via ``decode_access_token``, then the revocation list.
+    Returns the claims, or ``None`` for anything that is not a live token.
+    """
+    token: Optional[str] = None
+    if authorization:
+        scheme, _, value = authorization.partition(" ")
+        if scheme.lower() == "bearer" and value.strip():
+            token = value.strip()
+    if not token and cortex_access:
+        token = cortex_access
+    if not token:
+        return None
+    return await _verify_token(token)
+
+
 async def _decode_and_verify(
     creds: Optional[HTTPAuthorizationCredentials],
     cortex_access: Optional[str],
@@ -30,6 +54,10 @@ async def _decode_and_verify(
 
     if not token:
         return None
+    return await _verify_token(token)
+
+
+async def _verify_token(token: str) -> Optional[dict]:
 
     payload = decode_access_token(token)
     if not payload:

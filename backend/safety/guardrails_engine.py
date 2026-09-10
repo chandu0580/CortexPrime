@@ -344,15 +344,19 @@ class ToolCallGuardrail:
                     ViolationType.UNSAFE_TOOL_CALL, "blocked_domain",
                     f"Outbound request to blocked domain: {url[:120]}", 0.98, "tool",
                 )
-        # SSRF protection — block requests to private/loopback ranges
-        _ssrf = re.compile(
-            r"https?://(localhost|127\.|0\.0\.0\.0|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|::1|fd[0-9a-f]{2}:)",
-            re.IGNORECASE,
-        )
-        if _ssrf.match(url):
+        # SSRF protection. Phase 11.1: judged by parsing, not by a prefix
+        # regex -- the regex missed decimal/hex/octal spellings, IPv4-mapped
+        # IPv6, fe80::, carrier-grade NAT, unsupported schemes and embedded
+        # credentials. This is the synchronous, literal-only judgement (no DNS
+        # here: this runs inside request middleware); the request boundary
+        # itself (``backend.safety.outbound_guard``) resolves and pins.
+        from backend.safety.outbound_guard import judge_outbound_url
+
+        judgement = judge_outbound_url(url, resolve=False)
+        if not judgement.allowed:
             return _block(
                 ViolationType.UNSAFE_TOOL_CALL, "ssrf_private_ip",
-                f"SSRF attempt blocked: {url[:80]}", 0.95, "tool",
+                f"SSRF attempt blocked ({judgement.reason}): {url[:80]}", 0.95, "tool",
             )
         return _ALLOW
 

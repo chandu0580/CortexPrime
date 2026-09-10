@@ -10,6 +10,7 @@ import {
   Brain,
   ChevronLeft,
   ChevronRight,
+  ClipboardCheck,
   Globe,
   Home,
   MessageSquare,
@@ -18,6 +19,7 @@ import {
   Puzzle,
   RefreshCw,
   Search,
+  SearchCheck,
   Settings,
   Shield,
   Target,
@@ -37,6 +39,10 @@ const NAV = [
   { href: "/operator",         label: "Computer Use", icon: Monitor      },
   { href: "/operator",         label: "Browser",      icon: Globe        },
   { href: "/replay",           label: "Replay",       icon: Archive      },
+  // Phase 11.1: the governed product surface (Phases 10.1-10.4, verified
+  // against the product API). Read-only investigator and the approval inbox.
+  { href: "/investigator",     label: "Investigator", icon: SearchCheck  },
+  { href: "/approvals",        label: "Approvals",    icon: ClipboardCheck },
   { href: "/analytics",        label: "Analytics",    icon: BarChart2    },
   { href: "/governance",       label: "Governance",   icon: Shield       },
   { href: "/system-status",    label: "Monitoring",   icon: Activity     },

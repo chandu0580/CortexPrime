@@ -212,6 +212,53 @@ LEGACY_EXECUTION_SURFACES: tuple = (
         "browser/computer actions",
         gated=True,
     ),
+    # ------------------------------------------------------------------
+    # Phase 11.1 (ADR-121): surfaces the Phase 9.11 "0 ungated surfaces"
+    # census did not see, because they never mentioned execution by name.
+    # Found by reading every POST on the infrastructure, GitHub and approval
+    # centre routers for what it reaches, not what it is called.
+    # ------------------------------------------------------------------
+    LegacyExecutionSurface(
+        route="POST /api/infrastructure/terraform/{init,plan,apply,destroy,workspaces/select}",
+        module="backend.api.enterprise_infrastructure_routes",
+        reaches="the terraform connector: a terraform subprocess against the "
+        "deployment's working directory and real cloud providers (apply and "
+        "destroy are irreversible)",
+        gap="until this phase: no authentication of any kind, no tenant, no "
+        "capability, no approval, no audit; caller-chosen workspace and var "
+        "file",
+        gated=True,
+    ),
+    LegacyExecutionSurface(
+        route="POST /api/infrastructure/argocd/applications/{name}/{sync,refresh,rollback}",
+        module="backend.api.enterprise_infrastructure_routes",
+        reaches="the ArgoCD connector: syncs and rolls back live applications",
+        gap="until this phase: no authentication, no tenant, no capability, no "
+        "approval; caller-chosen application and revision",
+        gated=True,
+    ),
+    LegacyExecutionSurface(
+        route="POST /api/github/{translate,launch-mission}",
+        module="backend.api.enterprise_github_routes",
+        reaches="the enterprise engineering executive: creates a task, plans it "
+        "and executes the plan from a caller-supplied webhook payload",
+        gap="until this phase: no authentication; the payload -- commit "
+        "messages, PR titles -- became the mission objective verbatim, which is "
+        "untrusted text becoming an instruction",
+        gated=True,
+    ),
+    LegacyExecutionSurface(
+        route="POST /api/approval-center/workflows[/{id}/{approve,reject,delegate,break-glass}]",
+        module="backend.api.approval_center_routes",
+        reaches="the V1 approval workflow engine and, through "
+        "enterprise_approval_action_dispatcher, the deploy-rollback, "
+        "vulnerability-fix, branch-protection, docker-health and cost-anomaly "
+        "executors (real provider writes)",
+        gap="a second approval authority beside cp_approval (ADR-090/113): "
+        "in-memory, no tenant, no action digest, and until this phase the "
+        "approver identity was a query parameter the caller chose",
+        gated=True,
+    ),
 )
 
 

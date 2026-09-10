@@ -7,6 +7,7 @@ import pytest
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from backend.database.tenancy import get_current_tenant
 from backend.identity.tenant.tenant_context import (
     TenantContext,
     TenantContextMiddleware,
@@ -64,7 +65,11 @@ class TestTenantContextMiddleware:
         assert response.status_code == 200
 
     @pytest.mark.asyncio
-    async def test_sets_tenant_from_header(self, middleware):
+    async def test_header_alone_never_sets_tenant(self, middleware):
+        # Phase 11.1 (ADR-121): X-Tenant-ID used to be copied straight into the
+        # tenant context (and from there into the Redis key namespace) with no
+        # token in front of it. An unauthenticated header now sets nothing.
+        seen = {}
         scope = {
             "type": "http",
             "method": "GET",
@@ -72,10 +77,38 @@ class TestTenantContextMiddleware:
             "headers": [(b"x-tenant-id", b"tenant-123")],
         }
         request = Request(scope)
-        async def _ok(_req):
+        async def _ok(req):
+            seen["ctx"] = req.state.tenant_context
+            seen["db"] = get_current_tenant()
             return JSONResponse({"ok": True})
         await middleware.dispatch(request, _ok)
-        ctx = get_current_tenant_context()
-        if ctx:
-            assert ctx.tenant_id == "tenant-123"
-        set_current_tenant_context(None)
+        assert seen["ctx"].tenant_id is None
+        assert seen["ctx"].user_id is None
+        assert seen["db"] is None
+        assert get_current_tenant_context() is None
+
+    @pytest.mark.asyncio
+    async def test_tenant_comes_from_the_verified_token(self, middleware):
+        import os
+        os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret-for-pytest-suite-do-not-use-in-prod")
+        from backend.auth.jwt_handler import create_access_token
+        tenant = str(uuid.uuid4())
+        token = create_access_token(user_id="alice", role="operator", tenant_id=tenant)
+        seen = {}
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/test",
+            "headers": [(b"authorization", f"Bearer {token}".encode()),
+                        (b"x-tenant-id", b"someone-elses-tenant")],
+        }
+        request = Request(scope)
+        async def _ok(req):
+            seen["ctx"] = req.state.tenant_context
+            seen["db"] = get_current_tenant()
+            return JSONResponse({"ok": True})
+        await middleware.dispatch(request, _ok)
+        assert seen["ctx"].user_id == "alice"
+        assert seen["ctx"].tenant_id == tenant       # the token, not the header
+        assert seen["db"] == uuid.UUID(tenant)
+        assert get_current_tenant() is None           # cleared after the request

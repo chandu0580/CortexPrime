@@ -9,9 +9,22 @@ from backend.main import app
 
 @pytest.fixture
 async def client():
+    # Phase 11.1: backend.main is behind a default-deny authentication
+    # perimeter, so the client carries a verified operator token and the
+    # revocation list is mocked as "not revoked" (no Redis in unit tests).
+    from unittest.mock import AsyncMock, patch
+
+    from backend.auth.jwt_handler import create_access_token
+
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(return_value=None)
+    token = create_access_token(user_id="llm-api-test", role="operator")
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        yield ac
+    with patch("backend.auth.token_blacklist.TokenBlacklist._get_redis",
+               new_callable=AsyncMock, return_value=mock_redis):
+        async with AsyncClient(transport=transport, base_url="http://test",
+                               headers={"Authorization": f"Bearer {token}"}) as ac:
+            yield ac
 
 
 @pytest.mark.asyncio

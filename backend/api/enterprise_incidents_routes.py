@@ -12,9 +12,17 @@ Endpoints:
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
-router = APIRouter(prefix="/api/incidents", tags=["Enterprise Alert Incident Correlation"])
+from backend.auth.dependencies import require_user
+
+# Phase 11.1: incident history is tenant-scoped data held in a tenant-unaware
+# store; it is readable only by a verified identity admitted by the V1 fence.
+router = APIRouter(
+    prefix="/api/incidents",
+    tags=["Enterprise Alert Incident Correlation"],
+    dependencies=[Depends(require_user)],
+)
 
 
 @router.get("")

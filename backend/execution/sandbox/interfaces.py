@@ -136,15 +136,39 @@ class HTTPSandbox(ExecutionSandbox):
         working_directory: Optional[str] = None,
     ) -> SandboxResult:
         import httpx
+        from backend.safety.outbound_guard import OutboundRefused, assert_outbound_url
         method = command.strip().lower()
         url = (inputs or {}).get("url", "")
         headers = (inputs or {}).get("headers", {})
         body = (inputs or {}).get("body", None)
         start = datetime.now(timezone.utc)
+        # Phase 11.1: the URL is mission input -- untrusted -- so it is judged
+        # at this boundary (scheme, credentials, loopback/private/link-local/
+        # metadata, and what the host currently resolves to) and the request is
+        # sent to the judged address with the original Host. Redirects are not
+        # followed: a redirect is a destination nobody judged.
         try:
-            async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+            judgement = assert_outbound_url(str(url))
+        except OutboundRefused as exc:
+            return SandboxResult(
+                success=False, outputs={}, error=f"outbound request refused: {exc.reason}",
+                exit_code=-1, stdout="", stderr=exc.reason, duration_ms=0.0,
+            )
+        try:
+            async with httpx.AsyncClient(timeout=timeout_seconds, follow_redirects=False,
+                                         trust_env=False) as client:
+                pinned = judgement.pinned_addresses[0]
+                literal = f"[{pinned}]" if ":" in pinned else pinned
+                pinned_url = (f"{judgement.scheme}://{literal}:{judgement.port}{judgement.path}"
+                              + (f"?{judgement.query}" if judgement.query else ""))
+                send_headers = {str(k): str(v) for k, v in (headers or {}).items()
+                                if str(k).lower() != "host"}
+                default_port = {"https": 443, "http": 80}.get(judgement.scheme)
+                send_headers["host"] = (judgement.host if judgement.port == default_port
+                                        else f"{judgement.host}:{judgement.port}")
                 response = await client.request(
-                    method=method, url=url, headers=headers,
+                    method=method, url=pinned_url, headers=send_headers,
+                    extensions={"sni_hostname": judgement.host} if judgement.scheme == "https" else {},
                     json=body if isinstance(body, dict) else None,
                     content=body if not isinstance(body, dict) else None,
                 )

@@ -330,6 +330,26 @@ class EnterpriseExecutionSandbox:
 
         try:
             if sbx.repo_url:
+                # Phase 11.1: the repository URL is caller input handed to a
+                # subprocess that dials for itself. Judged first: https only
+                # (no file://, ssh://, git://), no embedded credentials, no
+                # loopback/private/link-local/metadata target, and no host
+                # that currently resolves to one. The residual window (git
+                # re-resolves the hostname) is recorded in ADR-121.
+                from backend.safety.outbound_guard import HTTPS_ONLY, OutboundRefused, assert_outbound_url
+                try:
+                    assert_outbound_url(str(sbx.repo_url), permitted_schemes=HTTPS_ONLY)
+                except OutboundRefused as exc:
+                    sbx.status = "failed"
+                    sbx.logs.append({
+                        "type": "repo_prep",
+                        "message": f"Clone refused: {exc.reason}",
+                        "exit_code": -1,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    })
+                    self._persist()
+                    log.warning("sandbox %s clone refused: %s", sbx.sandbox_id, exc.reason)
+                    return sbx
                 result = await self._run_command(
                     ["git", "clone", "--depth", "1", "-b", sbx.branch, sbx.repo_url, str(repo_dir)],
                     iso_path,

@@ -1385,6 +1385,25 @@ except Exception as _tc_mw_err:
     )
 
 # ==========================================
+# AUTHENTICATION PERIMETER  (Phase 11.1, ADR-121)
+# Default-deny: every request needs a verified
+# access token unless its path is explicitly
+# public or is signed machine ingress whose
+# route verifies the provider secret itself.
+# Also applies the V1 single-tenant fence.
+# Added here so it sits just INSIDE the rate
+# limiter (floods are shed before signature
+# checks) and OUTSIDE everything else.
+# Registration is not optional: a perimeter
+# that fails to install is a boot failure.
+# ==========================================
+
+from backend.safety.auth_perimeter import AuthPerimeterMiddleware
+
+app.add_middleware(AuthPerimeterMiddleware)
+logging.getLogger(__name__).info("Authentication perimeter active (default-deny)")
+
+# ==========================================
 # RATE LIMIT MIDDLEWARE
 # Redis sliding-window rate limiting on all
 # REST routes.  Runs AFTER guardrails so the

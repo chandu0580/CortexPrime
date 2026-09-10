@@ -1,6 +1,10 @@
 """Tests for GET /api/incidents — exposes recent correlated incidents for
 the frontend to display, regardless of which detector's signal opened
-each one."""
+each one.
+
+Phase 11.1: the route requires a verified identity (incident history is
+tenant data held in a tenant-unaware store); the identity is overridden
+here so the tests stay about the route's own behaviour."""
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
@@ -9,15 +13,21 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.api.enterprise_incidents_routes import router
+from backend.auth.dependencies import require_user
 
 
-def _make_client() -> TestClient:
+def _make_client(authenticated: bool = True) -> TestClient:
     app = FastAPI()
     app.include_router(router)
+    if authenticated:
+        app.dependency_overrides[require_user] = lambda: {"sub": "op", "role": "operator"}
     return TestClient(app)
 
 
 class TestListIncidents:
+    def test_requires_authentication(self):
+        assert _make_client(authenticated=False).get("/api/incidents").status_code == 401
+
     def test_returns_recent(self):
         fake_history_store = MagicMock()
         fake_history_store.list_recent.return_value = [

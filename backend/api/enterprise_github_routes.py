@@ -32,14 +32,21 @@ Endpoints:
 """
 from __future__ import annotations
 
-import json
 import logging
 import os
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
+from backend.api.legacy_execution_boundary import guard_legacy_execution
+from backend.auth.dependencies import require_user
+from backend.safety.ingress_boundary import (
+    IngressEnvelope,
+    audit_ingress,
+    bound_body,
+    verify_github_delivery,
+)
 from backend.services.enterprise_github_integration import (
     GITHUB_WEBHOOK_SECRET_ENV,
     BranchIntelligence,
@@ -52,17 +59,22 @@ from backend.services.enterprise_github_integration import (
 )
 
 log = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/github", tags=["Enterprise GitHub Integration"])
+
+# Phase 11.1 (ADR-121): two routers on one prefix, because they authenticate
+# differently. ``router`` is the operator surface -- every route needs a
+# verified access token. ``webhook_router`` is machine ingress: GitHub cannot
+# hold a token, so it proves knowledge of the shared secret with an HMAC, and
+# the ingress boundary refuses anything it cannot verify. Both are registered
+# by ``router_registry``.
+router = APIRouter(
+    prefix="/api/github",
+    tags=["Enterprise GitHub Integration"],
+    dependencies=[Depends(require_user)],
+)
+webhook_router = APIRouter(prefix="/api/github", tags=["Enterprise GitHub Integration"])
 
 
 # ---- Request/Response schemas ----
-
-class WebhookPayload(BaseModel):
-    payload: Dict[str, Any]
-    event_type: str = "push"
-    signature: str = ""
-    secret: str = ""
-
 
 class TranslatePayload(BaseModel):
     event_type: str
@@ -81,35 +93,43 @@ class SyncRequest(BaseModel):
 
 # ---- Webhooks ----
 
-@router.post("/webhook")
+@webhook_router.post("/webhook")
 async def receive_webhook(request: Request):
+    """Receive one GitHub delivery. Verified before it is parsed.
+
+    Phase 11.1: the HMAC is checked by the ingress boundary first; a missing
+    or wrong signature is 401 and an unconfigured secret is 503. Until this
+    phase an unverified delivery was accepted, recorded, emitted onto the
+    event bus and answered 200 with ``verified: false``.
+
+    The former ``POST /webhook/payload`` route, which accepted the *secret in
+    the request body* and so could verify anything a caller chose to sign, is
+    removed rather than fenced: a verification the caller controls is not one.
+    """
+    body = await bound_body(request, source="github.webhook")
+    principal = await verify_github_delivery(request, body)
+    headers = dict(request.headers)
+    secret = os.getenv(GITHUB_WEBHOOK_SECRET_ENV, "")
     try:
-        body = await request.body()
-        headers = dict(request.headers)
-        # The signing secret is server-side configuration (GitHub proves it
-        # knows the secret via the X-Hub-Signature-256 HMAC — it never sends
-        # the secret itself), so it's read from our own environment, never
-        # from the incoming request.
-        secret = os.getenv(GITHUB_WEBHOOK_SECRET_ENV, "")
         result = await github_integration.receive_webhook(body, headers, secret)
-        return result
     except Exception as exc:
-        raise HTTPException(502, f"Webhook processing failed: {exc}")
-
-
-@router.post("/webhook/payload")
-async def receive_webhook_payload(body: WebhookPayload):
-    try:
-        payload_bytes = json.dumps(body.payload).encode()
-        headers = {
-            "X-GitHub-Event": body.event_type,
-            "X-Hub-Signature-256": body.signature,
-            "X-GitHub-Delivery": "",
-        }
-        result = await github_integration.receive_webhook(payload_bytes, headers, body.secret)
-        return result
-    except Exception as exc:
-        raise HTTPException(502, f"Webhook processing failed: {exc}")
+        await audit_ingress(request, outcome="rejected", source="github.webhook",
+                            principal=principal,
+                            event_id=headers.get("x-github-delivery"),
+                            reason=f"delivery could not be processed: {type(exc).__name__}")
+        raise HTTPException(502, "Webhook processing failed")
+    envelope = IngressEnvelope.build(
+        source="github.webhook",
+        event_type=str(result.get("event_type") or headers.get("x-github-event") or "push"),
+        payload=result.get("parsed", {}).get("raw", {}) if isinstance(result.get("parsed"), dict) else {},
+        principal=principal,
+        event_id=str(result.get("delivery_id") or ""),
+    )
+    await audit_ingress(request, outcome="accepted", source="github.webhook",
+                        principal=principal, envelope=envelope,
+                        reason=str(result.get("status") or "verified"))
+    result["ingress"] = envelope.to_dict()
+    return result
 
 
 @router.get("/webhooks")
@@ -122,7 +142,8 @@ async def list_webhooks(limit: int = Query(20, ge=1, le=100)):
 
 # ---- Translate ----
 
-@router.post("/translate")
+@router.post("/translate",
+             dependencies=[Depends(guard_legacy_execution("POST /api/github/translate"))])
 async def translate_event(body: TranslatePayload):
     try:
         result = await github_integration.process_and_wire(body.event_type, body.payload)
@@ -133,7 +154,8 @@ async def translate_event(body: TranslatePayload):
 
 # ---- Mission ----
 
-@router.post("/launch-mission")
+@router.post("/launch-mission",
+             dependencies=[Depends(guard_legacy_execution("POST /api/github/launch-mission"))])
 async def launch_mission(body: LaunchMissionPayload):
     try:
         result = await github_integration.launch_mission_from_webhook(body.event_type, body.payload)

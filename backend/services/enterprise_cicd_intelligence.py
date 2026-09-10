@@ -290,10 +290,19 @@ class GitHubActionsIntegration:
             try:
                 run = await conn.get_workflow_run(owner, repo, run_id)
                 if run and isinstance(run, dict) and "logs_url" in run:
-                    async with httpx.AsyncClient() as client:
-                        resp = await client.get(run["logs_url"])
-                        if resp.status_code == 200:
-                            return resp.text
+                    # Phase 11.1: ``logs_url`` is provider-supplied text that
+                    # reached us through a webhook or an API response, so it is
+                    # fetched through the outbound guard -- host allow-listed
+                    # to GitHub, every redirect hop (GitHub redirects logs to a
+                    # signed blob URL) re-judged, connected by pinned address.
+                    from backend.safety.outbound_guard import guarded_get
+                    resp = await guarded_get(
+                        str(run["logs_url"]),
+                        allowed_hosts=None,
+                        timeout_seconds=30.0,
+                    )
+                    if resp.status_code == 200:
+                        return resp.text
             except Exception as e:
                 log.warning("GitHub Actions logs failed: %s", e)
         return None

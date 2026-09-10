@@ -188,6 +188,19 @@ class WebhookDeliveryStore:
             self._deliveries = self._deliveries[:MAX_WEBHOOK_DELIVERIES]
 
 
+def verify_github_signature(payload: bytes, signature_header: str, secret: str) -> bool:
+    """GitHub's proof of knowledge: ``sha256=HMAC-SHA256(secret, body)``.
+
+    Module-level (Phase 11.1) so the ingress boundary can verify a delivery
+    *before* the receiver parses, records or emits anything, using the same
+    primitive the receiver uses -- one implementation, constant-time compare.
+    """
+    if not signature_header or not secret:
+        return False
+    expected = "sha256=" + hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(signature_header, expected)
+
+
 class WebhookReceiver:
     """Verify GitHub webhook signatures, handle replay protection, and parse events."""
 
@@ -195,10 +208,7 @@ class WebhookReceiver:
         self._delivery_store = WebhookDeliveryStore()
 
     def verify_signature(self, payload: bytes, signature_header: str, secret: str) -> bool:
-        if not signature_header or not secret:
-            return False
-        expected = "sha256=" + hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
-        return hmac.compare_digest(signature_header, expected)
+        return verify_github_signature(payload, signature_header, secret)
 
     @staticmethod
     def _header(headers: Dict[str, str], name: str) -> str:

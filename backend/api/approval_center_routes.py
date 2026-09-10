@@ -5,6 +5,7 @@ from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from backend.api.legacy_execution_boundary import guard_legacy_execution
 from backend.approval_center.models import (
     ApproverRole,
     RiskLevel,
@@ -26,6 +27,29 @@ router = APIRouter(
     tags=["Approval Center"],
     dependencies=[Depends(require_user)],
 )
+
+# Phase 11.1 (ADR-121). This is the V1 approval centre: an in-memory workflow
+# engine with no tenant and no action digest, whose approvals are replayed as
+# real provider writes by ``enterprise_approval_action_dispatcher``. It is a
+# second approval authority beside the governed one (``cp_approval``,
+# ADR-090/113), and the platform may have only one. Reads stay available to a
+# verified identity; every mutation sits behind the legacy execution guard
+# (refused by default) and, when the flag is set for a migration, binds the
+# approver to the *authenticated* principal rather than a query parameter.
+
+
+def _bind_actor(claimed: str, current_user: dict, *, field: str) -> str:
+    """The acting identity is the verified token subject, never a parameter."""
+    subject = str(current_user.get("sub") or "").strip()
+    if not subject:
+        raise HTTPException(status_code=403, detail="the authenticated identity names no principal")
+    if claimed and claimed != subject:
+        raise HTTPException(
+            status_code=403,
+            detail=f"{field} must be the authenticated principal; an approval cannot be "
+                   "recorded on behalf of someone else",
+        )
+    return subject
 
 
 # ------------------------------------------------------------------
@@ -72,7 +96,8 @@ async def get_workflow_detail(workflow_id: str):
     return {"workflow": wf.to_dict()}
 
 
-@router.post("/workflows")
+@router.post("/workflows",
+             dependencies=[Depends(guard_legacy_execution("POST /api/approval-center/workflows"))])
 async def create_workflow(
     execution_id: str,
     mission_id: str,
@@ -113,14 +138,17 @@ async def create_workflow(
     }
 
 
-@router.post("/workflows/{workflow_id}/approve")
+@router.post("/workflows/{workflow_id}/approve",
+             dependencies=[Depends(guard_legacy_execution("POST /api/approval-center/workflows/{id}/approve"))])
 async def approve_step(
     workflow_id: str,
-    approver: str,
     role: str,
+    approver: str = "",
     reason: Optional[str] = None,
+    current_user: dict = Depends(require_user),
 ):
     """Approve the current step of an approval workflow."""
+    approver = _bind_actor(approver, current_user, field="approver")
     try:
         workflow = await approval_workflow_engine.approve_step(
             workflow_id=workflow_id,
@@ -133,13 +161,16 @@ async def approve_step(
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@router.post("/workflows/{workflow_id}/reject")
+@router.post("/workflows/{workflow_id}/reject",
+             dependencies=[Depends(guard_legacy_execution("POST /api/approval-center/workflows/{id}/reject"))])
 async def reject_step(
     workflow_id: str,
-    approver: str,
     reason: str,
+    approver: str = "",
+    current_user: dict = Depends(require_user),
 ):
     """Reject the current step of an approval workflow."""
+    approver = _bind_actor(approver, current_user, field="approver")
     try:
         workflow = await approval_workflow_engine.reject_step(
             workflow_id=workflow_id,
@@ -151,14 +182,17 @@ async def reject_step(
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@router.post("/workflows/{workflow_id}/delegate")
+@router.post("/workflows/{workflow_id}/delegate",
+             dependencies=[Depends(guard_legacy_execution("POST /api/approval-center/workflows/{id}/delegate"))])
 async def delegate_step(
     workflow_id: str,
-    from_user: str,
     to_user: str,
     reason: str,
+    from_user: str = "",
+    current_user: dict = Depends(require_user),
 ):
     """Delegate current approval step to another user."""
+    from_user = _bind_actor(from_user, current_user, field="from_user")
     try:
         workflow = await approval_workflow_engine.delegate(
             workflow_id=workflow_id,
@@ -171,15 +205,18 @@ async def delegate_step(
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@router.post("/workflows/{workflow_id}/break-glass")
+@router.post("/workflows/{workflow_id}/break-glass",
+             dependencies=[Depends(guard_legacy_execution("POST /api/approval-center/workflows/{id}/break-glass"))])
 async def break_glass(
     workflow_id: str,
-    overridden_by: str,
     role: str,
     reason: str,
+    overridden_by: str = "",
     justification: Optional[str] = None,
+    current_user: dict = Depends(require_user),
 ):
     """Activate emergency break-glass override for a workflow."""
+    overridden_by = _bind_actor(overridden_by, current_user, field="overridden_by")
     try:
         workflow = await approval_workflow_engine.break_glass(
             workflow_id=workflow_id,

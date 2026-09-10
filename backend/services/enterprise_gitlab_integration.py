@@ -59,6 +59,17 @@ _GITLAB_WEBHOOK_DELIVERIES_FILE = _DATA_DIR / "gitlab_webhook_deliveries.json"
 GITLAB_WEBHOOK_SECRET_ENV = "GITLAB_WEBHOOK_SECRET"
 
 
+def verify_gitlab_token(token_header: str, secret: str) -> bool:
+    """GitLab's shared secret, sent verbatim in ``X-Gitlab-Token``; constant-time.
+
+    Module-level (Phase 11.1) so the ingress boundary verifies before the
+    receiver parses or records anything. One implementation.
+    """
+    if not token_header or not secret:
+        return False
+    return hmac.compare_digest(token_header, secret)
+
+
 class GitLabWebhookReceiver:
     """Verify GitLab webhook tokens, handle replay protection, and parse deployment events."""
 
@@ -66,9 +77,7 @@ class GitLabWebhookReceiver:
         self._delivery_store = WebhookDeliveryStore(file_path=_GITLAB_WEBHOOK_DELIVERIES_FILE)
 
     def verify_token(self, token_header: str, secret: str) -> bool:
-        if not token_header or not secret:
-            return False
-        return hmac.compare_digest(token_header, secret)
+        return verify_gitlab_token(token_header, secret)
 
     @staticmethod
     def _header(headers: Dict[str, str], name: str) -> str:

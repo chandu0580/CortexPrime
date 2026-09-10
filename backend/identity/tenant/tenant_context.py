@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -11,6 +12,8 @@ from starlette.responses import Response
 
 from backend.database.tenancy import set_current_tenant as set_db_tenant
 from backend.identity.interfaces.authentication import Identity
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -40,46 +43,83 @@ def get_current_tenant_context() -> Optional[TenantContext]:
     return _current_context.get()
 
 
+def _bearer(request: Request) -> Optional[str]:
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:].strip()
+        return token or None
+    return None
+
+
 class TenantContextMiddleware(BaseHTTPMiddleware):
+    """Propagate the *verified* tenant through the request's context variables.
+
+    Phase 11.1 (ADR-121). Until this phase the middleware copied ``X-Tenant-ID``
+    from the request headers straight into the tenant context and from there
+    into ``backend.database.tenancy.set_current_tenant`` -- which is the value
+    ``RedisKeys._tp()`` namespaces every Redis key by. An **unauthenticated**
+    header therefore chose the Redis namespace of the request: a forged tenant
+    primitive that no token check stood in front of. The token branch used a
+    fresh in-memory key store per request from the retired identity subsystem,
+    so it never validated a real token and never populated the identity.
+
+    Now:
+
+    * the tenant comes from the verified access token (``backend.auth``, the
+      same verifier as the perimeter and ``require_user``), or from nowhere;
+    * ``X-Tenant-ID`` / ``X-Tenant-Slug`` are honoured only when they *equal*
+      what the token already says (a client restating its own tenant is
+      harmless; a client naming another is logged and ignored);
+    * an unauthenticated request gets an empty context and no database or
+      Redis tenant is set.
+    """
+
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         ctx = TenantContext(request_id=request.headers.get("X-Request-ID", ""))
 
-        auth_header = request.headers.get("Authorization", "")
-        tenant_header = request.headers.get("X-Tenant-ID", "")
-        tenant_slug_header = request.headers.get("X-Tenant-Slug", "")
+        tenant_header = request.headers.get("X-Tenant-ID", "").strip()
+        tenant_slug_header = request.headers.get("X-Tenant-Slug", "").strip()
 
-        if tenant_header:
-            ctx.tenant_id = tenant_header
-        if tenant_slug_header:
-            ctx.tenant_slug = tenant_slug_header
-
-        if auth_header.startswith("Bearer "):
-            token = auth_header[7:]
+        claims = None
+        token = _bearer(request) or request.cookies.get("cortex_access")
+        if token:
             try:
-                from backend.identity.jwt.access_token import AccessTokenProvider
-                from backend.identity.jwt.key_store import InMemoryKeyStore
-                key_store = InMemoryKeyStore()
-                access_provider = AccessTokenProvider(key_store)
-                claims = await access_provider.validate(token)
-                if claims:
-                    ctx.user_id = claims.sub
-                    ctx.role = claims.role
-                    ctx.permissions = claims.permissions
-                    ctx.tenant_id = claims.tenant_id or ctx.tenant_id
-                    ctx.tenant_slug = claims.tenant_slug or ctx.tenant_slug
-                    ctx.email = claims.email
+                from backend.auth.jwt_handler import decode_access_token
+
+                claims = decode_access_token(token)
+            except Exception:  # noqa: BLE001 - an undecodable token is no identity
+                claims = None
+
+        if claims:
+            ctx.user_id = str(claims.get("sub") or "") or None
+            ctx.role = claims.get("role")
+            ctx.permissions = list(claims.get("permissions") or [])
+            ctx.tenant_id = (str(claims.get("tenant_id")).strip() if claims.get("tenant_id") else None)
+            ctx.tenant_slug = (str(claims.get("tenant_slug")).strip() if claims.get("tenant_slug") else None)
+            ctx.email = claims.get("email")
+            if ctx.user_id:
+                try:
                     ctx.identity = Identity(
-                        user_id=claims.sub,
-                        email=claims.email or "",
-                        display_name=claims.sub,
-                        role=claims.role,
-                        tenant_id=claims.tenant_id,
-                        tenant_slug=claims.tenant_slug,
-                        user_role=claims.user_role,
-                        permissions=claims.permissions,
+                        user_id=ctx.user_id,
+                        email=ctx.email or "",
+                        display_name=ctx.user_id,
+                        role=ctx.role,
+                        tenant_id=ctx.tenant_id,
+                        tenant_slug=ctx.tenant_slug,
+                        user_role=claims.get("user_role"),
+                        permissions=ctx.permissions,
                     )
-            except Exception:
-                pass
+                except Exception:  # noqa: BLE001 - the identity DTO is informational
+                    ctx.identity = None
+
+        # A header may restate the verified tenant; it may never choose one.
+        if tenant_header and tenant_header != (ctx.tenant_id or ""):
+            log.warning(
+                "X-Tenant-ID header (%s) ignored: it does not match the verified tenant (%s)",
+                tenant_header[:64], ctx.tenant_id,
+            )
+        if tenant_slug_header and tenant_slug_header != (ctx.tenant_slug or ""):
+            log.warning("X-Tenant-Slug header ignored: it does not match the verified tenant")
 
         if ctx.tenant_id:
             try:
@@ -91,10 +131,11 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
         set_current_tenant_context(ctx)
         request.state.tenant_context = ctx
 
-        response = await call_next(request)
-
-        if ctx.tenant_id:
-            set_db_tenant(None)
-        set_current_tenant_context(None)
+        try:
+            response = await call_next(request)
+        finally:
+            if ctx.tenant_id:
+                set_db_tenant(None)
+            set_current_tenant_context(None)
 
         return response

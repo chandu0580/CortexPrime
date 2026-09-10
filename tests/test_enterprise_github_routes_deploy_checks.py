@@ -8,11 +8,15 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.api.enterprise_github_routes import router
+from backend.auth.dependencies import require_user
 
 
 def _make_client() -> TestClient:
     app = FastAPI()
     app.include_router(router)
+    # Phase 11.1: the operator router requires a verified identity; overridden
+    # here so these tests stay about the route's own behaviour.
+    app.dependency_overrides[require_user] = lambda: {"sub": "op", "role": "operator"}
     return TestClient(app)
 
 

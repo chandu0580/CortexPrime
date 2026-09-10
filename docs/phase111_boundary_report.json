@@ -1,0 +1,1195 @@
+{
+ "phase": "11.1",
+ "checks": [
+  {
+   "name": "0.1 real PostgreSQL migrated to head",
+   "ok": true,
+   "detail": "postgresql://cortex:cortex@127.0.0.1:55437/cortex_p111"
+  },
+  {
+   "name": "0.2 real Redis reachable",
+   "ok": true,
+   "detail": "redis://127.0.0.1:55379/7"
+  },
+  {
+   "name": "0.3 the real app carries the authentication perimeter",
+   "ok": true,
+   "detail": "PrometheusMiddleware, RateLimitMiddleware, AuthPerimeterMiddleware, TenantContextMiddleware, GuardrailsMiddleware, RequestIDMiddleware, CORSMiddleware"
+  },
+  {
+   "name": "0.4 perimeter sits just inside the rate limiter and outside everything else",
+   "ok": true,
+   "detail": "PrometheusMiddleware > RateLimitMiddleware > AuthPerimeterMiddleware > TenantContextMiddleware > GuardrailsMiddleware > RequestIDMiddleware > CORSMiddleware"
+  },
+  {
+   "name": "0.5 two real tenant records in cp_tenant",
+   "ok": true,
+   "detail": "tenant-da817cc3af49 / tenant-6bd05324c52e"
+  },
+  {
+   "name": "A1. public /health needs no token",
+   "ok": true,
+   "detail": "HTTP 200"
+  },
+  {
+   "name": "A1. public /api/auth/health needs no token",
+   "ok": true,
+   "detail": "HTTP 200"
+  },
+  {
+   "name": "A1. public /api/v1/health needs no token",
+   "ok": true,
+   "detail": "HTTP 200"
+  },
+  {
+   "name": "A1. public /docs needs no token",
+   "ok": true,
+   "detail": "HTTP 200"
+  },
+  {
+   "name": "A1. public /openapi.json needs no token",
+   "ok": true,
+   "detail": "HTTP 200"
+  },
+  {
+   "name": "A1. public /metrics needs no token",
+   "ok": true,
+   "detail": "HTTP 200"
+  },
+  {
+   "name": "A2. GET /api/memory/status without a token -> 401",
+   "ok": true,
+   "detail": "HTTP 401 Bearer"
+  },
+  {
+   "name": "A2. GET /api/infrastructure/platforms without a token -> 401",
+   "ok": true,
+   "detail": "HTTP 401 Bearer"
+  },
+  {
+   "name": "A2. GET /api/triggers without a token -> 401",
+   "ok": true,
+   "detail": "HTTP 401 Bearer"
+  },
+  {
+   "name": "A2. GET /api/incidents without a token -> 401",
+   "ok": true,
+   "detail": "HTTP 401 Bearer"
+  },
+  {
+   "name": "A2. GET /api/approval-center/policies without a token -> 401",
+   "ok": true,
+   "detail": "HTTP 401 Bearer"
+  },
+  {
+   "name": "A2. GET /api/mission-replay/health without a token -> 401",
+   "ok": true,
+   "detail": "HTTP 401 Bearer"
+  },
+  {
+   "name": "A2. GET /api/knowledge/health without a token -> 401",
+   "ok": true,
+   "detail": "HTTP 401 Bearer"
+  },
+  {
+   "name": "A2. GET /api/github/webhooks without a token -> 401",
+   "ok": true,
+   "detail": "HTTP 401 Bearer"
+  },
+  {
+   "name": "A2. POST /api/infrastructure/ingest/pod without a token -> 401",
+   "ok": true,
+   "detail": "HTTP 401 Bearer"
+  },
+  {
+   "name": "A2. POST /api/triggers/policies without a token -> 401",
+   "ok": true,
+   "detail": "HTTP 401 Bearer"
+  },
+  {
+   "name": "A2. POST /api/infrastructure/terraform/apply without a token -> 401",
+   "ok": true,
+   "detail": "HTTP 401 Bearer"
+  },
+  {
+   "name": "A2. POST /api/executions/run without a token -> 401",
+   "ok": true,
+   "detail": "HTTP 401 Bearer"
+  },
+  {
+   "name": "A3. garbage token -> 401",
+   "ok": true,
+   "detail": "HTTP 401"
+  },
+  {
+   "name": "A3. expired token -> 401",
+   "ok": true,
+   "detail": "HTTP 401"
+  },
+  {
+   "name": "A3. wrong-secret token -> 401",
+   "ok": true,
+   "detail": "HTTP 401"
+  },
+  {
+   "name": "A3. empty bearer token -> 401",
+   "ok": true,
+   "detail": "HTTP 401"
+  },
+  {
+   "name": "A4. a tenant header without a token is still 401",
+   "ok": true,
+   "detail": "HTTP 401"
+  },
+  {
+   "name": "A5. a valid operator token passes (undeclared V1 tenant, tenant-less token)",
+   "ok": true,
+   "detail": "HTTP 200"
+  },
+  {
+   "name": "A6. the HttpOnly cookie is an equal credential",
+   "ok": true,
+   "detail": "HTTP 200"
+  },
+  {
+   "name": "A7. a revoked token is refused at the edge",
+   "ok": true,
+   "detail": "HTTP 401"
+  },
+  {
+   "name": "B0. undeclared: a tenant-bearing token is refused with the instruction",
+   "ok": true,
+   "detail": "HTTP 403"
+  },
+  {
+   "name": "B1. tenant A reads its V1 surface (real cp_tenant lookup)",
+   "ok": true,
+   "detail": "HTTP 200"
+  },
+  {
+   "name": "B2. tenant B cannot read (403)",
+   "ok": true,
+   "detail": "HTTP 403 {\"error\":\"tenant_not_admitted\",\"detail\":\"the V1 surface is bound to a single ten"
+  },
+  {
+   "name": "B3. tenant B cannot write (403)",
+   "ok": true,
+   "detail": "HTTP 403"
+  },
+  {
+   "name": "B4. tenant B refused on /api/mission-replay/health",
+   "ok": true,
+   "detail": "HTTP 403"
+  },
+  {
+   "name": "B4. tenant B refused on /api/memory/status",
+   "ok": true,
+   "detail": "HTTP 403"
+  },
+  {
+   "name": "B4. tenant B refused on /api/knowledge/health",
+   "ok": true,
+   "detail": "HTTP 403"
+  },
+  {
+   "name": "B4. tenant B refused on /api/incidents",
+   "ok": true,
+   "detail": "HTTP 403"
+  },
+  {
+   "name": "B4. tenant B refused on /api/enterprise/search",
+   "ok": true,
+   "detail": "HTTP 403"
+  },
+  {
+   "name": "B4. tenant B refused on /api/analytics/overview",
+   "ok": true,
+   "detail": "HTTP 403"
+  },
+  {
+   "name": "B4. tenant B refused on /api/approval-center/workflows",
+   "ok": true,
+   "detail": "HTTP 403"
+  },
+  {
+   "name": "B4. tenant B refused on /api/executions/run",
+   "ok": true,
+   "detail": "HTTP 403"
+  },
+  {
+   "name": "B5. a tenant-less token is refused once a tenant is declared",
+   "ok": true,
+   "detail": "HTTP 403"
+  },
+  {
+   "name": "B6. a forged X-Tenant-ID beside a valid token is ignored, not honoured",
+   "ok": true,
+   "detail": "HTTP 200"
+  },
+  {
+   "name": "B7. a forged X-Tenant-ID cannot lift tenant B into tenant A",
+   "ok": true,
+   "detail": "HTTP 403"
+  },
+  {
+   "name": "B8. tenant refusals are audited as perimeter.tenant_refused",
+   "ok": true,
+   "detail": "['perimeter.tenant_refused', 'perimeter.tenant_refused', 'perimeter.tenant_refused', 'perimeter.tenant_refused', 'perimeter.tenant_refused', 'perimeter.tenant_refused']"
+  },
+  {
+   "name": "B9. the audit names who/tenant/path/reason and carries no token",
+   "ok": true,
+   "detail": "{\"audit_id\": \"d748d5f8-2e76-44d4-904b-c8d7767e2913\", \"execution_id\": \"perimeter:no-request-id\", \"agent\": \"auth_perimeter\", \"user\": \"p111-mallory\", \"action\": \"perimeter.tenant_refused\", \"target\": \"/api"
+  },
+  {
+   "name": "B10. governed tenant routes are exempt from the fence (their own authority decides)",
+   "ok": true,
+   "detail": "HTTP 403 {\"success\":false,\"error\":{\"code\":\"FORBIDDEN\",\"message\":\"You do not have permissi"
+  },
+  {
+   "name": "C0. Kubernetes-state ingestion is ALSO fenced inside the service by the Phase 9.11 world-state guard (503 LEGACY_EXECUTION_DISABLED)",
+   "ok": true,
+   "detail": "{\"success\":false,\"error\":{\"code\":\"LEGACY_EXECUTION_DISABLED\",\"message\":\"world-state:KubernetesIntelligence.track_pod is "
+  },
+  {
+   "name": "C1. a valid ingestion is accepted with a canonical envelope",
+   "ok": true,
+   "detail": "{\"status\":\"ingested\",\"entity\":{\"analysis_id\":\"loki_d16fcadd6914\",\"stream\":\"api-0\",\"queries\":[],\"labels\":{},\"total_lines\":0,\"error_count\":0,\"warn_count\":0,\"info_count\":0,\"log_sample\":[],\"analyzed_at\":\""
+  },
+  {
+   "name": "C2. envelope: identity, digest, at-least-once, untrusted trust",
+   "ok": true,
+   "detail": "{\"identity\": \"2939382168f9fce893df26119af615160b2e8496f933924758753912f0306b93\", \"source\": \"infrastructure.ingest\", \"event_type\": \"loki\", \"event_id\": \"log-bc58a515\", \"tenant_id\": \"tenant-da817cc3af49\""
+  },
+  {
+   "name": "C3. accept audited: who/tenant/source/event/reason, no payload",
+   "ok": true,
+   "detail": "{\"audit_id\": \"0facbff9-2b75-4af0-b565-64a4cd1f2345\", \"execution_id\": \"ingress:log-bc58a515\", \"agent\": \"ingress_boundary\", \"user\": \"p111-alice\", \"action\": \"ingress.accepted\", \"target\": \"/api/infrastruc"
+  },
+  {
+   "name": "C4. schema: payload must be an object (422)",
+   "ok": true,
+   "detail": "HTTP 422"
+  },
+  {
+   "name": "C5. malformed JSON is 4xx, never accepted",
+   "ok": true,
+   "detail": "HTTP 422"
+  },
+  {
+   "name": "C6. body bound enforced (413)",
+   "ok": true,
+   "detail": "HTTP 413"
+  },
+  {
+   "name": "C7. raw OTLP body bound enforced (413)",
+   "ok": true,
+   "detail": "HTTP 413"
+  },
+  {
+   "name": "C8. a duplicate ingestion carries the SAME identity (at-least-once, consumer may dedupe)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "C9. the Kubernetes push webhook is token-authenticated ingestion, and its world-state write is fenced by the internal guard",
+   "ok": true,
+   "detail": "HTTP 503 {\"success\":false,\"error\":{\"code\":\"LEGACY_EXECUTION_DISABLED\",\"message\":\"world-st"
+  },
+  {
+   "name": "D1. GitHub: missing signature -> 401",
+   "ok": true,
+   "detail": "HTTP 401"
+  },
+  {
+   "name": "D2. GitHub: bad signature -> 401",
+   "ok": true,
+   "detail": "HTTP 401"
+  },
+  {
+   "name": "D3. GitHub: altered payload with original signature -> 401",
+   "ok": true,
+   "detail": "HTTP 401"
+  },
+  {
+   "name": "D4. GitHub: the other integration's secret is not a signature -> 401",
+   "ok": true,
+   "detail": "HTTP 401"
+  },
+  {
+   "name": "D5. GitHub: unconfigured secret -> 503 (never accept unverified)",
+   "ok": true,
+   "detail": "HTTP 503"
+  },
+  {
+   "name": "D6. GitHub: a verified delivery is accepted with its envelope",
+   "ok": true,
+   "detail": "{\"delivery_id\":\"p111-99ef0f0683024bd79b994a5737ee4536\",\"event_type\":\"push\",\"verified\":true,\"parsed\":{\"event_id\":\"736935a834cc\",\"event_type\":\"push\",\"received_at\":\"2026-09-10T07:55:53.880861+00:00\",\"rep"
+  },
+  {
+   "name": "D7. GitHub: a replayed delivery id is deduplicated by the receiver",
+   "ok": true,
+   "detail": "{\"delivery_id\":\"p111-99ef0f0683024bd79b994a5737ee4536\",\"status\":\"duplicate\",\"event_type\":\"push\",\"ingress\":{\"identity\":\"2"
+  },
+  {
+   "name": "D8. GitHub: the body-supplied-secret route no longer exists",
+   "ok": true,
+   "detail": "HTTP 401"
+  },
+  {
+   "name": "D9. every refused delivery is audited with source and no secret/payload",
+   "ok": true,
+   "detail": "5 rejections"
+  },
+  {
+   "name": "D10. GitLab: missing token -> 401",
+   "ok": true,
+   "detail": "HTTP 401"
+  },
+  {
+   "name": "D11. GitLab: wrong token -> 401",
+   "ok": true,
+   "detail": "HTTP 401"
+  },
+  {
+   "name": "D12. GitLab: a GitHub signature is not a GitLab token -> 401",
+   "ok": true,
+   "detail": "HTTP 401"
+  },
+  {
+   "name": "D13. GitLab: a verified delivery is accepted with its envelope",
+   "ok": true,
+   "detail": "{\"delivery_id\":\"p111-e9bbc413ff9e481e905ebdbdac046a28\",\"event_type\":\"Push Hook\",\"verified\":true,\"payload\":{\"object_kind\":\"push\",\"project\":{\"path_with_namespace\""
+  },
+  {
+   "name": "E1. V1 approval centre: create refuses by default (503)",
+   "ok": true,
+   "detail": "HTTP 503"
+  },
+  {
+   "name": "E2. V1 approval centre: approve refuses by default (503)",
+   "ok": true,
+   "detail": "HTTP 503"
+  },
+  {
+   "name": "E3. V1 approval centre: break-glass refuses by default (503)",
+   "ok": true,
+   "detail": "HTTP 503"
+  },
+  {
+   "name": "E4. with the migration flag: an approval cannot be recorded as someone else (403)",
+   "ok": true,
+   "detail": "HTTP 403 {\"success\":false,\"error\":{\"code\":\"FORBIDDEN\",\"message\":\"You do not have permissi"
+  },
+  {
+   "name": "E5. with the migration flag: the actor is the token subject (engine reached, unknown workflow 400)",
+   "ok": true,
+   "detail": "HTTP 400"
+  },
+  {
+   "name": "E6. V1 approval centre reads remain available to a verified identity",
+   "ok": true,
+   "detail": "HTTP 200"
+  },
+  {
+   "name": "F1. /api/infrastructure/terraform/apply with a valid token -> 503 (legacy guard)",
+   "ok": true,
+   "detail": "HTTP 503 {\"success\":false,\"error\":{\"code\":\"SERVICE_UNAVAILABLE\",\"mess"
+  },
+  {
+   "name": "F1. /api/infrastructure/terraform/destroy with a valid token -> 503 (legacy guard)",
+   "ok": true,
+   "detail": "HTTP 503 {\"success\":false,\"error\":{\"code\":\"SERVICE_UNAVAILABLE\",\"mess"
+  },
+  {
+   "name": "F1. /api/infrastructure/terraform/init with a valid token -> 503 (legacy guard)",
+   "ok": true,
+   "detail": "HTTP 503 {\"success\":false,\"error\":{\"code\":\"SERVICE_UNAVAILABLE\",\"mess"
+  },
+  {
+   "name": "F1. /api/infrastructure/terraform/plan with a valid token -> 503 (legacy guard)",
+   "ok": true,
+   "detail": "HTTP 503 {\"success\":false,\"error\":{\"code\":\"SERVICE_UNAVAILABLE\",\"mess"
+  },
+  {
+   "name": "F1. /api/infrastructure/terraform/workspaces/select with a valid token -> 503 (legacy guard)",
+   "ok": true,
+   "detail": "HTTP 503 {\"success\":false,\"error\":{\"code\":\"SERVICE_UNAVAILABLE\",\"mess"
+  },
+  {
+   "name": "F1. /api/infrastructure/argocd/applications/app/sync with a valid token -> 503 (legacy guard)",
+   "ok": true,
+   "detail": "HTTP 503 {\"success\":false,\"error\":{\"code\":\"SERVICE_UNAVAILABLE\",\"mess"
+  },
+  {
+   "name": "F1. /api/infrastructure/argocd/applications/app/rollback with a valid token -> 503 (legacy guard)",
+   "ok": true,
+   "detail": "HTTP 503 {\"success\":false,\"error\":{\"code\":\"SERVICE_UNAVAILABLE\",\"mess"
+  },
+  {
+   "name": "F1. /api/infrastructure/argocd/applications/app/refresh with a valid token -> 503 (legacy guard)",
+   "ok": true,
+   "detail": "HTTP 503 {\"success\":false,\"error\":{\"code\":\"SERVICE_UNAVAILABLE\",\"mess"
+  },
+  {
+   "name": "F1. /api/github/launch-mission with a valid token -> 503 (legacy guard)",
+   "ok": true,
+   "detail": "HTTP 503 {\"success\":false,\"error\":{\"code\":\"SERVICE_UNAVAILABLE\",\"mess"
+  },
+  {
+   "name": "F1. /api/github/translate with a valid token -> 503 (legacy guard)",
+   "ok": true,
+   "detail": "HTTP 503 {\"success\":false,\"error\":{\"code\":\"SERVICE_UNAVAILABLE\",\"mess"
+  },
+  {
+   "name": "F1. /api/executions/run with a valid token -> 503 (legacy guard)",
+   "ok": true,
+   "detail": "HTTP 503 {\"success\":false,\"error\":{\"code\":\"SERVICE_UNAVAILABLE\",\"mess"
+  },
+  {
+   "name": "F1. /api/v2/mcp/execute with a valid token -> 503 (legacy guard)",
+   "ok": true,
+   "detail": "HTTP 503 {\"success\":false,\"error\":{\"code\":\"SERVICE_UNAVAILABLE\",\"mess"
+  },
+  {
+   "name": "G1. refused: http://127.0.0.1:64980/",
+   "ok": true,
+   "detail": "address 127.0.0.1 is loopback"
+  },
+  {
+   "name": "G1. refused: http://localhost:64980/",
+   "ok": true,
+   "detail": "host 'localhost' is a loopback alias"
+  },
+  {
+   "name": "G1. refused: http://0177.0.0.1:64980/",
+   "ok": true,
+   "detail": "address 127.0.0.1 is loopback"
+  },
+  {
+   "name": "G1. refused: http://2130706433:64980/",
+   "ok": true,
+   "detail": "address 127.0.0.1 is loopback"
+  },
+  {
+   "name": "G1. refused: http://0x7f000001:64980/",
+   "ok": true,
+   "detail": "address 127.0.0.1 is loopback"
+  },
+  {
+   "name": "G1. refused: http://127.1:64980/",
+   "ok": true,
+   "detail": "address 127.0.0.1 is loopback"
+  },
+  {
+   "name": "G1. refused: http://[::1]:64980/",
+   "ok": true,
+   "detail": "address ::1 is loopback"
+  },
+  {
+   "name": "G1. refused: http://[::ffff:127.0.0.1]:64980/",
+   "ok": true,
+   "detail": "address 127.0.0.1 is loopback"
+  },
+  {
+   "name": "G1. refused: http://10.0.0.1/",
+   "ok": true,
+   "detail": "address 10.0.0.1 is private"
+  },
+  {
+   "name": "G1. refused: http://192.168.1.1/",
+   "ok": true,
+   "detail": "address 192.168.1.1 is private"
+  },
+  {
+   "name": "G1. refused: http://172.16.0.1/",
+   "ok": true,
+   "detail": "address 172.16.0.1 is private"
+  },
+  {
+   "name": "G1. refused: http://169.254.169.254/latest/meta-data/",
+   "ok": true,
+   "detail": "address 169.254.169.254 is cloud_metadata"
+  },
+  {
+   "name": "G1. refused: http://[fe80::1]/",
+   "ok": true,
+   "detail": "address fe80::1 is link_local"
+  },
+  {
+   "name": "G1. refused: http://[fd00::1]/",
+   "ok": true,
+   "detail": "address fd00::1 is unique_local"
+  },
+  {
+   "name": "G1. refused: http://100.64.0.1/",
+   "ok": true,
+   "detail": "address 100.64.0.1 is carrier_grade_nat"
+  },
+  {
+   "name": "G1. refused: http://0.0.0.0/",
+   "ok": true,
+   "detail": "address 0.0.0.0 is unspecified"
+  },
+  {
+   "name": "G1. refused: ftp://example.com/",
+   "ok": true,
+   "detail": "scheme 'ftp' is not permitted (allowed: http, https)"
+  },
+  {
+   "name": "G1. refused: file:///etc/passwd",
+   "ok": true,
+   "detail": "scheme 'file' is not permitted (allowed: http, https)"
+  },
+  {
+   "name": "G1. refused: https://user:pw@example.com/",
+   "ok": true,
+   "detail": "contains embedded credentials; the credential fabric is the only way a secret reaches a provider, and a URL is written down in places a secret must never be"
+  },
+  {
+   "name": "G1. refused: https://example.com/a\r\nX: y",
+   "ok": true,
+   "detail": "contains a control character; these are how a single field becomes two when something later writes it into a header"
+  },
+  {
+   "name": "G1. refused: gopher://example.com/",
+   "ok": true,
+   "detail": "scheme 'gopher' is not permitted (allowed: http, https)"
+  },
+  {
+   "name": "G2. the V1 HTTP sandbox tool refuses loopback before dialling",
+   "ok": true,
+   "detail": "outbound request refused: address 127.0.0.1 is loopback"
+  },
+  {
+   "name": "G3. the guardrails engine judges by parsing (decimal/hex/mapped/CGNAT blocked)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "G4. the live loopback listener received ZERO connections across all vectors",
+   "ok": true,
+   "detail": "hits=0"
+  },
+  {
+   "name": "G5. a hostname that resolves to loopback (or cannot be resolved) is refused",
+   "ok": true,
+   "detail": "hostname 'localtest.me' resolves to 127.0.0.1 which is loopback"
+  },
+  {
+   "name": "G6. a redirect to loopback is refused at the hop",
+   "ok": true,
+   "detail": "scheme 'http' is not permitted (allowed: https)"
+  },
+  {
+   "name": "H1. injected text is accepted as DATA under tenant A, never tenant B",
+   "ok": true,
+   "detail": "{\"status\":\"ingested\",\"entity\":{\"analysis_id\":\"loki_fa67d7988853\",\"stream\":\"unknown\",\"queries\":[],\"labels\":{},\"total_lines\":0,\"error_count\":0,\"warn_count\":0,\"inf"
+  },
+  {
+   "name": "H2. injected text cannot launch a mission (503)",
+   "ok": true,
+   "detail": "HTTP 503"
+  },
+  {
+   "name": "H3. the governed model-output firewall rejects every authoritative field",
+   "ok": true,
+   "detail": "6/6"
+  },
+  {
+   "name": "H4. the HTTP guardrails middleware still screens top-level instruction fields (400) or the field is dropped by schema (200)",
+   "ok": true,
+   "detail": "HTTP 400"
+  },
+  {
+   "name": "I1. Redis unavailable: the revocation list fails OPEN by the module default (FINDING, recorded, not endorsed)",
+   "ok": true,
+   "detail": "HTTP 200 fail_open=True"
+  },
+  {
+   "name": "I2. tenant store unavailable: a tenant-bearing token is refused, not guessed (403)",
+   "ok": true,
+   "detail": "HTTP 403 {\"success\":false,\"error\":{\"code\":\"FORBIDDEN\",\"message\":\"You do not have permissi"
+  },
+  {
+   "name": "I3. tenant store restored: tenant A admitted again",
+   "ok": true,
+   "detail": "HTTP 200"
+  },
+  {
+   "name": "I4. audit store broken: a refusal is still a refusal (401/403) and no 500 leaks",
+   "ok": true,
+   "detail": "HTTP 401/403"
+  },
+  {
+   "name": "I5. audit store broken: an accepted ingestion is not falsely failed (documented best-effort audit)",
+   "ok": true,
+   "detail": "HTTP 200"
+  },
+  {
+   "name": "I6. partial ingestion: a failing store yields no 'accepted' audit and no 200",
+   "ok": true,
+   "detail": "HTTP 500"
+  },
+  {
+   "name": "I7. connector timeout surfaces as an error, never as a response",
+   "ok": true,
+   "detail": "ReadTimeout"
+  },
+  {
+   "name": "I8. binary garbage on a JSON route is 4xx",
+   "ok": true,
+   "detail": "HTTP 422"
+  },
+  {
+   "name": "J1. the webhook bucket sheds a flood at its documented limit against real Redis (120/min per source)",
+   "ok": true,
+   "detail": "denied=9 backend=redis"
+  },
+  {
+   "name": "J1b. through the app, every flood request was refused by the boundary (401/429) and none reached processing",
+   "ok": true,
+   "detail": "{'401': 140}"
+  },
+  {
+   "name": "J2. the limiter backend is Redis (not the local fallback)",
+   "ok": true,
+   "detail": "{\"status\": \"healthy\", \"enabled\": true, \"redis_connected\": true, \"backend\": \"redis\", \"active_keys\": 15, \"window_sec\": 60, \"limits\": {\"orchestrate\": 50, \"execute\""
+  },
+  {
+   "name": "K1. the sidebar links /investigator and /approvals",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "K2. both pages exist and render real components (not mocks)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "L0. an ingress audit entry persists to the real audit_logs table (durable path)",
+   "ok": true,
+   "detail": "{'audit_logs': (0, 1)}"
+  },
+  {
+   "name": "L1. only audit_logs changed in the database",
+   "ok": true,
+   "detail": "{'audit_logs': (0, 1)}"
+  },
+  {
+   "name": "L2. Redis: only rate-limit keys were created (cx:rl:*), nothing else touched",
+   "ok": true,
+   "detail": "8 new"
+  },
+  {
+   "name": "L3. provider writes == 0 (cluster generations unchanged)",
+   "ok": true,
+   "detail": "writes=0"
+  }
+ ],
+ "deferred": [
+  {
+   "name": "E7. governed approval (digest binding, SoD, scoped authority, expiry)",
+   "why": "proven by the 10.7/10.8/10.9/10.10/10.11/10.13/10.14 harness chain re-run in this phase; not re-implemented here"
+  },
+  {
+   "name": "I9. worker restart / lease fencing",
+   "why": "boundary phase; the governed execution recovery was proven in 9.10/9.11 and is untouched"
+  }
+ ],
+ "negative_matrix": [
+  {
+   "case": "no token GET /api/memory/status",
+   "stopped_by": "auth_perimeter",
+   "detail": "HTTP 401",
+   "provider_writes": 0
+  },
+  {
+   "case": "no token GET /api/infrastructure/platforms",
+   "stopped_by": "auth_perimeter",
+   "detail": "HTTP 401",
+   "provider_writes": 0
+  },
+  {
+   "case": "no token GET /api/triggers",
+   "stopped_by": "auth_perimeter",
+   "detail": "HTTP 401",
+   "provider_writes": 0
+  },
+  {
+   "case": "no token GET /api/incidents",
+   "stopped_by": "auth_perimeter",
+   "detail": "HTTP 401",
+   "provider_writes": 0
+  },
+  {
+   "case": "no token GET /api/approval-center/policies",
+   "stopped_by": "auth_perimeter",
+   "detail": "HTTP 401",
+   "provider_writes": 0
+  },
+  {
+   "case": "no token GET /api/mission-replay/health",
+   "stopped_by": "auth_perimeter",
+   "detail": "HTTP 401",
+   "provider_writes": 0
+  },
+  {
+   "case": "no token GET /api/knowledge/health",
+   "stopped_by": "auth_perimeter",
+   "detail": "HTTP 401",
+   "provider_writes": 0
+  },
+  {
+   "case": "no token GET /api/github/webhooks",
+   "stopped_by": "auth_perimeter",
+   "detail": "HTTP 401",
+   "provider_writes": 0
+  },
+  {
+   "case": "no token POST /api/infrastructure/ingest/pod",
+   "stopped_by": "auth_perimeter",
+   "detail": "HTTP 401",
+   "provider_writes": 0
+  },
+  {
+   "case": "no token POST /api/triggers/policies",
+   "stopped_by": "auth_perimeter",
+   "detail": "HTTP 401",
+   "provider_writes": 0
+  },
+  {
+   "case": "no token POST /api/infrastructure/terraform/apply",
+   "stopped_by": "auth_perimeter",
+   "detail": "HTTP 401",
+   "provider_writes": 0
+  },
+  {
+   "case": "no token POST /api/executions/run",
+   "stopped_by": "auth_perimeter",
+   "detail": "HTTP 401",
+   "provider_writes": 0
+  },
+  {
+   "case": "cross-tenant read",
+   "stopped_by": "auth_perimeter.v1_tenant_fence",
+   "detail": "{\"error\":\"tenant_not_admitted\",\"detail\":\"the V1 surface is bound to a single tenant and this identity belongs to a diffe",
+   "provider_writes": 0
+  },
+  {
+   "case": "cross-tenant write",
+   "stopped_by": "auth_perimeter.v1_tenant_fence",
+   "detail": "{\"error\":\"tenant_not_admitted\",\"detail\":\"the V1 surface is bound to a single tenant and this identity belongs to a diffe",
+   "provider_writes": 0
+  },
+  {
+   "case": "cross-tenant /api/mission-replay/health",
+   "stopped_by": "auth_perimeter.v1_tenant_fence",
+   "detail": "",
+   "provider_writes": 0
+  },
+  {
+   "case": "cross-tenant /api/memory/status",
+   "stopped_by": "auth_perimeter.v1_tenant_fence",
+   "detail": "",
+   "provider_writes": 0
+  },
+  {
+   "case": "cross-tenant /api/knowledge/health",
+   "stopped_by": "auth_perimeter.v1_tenant_fence",
+   "detail": "",
+   "provider_writes": 0
+  },
+  {
+   "case": "cross-tenant /api/incidents",
+   "stopped_by": "auth_perimeter.v1_tenant_fence",
+   "detail": "",
+   "provider_writes": 0
+  },
+  {
+   "case": "cross-tenant /api/enterprise/search",
+   "stopped_by": "auth_perimeter.v1_tenant_fence",
+   "detail": "",
+   "provider_writes": 0
+  },
+  {
+   "case": "cross-tenant /api/analytics/overview",
+   "stopped_by": "auth_perimeter.v1_tenant_fence",
+   "detail": "",
+   "provider_writes": 0
+  },
+  {
+   "case": "cross-tenant /api/approval-center/workflows",
+   "stopped_by": "auth_perimeter.v1_tenant_fence",
+   "detail": "",
+   "provider_writes": 0
+  },
+  {
+   "case": "cross-tenant /api/executions/run",
+   "stopped_by": "auth_perimeter.v1_tenant_fence",
+   "detail": "",
+   "provider_writes": 0
+  },
+  {
+   "case": "webhook D1",
+   "stopped_by": "ingress_boundary",
+   "detail": "",
+   "provider_writes": 0
+  },
+  {
+   "case": "webhook D2",
+   "stopped_by": "ingress_boundary",
+   "detail": "",
+   "provider_writes": 0
+  },
+  {
+   "case": "webhook D3",
+   "stopped_by": "ingress_boundary",
+   "detail": "",
+   "provider_writes": 0
+  },
+  {
+   "case": "webhook D4",
+   "stopped_by": "ingress_boundary",
+   "detail": "",
+   "provider_writes": 0
+  },
+  {
+   "case": "webhook D5",
+   "stopped_by": "ingress_boundary",
+   "detail": "",
+   "provider_writes": 0
+  },
+  {
+   "case": "webhook D10",
+   "stopped_by": "ingress_boundary",
+   "detail": "",
+   "provider_writes": 0
+  },
+  {
+   "case": "webhook D11",
+   "stopped_by": "ingress_boundary",
+   "detail": "",
+   "provider_writes": 0
+  },
+  {
+   "case": "webhook D12",
+   "stopped_by": "ingress_boundary",
+   "detail": "",
+   "provider_writes": 0
+  },
+  {
+   "case": "approval E1",
+   "stopped_by": "legacy_execution_guard/identity binding",
+   "detail": "",
+   "provider_writes": 0
+  },
+  {
+   "case": "approval E2",
+   "stopped_by": "legacy_execution_guard/identity binding",
+   "detail": "",
+   "provider_writes": 0
+  },
+  {
+   "case": "approval E3",
+   "stopped_by": "legacy_execution_guard/identity binding",
+   "detail": "",
+   "provider_writes": 0
+  },
+  {
+   "case": "approval E4",
+   "stopped_by": "legacy_execution_guard/identity binding",
+   "detail": "",
+   "provider_writes": 0
+  },
+  {
+   "case": "execution /api/infrastructure/terraform/apply",
+   "stopped_by": "legacy_execution_guard",
+   "detail": "",
+   "provider_writes": 0
+  },
+  {
+   "case": "execution /api/infrastructure/terraform/destroy",
+   "stopped_by": "legacy_execution_guard",
+   "detail": "",
+   "provider_writes": 0
+  },
+  {
+   "case": "execution /api/infrastructure/terraform/init",
+   "stopped_by": "legacy_execution_guard",
+   "detail": "",
+   "provider_writes": 0
+  },
+  {
+   "case": "execution /api/infrastructure/terraform/plan",
+   "stopped_by": "legacy_execution_guard",
+   "detail": "",
+   "provider_writes": 0
+  },
+  {
+   "case": "execution /api/infrastructure/terraform/workspaces/select",
+   "stopped_by": "legacy_execution_guard",
+   "detail": "",
+   "provider_writes": 0
+  },
+  {
+   "case": "execution /api/infrastructure/argocd/applications/app/sync",
+   "stopped_by": "legacy_execution_guard",
+   "detail": "",
+   "provider_writes": 0
+  },
+  {
+   "case": "execution /api/infrastructure/argocd/applications/app/rollback",
+   "stopped_by": "legacy_execution_guard",
+   "detail": "",
+   "provider_writes": 0
+  },
+  {
+   "case": "execution /api/infrastructure/argocd/applications/app/refresh",
+   "stopped_by": "legacy_execution_guard",
+   "detail": "",
+   "provider_writes": 0
+  },
+  {
+   "case": "execution /api/github/launch-mission",
+   "stopped_by": "legacy_execution_guard",
+   "detail": "",
+   "provider_writes": 0
+  },
+  {
+   "case": "execution /api/github/translate",
+   "stopped_by": "legacy_execution_guard",
+   "detail": "",
+   "provider_writes": 0
+  },
+  {
+   "case": "execution /api/executions/run",
+   "stopped_by": "legacy_execution_guard",
+   "detail": "",
+   "provider_writes": 0
+  },
+  {
+   "case": "execution /api/v2/mcp/execute",
+   "stopped_by": "legacy_execution_guard",
+   "detail": "",
+   "provider_writes": 0
+  },
+  {
+   "case": "ssrf http://127.0.0.1:64980/",
+   "stopped_by": "outbound_guard",
+   "detail": "address 127.0.0.1 is loopback",
+   "provider_writes": 0
+  },
+  {
+   "case": "ssrf http://localhost:64980/",
+   "stopped_by": "outbound_guard",
+   "detail": "host 'localhost' is a loopback alias",
+   "provider_writes": 0
+  },
+  {
+   "case": "ssrf http://0177.0.0.1:64980/",
+   "stopped_by": "outbound_guard",
+   "detail": "address 127.0.0.1 is loopback",
+   "provider_writes": 0
+  },
+  {
+   "case": "ssrf http://2130706433:64980/",
+   "stopped_by": "outbound_guard",
+   "detail": "address 127.0.0.1 is loopback",
+   "provider_writes": 0
+  },
+  {
+   "case": "ssrf http://0x7f000001:64980/",
+   "stopped_by": "outbound_guard",
+   "detail": "address 127.0.0.1 is loopback",
+   "provider_writes": 0
+  },
+  {
+   "case": "ssrf http://127.1:64980/",
+   "stopped_by": "outbound_guard",
+   "detail": "address 127.0.0.1 is loopback",
+   "provider_writes": 0
+  },
+  {
+   "case": "ssrf http://[::1]:64980/",
+   "stopped_by": "outbound_guard",
+   "detail": "address ::1 is loopback",
+   "provider_writes": 0
+  },
+  {
+   "case": "ssrf http://[::ffff:127.0.0.1]:64980/",
+   "stopped_by": "outbound_guard",
+   "detail": "address 127.0.0.1 is loopback",
+   "provider_writes": 0
+  },
+  {
+   "case": "ssrf http://10.0.0.1/",
+   "stopped_by": "outbound_guard",
+   "detail": "address 10.0.0.1 is private",
+   "provider_writes": 0
+  },
+  {
+   "case": "ssrf http://192.168.1.1/",
+   "stopped_by": "outbound_guard",
+   "detail": "address 192.168.1.1 is private",
+   "provider_writes": 0
+  },
+  {
+   "case": "ssrf http://172.16.0.1/",
+   "stopped_by": "outbound_guard",
+   "detail": "address 172.16.0.1 is private",
+   "provider_writes": 0
+  },
+  {
+   "case": "ssrf http://169.254.169.254/latest/meta-data/",
+   "stopped_by": "outbound_guard",
+   "detail": "address 169.254.169.254 is cloud_metadata",
+   "provider_writes": 0
+  },
+  {
+   "case": "ssrf http://[fe80::1]/",
+   "stopped_by": "outbound_guard",
+   "detail": "address fe80::1 is link_local",
+   "provider_writes": 0
+  },
+  {
+   "case": "ssrf http://[fd00::1]/",
+   "stopped_by": "outbound_guard",
+   "detail": "address fd00::1 is unique_local",
+   "provider_writes": 0
+  },
+  {
+   "case": "ssrf http://100.64.0.1/",
+   "stopped_by": "outbound_guard",
+   "detail": "address 100.64.0.1 is carrier_grade_nat",
+   "provider_writes": 0
+  },
+  {
+   "case": "ssrf http://0.0.0.0/",
+   "stopped_by": "outbound_guard",
+   "detail": "address 0.0.0.0 is unspecified",
+   "provider_writes": 0
+  },
+  {
+   "case": "ssrf ftp://example.com/",
+   "stopped_by": "outbound_guard",
+   "detail": "scheme 'ftp' is not permitted (allowed: http, https)",
+   "provider_writes": 0
+  },
+  {
+   "case": "ssrf file:///etc/passwd",
+   "stopped_by": "outbound_guard",
+   "detail": "scheme 'file' is not permitted (allowed: http, https)",
+   "provider_writes": 0
+  },
+  {
+   "case": "ssrf https://user:pw@example.com/",
+   "stopped_by": "outbound_guard",
+   "detail": "contains embedded credentials; the credential fabric is the only way a secret reaches a provider, and a URL is written down in places a secret must never be",
+   "provider_writes": 0
+  },
+  {
+   "case": "ssrf https://example.com/a\r\nX: y",
+   "stopped_by": "outbound_guard",
+   "detail": "contains a control character; these are how a single field becomes two when something later writes it into a header",
+   "provider_writes": 0
+  },
+  {
+   "case": "ssrf gopher://example.com/",
+   "stopped_by": "outbound_guard",
+   "detail": "scheme 'gopher' is not permitted (allowed: http, https)",
+   "provider_writes": 0
+  },
+  {
+   "case": "injection H1/H2",
+   "stopped_by": "ingress_boundary + legacy_execution_guard",
+   "detail": "",
+   "provider_writes": 0
+  }
+ ],
+ "measurements": {
+  "cluster_generations_before": {
+   "billing-api": 1,
+   "contained-worker": 124,
+   "payments-api": 127
+  },
+  "redis_keys_before": 0,
+  "pod_ingest_internal_guard": {
+   "status": 503,
+   "body": "{\"success\":false,\"error\":{\"code\":\"LEGACY_EXECUTION_DISABLED\",\"message\":\"world-state:KubernetesIntelligence.track_pod is a V1 execution surface and is disabled. "
+  },
+  "ssrf_loopback_listener_hits": 0,
+  "dns_rebinding_probe_localtest_me": {
+   "url": "https://localtest.me/",
+   "allowed": false,
+   "reason": "hostname 'localtest.me' resolves to 127.0.0.1 which is loopback",
+   "host": "localtest.me",
+   "port": 443,
+   "pinned": [],
+   "address_class": "loopback",
+   "resolved": true
+  },
+  "guardrails_middleware_on_top_level_message_field": 400,
+  "revocation_fail_open_default": {
+   "REVOCATION_FAIL_OPEN": null,
+   "_FAIL_OPEN": true
+  },
+  "webhook_flood_codes_through_testclient": {
+   "401": 140
+  },
+  "webhook_flood_direct": {
+   "denied": 9,
+   "backend": "redis",
+   "limit": 120,
+   "bucket": "webhook"
+  },
+  "rate_limiter_status": {
+   "status": "healthy",
+   "enabled": true,
+   "redis_connected": true,
+   "backend": "redis",
+   "active_keys": 15,
+   "window_sec": 60,
+   "limits": {
+    "orchestrate": 50,
+    "execute": 20,
+    "voice": 30,
+    "operator": 20,
+    "governance": 20,
+    "get": 100,
+    "default": 60,
+    "webhook": 120,
+    "ingest": 300
+   },
+   "ws_limits": {
+    "msg_per_min": 120,
+    "bytes_per_min": 2097152
+   }
+  },
+  "db_row_changes": {
+   "audit_logs": [
+    0,
+    1
+   ]
+  },
+  "audit_cache_entries": 170,
+  "redis_new_keys_sample": [
+   "cx:rl:default:ip:testclient",
+   "cx:rl:get:ip:testclient",
+   "cx:rl:get:u:old",
+   "cx:rl:get:u:p111-alice",
+   "cx:rl:get:u:p111-mallory",
+   "cx:rl:get:u:p111-operator",
+   "cx:rl:webhook:ip:p111-flood",
+   "cx:rl:webhook:ip:testclient"
+  ],
+  "provider_writes": 0
+ },
+ "verdict": "VERIFIED",
+ "negative_matrix_cases": 68,
+ "negative_matrix_max_writes": 0,
+ "passed": 137,
+ "failed": 0,
+ "total": 137,
+ "duration_seconds": 66.1
+}

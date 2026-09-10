@@ -77,7 +77,12 @@ LEGACY_NETWORK_PATHS: tuple = (
         "so it is inert unless an operator sets the migration flag. Migrate to "
         "the transport fabric in Phase 4.3, or remove the two tools. Not "
         "changed here: this phase builds the fabric, and rewriting a connector "
-        "to use it is 4.3 work.",
+        "to use it is 4.3 work. Phase 11.1 (ADR-121): construction is "
+        "quarantined (``allow_non_production=True`` required), redirects are "
+        "off, and every fetch is judged by ``backend.safety.outbound_guard`` "
+        "-- the fabric's own classifier plus resolution -- before it dials. "
+        "The prefix regex in ``guardrails_engine`` was replaced by the same "
+        "judgement.",
     ),
     LegacyNetworkPath(
         location="backend/connectors/*.py (~18 provider clients)",

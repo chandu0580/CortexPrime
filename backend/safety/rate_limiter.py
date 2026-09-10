@@ -31,6 +31,8 @@ Configuration (environment variables)
   RATE_LIMIT_GOVERNANCE       20
   RATE_LIMIT_GET              100
   RATE_LIMIT_DEFAULT          60
+  RATE_LIMIT_WEBHOOK          120   (Phase 11.1: provider webhooks, per source IP)
+  RATE_LIMIT_INGEST           300   (Phase 11.1: token-authenticated ingestion, per identity)
 
   WebSocket:
   RATE_LIMIT_WS_MSG_PER_MIN   120  (messages per minute per connection)
@@ -64,6 +66,11 @@ _LIMITS: Dict[str, int] = {
     "governance":  int(os.getenv("RATE_LIMIT_GOVERNANCE",   "20")),
     "get":         int(os.getenv("RATE_LIMIT_GET",          "100")),
     "default":     int(os.getenv("RATE_LIMIT_DEFAULT",      "60")),
+    # Phase 11.1 (ADR-121): the externally reachable ingestion boundary gets
+    # its own buckets so a webhook flood cannot consume the operator's default
+    # budget, and so the limits are documented where an operator looks.
+    "webhook":     int(os.getenv("RATE_LIMIT_WEBHOOK",      "120")),
+    "ingest":      int(os.getenv("RATE_LIMIT_INGEST",       "300")),
 }
 
 # WebSocket
@@ -278,6 +285,12 @@ def _classify_endpoint(path: str, method: str) -> str:
 
     # POST/PUT/PATCH path matching (longest-prefix wins)
     path_lower = path.lower()
+    # Ingestion buckets first: a webhook path can also contain "/execute"-like
+    # fragments in provider names, and the boundary bucket must win.
+    if path_lower.endswith("/webhook") or "/webhook/" in path_lower:
+        return "webhook"
+    if "/ingest/" in path_lower or path_lower.endswith("/otel/v1/traces"):
+        return "ingest"
     if "/orchestrate" in path_lower:
         return "orchestrate"
     if "/execute" in path_lower:

@@ -5,12 +5,23 @@ endpoints matching the frontend service expectations.
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+
+from backend.api.legacy_execution_boundary import guard_legacy_execution
+from backend.auth.dependencies import require_user
+from backend.safety.ingress_boundary import (
+    IngressEnvelope,
+    IngressPrincipal,
+    audit_ingress,
+    bound_body,
+    require_ingest_principal,
+)
 
 from backend.services.enterprise_argocd_intelligence import (
     argocd_event_emitter,
@@ -84,7 +95,33 @@ from backend.services.enterprise_terraform_intelligence import (
 )
 
 log = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/infrastructure", tags=["Enterprise Infrastructure Intelligence"])
+
+# Phase 11.1 (ADR-121). Every route on this router needs a verified access
+# token: the reads expose one tenant's infrastructure, the ingestion routes
+# write into a tenant-unaware store, and the terraform/ArgoCD routes reach real
+# providers. Ingestion routes additionally go through the ingress boundary
+# (tenant fence, body bound, canonical event identity, audit), and the
+# provider-mutating routes sit behind the legacy execution guard, which refuses
+# by default (ADR-038): they are V1 execution surfaces that bypass the
+# invocation gateway, and were ungated until this phase.
+router = APIRouter(
+    prefix="/api/infrastructure",
+    tags=["Enterprise Infrastructure Intelligence"],
+    dependencies=[Depends(require_user)],
+)
+
+
+async def _ingested(request: Request, principal: IngressPrincipal, *, event_type: str,
+                    payload: Any, result: Any) -> Dict[str, Any]:
+    """Stamp an accepted ingestion with its envelope and audit it."""
+    envelope = IngressEnvelope.build(
+        source="infrastructure.ingest", event_type=event_type, payload=payload,
+        principal=principal,
+        event_id=str(payload.get("id") or payload.get("uid") or "") if isinstance(payload, dict) else "",
+    )
+    await audit_ingress(request, outcome="accepted", source="infrastructure.ingest",
+                        principal=principal, envelope=envelope, reason="ingested")
+    return {"status": "ingested", "entity": result, "ingress": envelope.to_dict()}
 
 
 # ---- Request schemas ----
@@ -182,83 +219,105 @@ async def sync_kubernetes(req: SyncKubernetesRequest):
 # ---- Ingestion (individual endpoints matching frontend) -------------------------
 
 @router.post("/ingest/cluster")
-async def ingest_cluster(req: IngestClusterRequest):
+async def ingest_cluster(req: IngestClusterRequest, request: Request,
+                         principal: IngressPrincipal = Depends(require_ingest_principal)):
     result = await infrastructure_intelligence.ingest_cluster_event("cluster", req.payload)
-    return {"status": "ingested", "entity": result}
+    return await _ingested(request, principal, event_type="cluster", payload=req.payload, result=result)
 
 
 @router.post("/ingest/pod")
-async def ingest_pod(req: IngestPodRequest):
+async def ingest_pod(req: IngestPodRequest, request: Request,
+                     principal: IngressPrincipal = Depends(require_ingest_principal)):
     result = await infrastructure_intelligence.ingest_pod_event(req.payload)
-    return {"status": "ingested", "entity": result}
+    return await _ingested(request, principal, event_type="pod", payload=req.payload, result=result)
 
 
 @router.post("/ingest/node")
-async def ingest_node(req: IngestNodeRequest):
+async def ingest_node(req: IngestNodeRequest, request: Request,
+                      principal: IngressPrincipal = Depends(require_ingest_principal)):
     result = await infrastructure_intelligence.ingest_node_event(req.payload)
-    return {"status": "ingested", "entity": result}
+    return await _ingested(request, principal, event_type="node", payload=req.payload, result=result)
 
 
 @router.post("/ingest/deployment")
-async def ingest_deployment(req: IngestDeploymentRequest):
+async def ingest_deployment(req: IngestDeploymentRequest, request: Request,
+                            principal: IngressPrincipal = Depends(require_ingest_principal)):
     result = await infrastructure_intelligence.ingest_deployment_event(req.payload)
-    return {"status": "ingested", "entity": result}
+    return await _ingested(request, principal, event_type="deployment", payload=req.payload, result=result)
 
 
 @router.post("/ingest/pvc")
-async def ingest_pvc(req: IngestPvcRequest):
+async def ingest_pvc(req: IngestPvcRequest, request: Request,
+                     principal: IngressPrincipal = Depends(require_ingest_principal)):
     result = await infrastructure_intelligence.ingest_pvc_event(req.payload)
-    return {"status": "ingested", "entity": result}
+    return await _ingested(request, principal, event_type="pvc", payload=req.payload, result=result)
 
 
 @router.post("/ingest/network-failure")
-async def ingest_network_failure(req: IngestNetworkFailureRequest):
+async def ingest_network_failure(req: IngestNetworkFailureRequest, request: Request,
+                                 principal: IngressPrincipal = Depends(require_ingest_principal)):
     result = await infrastructure_intelligence.ingest_network_failure_event(req.payload)
-    return {"status": "ingested", "entity": result}
+    return await _ingested(request, principal, event_type="network_failure", payload=req.payload, result=result)
 
 
 @router.post("/ingest/docker")
-async def ingest_docker(req: IngestDockerRequest):
+async def ingest_docker(req: IngestDockerRequest, request: Request,
+                        principal: IngressPrincipal = Depends(require_ingest_principal)):
     result = await infrastructure_intelligence.ingest_docker_event(req.payload)
-    return {"status": "ingested", "entity": result}
+    return await _ingested(request, principal, event_type="docker", payload=req.payload, result=result)
 
 
 @router.post("/ingest/helm")
-async def ingest_helm(req: IngestHelmRequest):
+async def ingest_helm(req: IngestHelmRequest, request: Request,
+                      principal: IngressPrincipal = Depends(require_ingest_principal)):
     result = await infrastructure_intelligence.ingest_helm_event(req.payload)
-    return {"status": "ingested", "entity": result}
+    return await _ingested(request, principal, event_type="helm", payload=req.payload, result=result)
 
 
 @router.post("/ingest/prometheus")
-async def ingest_prometheus(req: IngestPrometheusRequest):
+async def ingest_prometheus(req: IngestPrometheusRequest, request: Request,
+                            principal: IngressPrincipal = Depends(require_ingest_principal)):
     result = await infrastructure_intelligence.ingest_prometheus_event(req.payload)
-    return {"status": "ingested", "entity": result}
+    return await _ingested(request, principal, event_type="prometheus", payload=req.payload, result=result)
 
 
 @router.post("/ingest/grafana")
-async def ingest_grafana(req: IngestGrafanaRequest):
+async def ingest_grafana(req: IngestGrafanaRequest, request: Request,
+                         principal: IngressPrincipal = Depends(require_ingest_principal)):
     result = await infrastructure_intelligence.ingest_grafana_event(req.payload)
-    return {"status": "ingested", "entity": result}
+    return await _ingested(request, principal, event_type="grafana", payload=req.payload, result=result)
 
 
 @router.post("/ingest/loki")
-async def ingest_loki(req: IngestLokiRequest):
+async def ingest_loki(req: IngestLokiRequest, request: Request,
+                      principal: IngressPrincipal = Depends(require_ingest_principal)):
     result = await infrastructure_intelligence.ingest_loki_event(req.payload)
-    return {"status": "ingested", "entity": result}
+    return await _ingested(request, principal, event_type="loki", payload=req.payload, result=result)
 
 
 @router.post("/ingest/opentelemetry")
-async def ingest_opentelemetry(req: IngestOpenTelemetryRequest):
+async def ingest_opentelemetry(req: IngestOpenTelemetryRequest, request: Request,
+                               principal: IngressPrincipal = Depends(require_ingest_principal)):
     result = await infrastructure_intelligence.ingest_opentelemetry_event(req.payload)
-    return {"status": "ingested", "entity": result}
+    return await _ingested(request, principal, event_type="opentelemetry", payload=req.payload, result=result)
 
 
 # ---- Webhook --------------------------------------------------------------------
 
 @router.post("/webhook/kubernetes")
-async def kubernetes_webhook(payload: Dict[str, Any]):
+async def kubernetes_webhook(payload: Dict[str, Any], request: Request,
+                             principal: IngressPrincipal = Depends(require_ingest_principal)):
+    # Kubernetes has no signing scheme for a pushed webhook; the pusher holds a
+    # CortexPrime access token and is judged like any other ingestion caller.
     results = await infrastructure_intelligence.ingest_kubernetes_webhook(payload)
-    return {"status": "ingested", "entities": results}
+    envelope = IngressEnvelope.build(
+        source="infrastructure.webhook.kubernetes", event_type="kubernetes",
+        payload=payload, principal=principal,
+        event_id=str(payload.get("uid") or payload.get("id") or ""),
+    )
+    await audit_ingress(request, outcome="accepted", source="infrastructure.webhook.kubernetes",
+                        principal=principal, envelope=envelope, reason="ingested")
+    return {"status": "ingested", "entities": results, "ingress": envelope.to_dict()}
 
 
 # ---- Clusters ------------------------------------------------------------------
@@ -737,7 +796,8 @@ async def get_argocd_events(name: str):
     return await gitops_app_intel.get_events(name)
 
 
-@router.post("/argocd/applications/{name}/sync")
+@router.post("/argocd/applications/{name}/sync",
+             dependencies=[Depends(guard_legacy_execution("POST /api/infrastructure/argocd/applications/{name}/sync"))])
 async def sync_argocd_application(name: str, payload: Dict[str, Any] = {}):
     revision = payload.get("revision", "")
     result = await sync_manager.sync(name, revision=revision)
@@ -747,7 +807,8 @@ async def sync_argocd_application(name: str, payload: Dict[str, Any] = {}):
     return result
 
 
-@router.post("/argocd/applications/{name}/refresh")
+@router.post("/argocd/applications/{name}/refresh",
+             dependencies=[Depends(guard_legacy_execution("POST /api/infrastructure/argocd/applications/{name}/refresh"))])
 async def refresh_argocd_application(name: str):
     result = await sync_manager.refresh(name)
     if result.get("status") == "error":
@@ -755,7 +816,8 @@ async def refresh_argocd_application(name: str):
     return result
 
 
-@router.post("/argocd/applications/{name}/rollback")
+@router.post("/argocd/applications/{name}/rollback",
+             dependencies=[Depends(guard_legacy_execution("POST /api/infrastructure/argocd/applications/{name}/rollback"))])
 async def rollback_argocd_application(name: str, payload: Dict[str, Any]):
     revision_id = payload.get("revision_id", 0)
     if not revision_id:
@@ -842,7 +904,8 @@ async def terraform_current_workspace():
     return {"workspace": result.stdout.strip() if result.success else "default"}
 
 
-@router.post("/terraform/workspaces/select")
+@router.post("/terraform/workspaces/select",
+             dependencies=[Depends(guard_legacy_execution("POST /api/infrastructure/terraform/workspaces/select"))])
 async def terraform_select_workspace(payload: Dict[str, Any]):
     name = payload.get("name", "default")
     from backend.connectors.terraform import terraform_connector as tcon
@@ -893,7 +956,8 @@ async def terraform_drift():
     return result
 
 
-@router.post("/terraform/init")
+@router.post("/terraform/init",
+             dependencies=[Depends(guard_legacy_execution("POST /api/infrastructure/terraform/init"))])
 async def terraform_init(payload: Dict[str, Any] = {}):
     upgrade = payload.get("upgrade", False)
     workspace = payload.get("workspace", "default")
@@ -921,7 +985,8 @@ async def terraform_validate():
     }
 
 
-@router.post("/terraform/plan")
+@router.post("/terraform/plan",
+             dependencies=[Depends(guard_legacy_execution("POST /api/infrastructure/terraform/plan"))])
 async def terraform_plan(payload: Dict[str, Any] = {}):
     workspace = payload.get("workspace", "default")
     destroy = payload.get("destroy", False)
@@ -936,7 +1001,8 @@ async def terraform_plan(payload: Dict[str, Any] = {}):
     return result
 
 
-@router.post("/terraform/apply")
+@router.post("/terraform/apply",
+             dependencies=[Depends(guard_legacy_execution("POST /api/infrastructure/terraform/apply"))])
 async def terraform_apply(payload: Dict[str, Any]):
     plan_id = payload.get("plan_id", "")
     workspace = payload.get("workspace", "default")
@@ -954,7 +1020,8 @@ async def terraform_apply(payload: Dict[str, Any]):
     return result
 
 
-@router.post("/terraform/destroy")
+@router.post("/terraform/destroy",
+             dependencies=[Depends(guard_legacy_execution("POST /api/infrastructure/terraform/destroy"))])
 async def terraform_destroy(payload: Dict[str, Any] = {}):
     workspace = payload.get("workspace", "default")
     await tf_emitter.emit_destroy_started(workspace)
@@ -1174,15 +1241,17 @@ async def get_trace_health():
 # ---- OTLP HTTP Receiver (standard OpenTelemetry Protocol) ---------------------
 
 @router.post("/otel/v1/traces")
-async def otlp_receive_traces(request: Request):
+async def otlp_receive_traces(request: Request,
+                              principal: IngressPrincipal = Depends(require_ingest_principal)):
     """Standard OTLP HTTP traces endpoint.
 
     Accepts ExportTraceServiceRequest in protobuf (application/x-protobuf)
     or JSON (application/json) format, as specified by the OpenTelemetry
-    Protocol specification.
+    Protocol specification. The exporter authenticates with a CortexPrime
+    access token in its ``Authorization`` header (Phase 11.1).
     """
     content_type = request.headers.get("content-type", "").lower()
-    body = await request.body()
+    body = await bound_body(request, source="infrastructure.otlp", principal=principal)
 
     if not body:
         raise HTTPException(status_code=400, detail="Empty request body")
@@ -1198,6 +1267,16 @@ async def otlp_receive_traces(request: Request):
                 status_code=503,
                 content={"status": "skipped", "reason": result.get("reason", "OTLP receiver not available")},
             )
+        envelope = IngressEnvelope.build(
+            source="infrastructure.otlp", event_type="otlp.traces",
+            payload={"content_type": content_type, "bytes": len(body),
+                     "digest": hashlib.sha256(body).hexdigest()},
+            principal=principal,
+        )
+        await audit_ingress(request, outcome="accepted", source="infrastructure.otlp",
+                            principal=principal, envelope=envelope, reason="ingested")
+        if isinstance(result, dict):
+            result["ingress"] = envelope.to_dict()
         return result
     except Exception as exc:
         log.warning("OTLP /v1/traces handler failed: %s", exc)

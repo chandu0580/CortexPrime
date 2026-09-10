@@ -843,7 +843,9 @@ def register_all_routers(app: FastAPI) -> Dict[str, bool]:
 
     try:
         from backend.api.enterprise_github_routes import router as enterprise_github_router
+        from backend.api.enterprise_github_routes import webhook_router as enterprise_github_webhook_router
         app.include_router(enterprise_github_router)
+        app.include_router(enterprise_github_webhook_router)
         log.info("Enterprise GitHub Integration routes registered at /api/github")
         availability["enterprise_github"] = True
     except Exception as _egh_err:
@@ -860,7 +862,9 @@ def register_all_routers(app: FastAPI) -> Dict[str, bool]:
 
     try:
         from backend.api.enterprise_gitlab_routes import router as enterprise_gitlab_router
+        from backend.api.enterprise_gitlab_routes import webhook_router as enterprise_gitlab_webhook_router
         app.include_router(enterprise_gitlab_router)
+        app.include_router(enterprise_gitlab_webhook_router)
         log.info("Enterprise GitLab Integration routes registered at /api/gitlab")
         availability["enterprise_gitlab"] = True
     except Exception as _egl_err:

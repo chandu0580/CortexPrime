@@ -15,9 +15,10 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
+from backend.auth.dependencies import require_user
 from backend.services.autonomous_trigger_runtime import (
     TRIGGER_SOURCES,
     TriggerPolicy,
@@ -25,7 +26,16 @@ from backend.services.autonomous_trigger_runtime import (
 )
 
 log = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/triggers", tags=["Autonomous Triggers"])
+
+# Phase 11.1: a trigger policy turns events into missions. Writing one is a
+# privileged act and reading them reveals what the deployment reacts to, so
+# every route needs a verified identity. Mission generation itself remains
+# behind the legacy execution guard (enterprise_mission_orchestrator.launch).
+router = APIRouter(
+    prefix="/api/triggers",
+    tags=["Autonomous Triggers"],
+    dependencies=[Depends(require_user)],
+)
 
 
 # ── Schemas ─────────────────────────────────────────────────────────────────
