@@ -860,6 +860,15 @@ def register_all_routers(app: FastAPI) -> Dict[str, bool]:
         availability["enterprise_github"] = False
         log.warning(f"Enterprise GitHub Integration routes unavailable: {_egh_err_detail}")
 
+    # Phase 11.2 (ADR-122): governed signal ingress. Behind the perimeter,
+    # tenant from the token, writes to the World ledger. Registration is not
+    # optional: a signal path that silently fails to mount is a signal path
+    # that silently drops.
+    from backend.api.signal_ingress_routes import router as signal_ingress_router
+    app.include_router(signal_ingress_router)
+    availability["signal_ingress"] = True
+    log.info("Signal ingress registered at /api/signals")
+
     try:
         from backend.api.enterprise_gitlab_routes import router as enterprise_gitlab_router
         from backend.api.enterprise_gitlab_routes import webhook_router as enterprise_gitlab_webhook_router

@@ -126,6 +126,94 @@ class _CortexMetrics:
             "Total mission failures with error details",
             ["error_type"],
         )
+        # ── Signal fabric (Phase 11.2, ADR-122) ───────────────────────────
+        # Exported by the signal worker process and by the API process alike
+        # (one registry per process). Labels are bounded vocabularies, never
+        # tenant ids or subject names.
+        self.signal_events_received = _counter(
+            "cortex_signal_events_received_total",
+            "Signal events received from a source, before any decision",
+            ["source", "event_type"],
+        )
+        self.signal_events_rejected = _counter(
+            "cortex_signal_events_rejected_total",
+            "Signal events refused at the boundary or by validation",
+            ["source", "reason"],
+        )
+        self.signal_events_persisted = _counter(
+            "cortex_signal_events_persisted_total",
+            "Signal events durably recorded as new observations",
+            ["source"],
+        )
+        self.signal_events_deduplicated = _counter(
+            "cortex_signal_events_deduplicated_total",
+            "Signal events that collided on identity and were not recorded again",
+            ["source"],
+        )
+        self.signal_events_dropped = _counter(
+            "cortex_signal_events_dropped_total",
+            "Signal events known to be lost (explicit loss, e.g. relist after a stall or expiry)",
+            ["source", "reason"],
+        )
+        self.signal_cycles = _counter(
+            "cortex_signal_cycles_total",
+            "Watch cycles by outcome (observed, idle, follower, watch_failed, ...)",
+            ["source", "outcome"],
+        )
+        self.signal_retries = _counter(
+            "cortex_signal_retries_total",
+            "Watch/list attempts retried after a failure",
+            ["source"],
+        )
+        self.signal_reconnects = _counter(
+            "cortex_signal_reconnects_total",
+            "Watch positions re-established after expiry (410) or a stall",
+            ["source", "reason"],
+        )
+        self.signal_provider_errors = _counter(
+            "cortex_signal_provider_errors_total",
+            "Errors returned by the signal source's API",
+            ["source", "kind"],
+        )
+        self.signal_facts_derived = _counter(
+            "cortex_signal_facts_derived_total",
+            "Fact derivations from persisted signal observations, by outcome",
+            ["outcome"],
+        )
+        self.signal_candidates = _gauge(
+            "cortex_signal_incident_candidates",
+            "Incident candidates currently projected for detection handoff",
+            ["kind"],
+        )
+        self.signal_handoffs = _counter(
+            "cortex_signal_handoffs_total",
+            "Candidate projections handed to the detection boundary",
+        )
+        self.signal_cycle_seconds = _histogram(
+            "cortex_signal_cycle_seconds",
+            "Wall time of one watch cycle (window + enrichment + persistence)",
+            ["source"],
+        )
+        self.signal_persist_seconds = _histogram(
+            "cortex_signal_persist_seconds",
+            "Time to persist one observation",
+            ["source"],
+        )
+        self.signal_ingest_seconds = _histogram(
+            "cortex_signal_ingest_seconds",
+            "Time from HTTP receipt to durable observation for token/webhook ingestion",
+            ["source"],
+        )
+        self.signal_event_lag_seconds = _histogram(
+            "cortex_signal_event_lag_seconds",
+            "Observed-at to recorded-at lag of persisted signal events",
+            ["source"],
+            buckets=(0.5, 1, 2, 5, 10, 20, 30, 60, 120, 300, 600),
+        )
+        self.signal_worker_leader = _gauge(
+            "cortex_signal_worker_leader",
+            "1 when this worker holds the stream role, else 0",
+        )
         self.mission_duration = _histogram(
             "cortex_mission_duration_seconds",
             "Wall-clock duration of missions in seconds",

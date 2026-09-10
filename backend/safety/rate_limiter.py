@@ -289,7 +289,7 @@ def _classify_endpoint(path: str, method: str) -> str:
     # fragments in provider names, and the boundary bucket must win.
     if path_lower.endswith("/webhook") or "/webhook/" in path_lower:
         return "webhook"
-    if "/ingest/" in path_lower or path_lower.endswith("/otel/v1/traces"):
+    if "/ingest/" in path_lower or "/signals/" in path_lower or path_lower.endswith("/otel/v1/traces"):
         return "ingest"
     if "/orchestrate" in path_lower:
         return "orchestrate"

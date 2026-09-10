@@ -162,6 +162,70 @@ class SqlObservationRepository:
             ).fetchone()
         return Observation.from_dict(row[0]) if row is not None else None
 
+    def list_recent(
+        self, *, tenant_id: str, since: Optional[Any] = None,
+        subject_prefix: Optional[str] = None, source_ref: Optional[str] = None,
+        limit: int = 200,
+    ) -> tuple["Observation", ...]:
+        """The most recently RECORDED observations of one tenant, newest first.
+
+        Phase 11.2 (signal fabric): the read behind "what has the signal fabric
+        seen lately" -- the product's recent-signals view and the incident
+        candidate projection. Tenant-predicated like every read here; a prefix
+        narrows to one source's subjects (``kubernetes:pod:`` or
+        ``alertmanager:alert:``) and ``source_ref`` to one instrument. Ordered
+        by ``recorded_at`` because that is CortexPrime's own clock (the question
+        is "what did we record", not "what did the instrument claim"); the
+        ULID breaks ties. Bounded: an unbounded ledger read is a full scan.
+        """
+        from backend.contracts.world import Observation
+
+        bound = max(1, min(int(limit), 1000))
+        where = [T.c.tenant_id == tenant_id]
+        if since is not None:
+            where.append(T.c.recorded_at >= since)
+        if subject_prefix:
+            where.append(T.c.subject_ref.like(subject_prefix.replace("%", "\\%") + "%"))
+        if source_ref:
+            where.append(T.c.source_ref == source_ref)
+        with self._store.atomic() as work:
+            rows = work.execute(
+                sa.select(T.c.record).where(*where)
+                .order_by(T.c.recorded_at.desc(), T.c.observation_id.desc())
+                .limit(bound)
+            ).fetchall()
+        return tuple(Observation.from_dict(row[0]) for row in rows)
+
+    def latest_by_subject_prefix(
+        self, *, tenant_id: str, subject_prefix: str, predicate: str,
+        limit: int = 500,
+    ) -> tuple["Observation", ...]:
+        """The latest observation of every subject under a prefix, one per subject.
+
+        Phase 11.2: the projection input for incident candidates -- "the last
+        thing recorded about each pod / each alert". Latest by ``recorded_at``
+        then ULID, for the reason ``latest_for_subject`` gives. PostgreSQL's
+        ``DISTINCT ON`` does the per-subject cut in the database rather than
+        in Python over the whole ledger. Tenant-predicated; bounded.
+        """
+        from backend.contracts.world import Observation
+
+        bound = max(1, min(int(limit), 5000))
+        with self._store.atomic() as work:
+            rows = work.execute(
+                sa.select(T.c.record)
+                .distinct(T.c.subject_ref)
+                .where(
+                    T.c.tenant_id == tenant_id,
+                    T.c.predicate == predicate,
+                    T.c.subject_ref.like(subject_prefix.replace("%", "\\%") + "%"),
+                )
+                .order_by(T.c.subject_ref, T.c.recorded_at.desc(),
+                          T.c.observation_id.desc())
+                .limit(bound)
+            ).fetchall()
+        return tuple(Observation.from_dict(row[0]) for row in rows)
+
     def count_for_subject(self, *, tenant_id: str, subject_ref: str) -> int:
         with self._store.atomic() as work:
             return int(work.execute(

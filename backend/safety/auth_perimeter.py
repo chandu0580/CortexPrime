@@ -128,7 +128,7 @@ SIGNED_INGRESS = frozenset({"/api/github/webhook", "/api/gitlab/webhook"})
 
 #: Authenticated paths the V1 tenant fence does not apply to: governed,
 #: tenant-aware surfaces living in this process.
-FENCE_EXEMPT_PREFIXES: tuple = ("/api/auth/", "/api/tenants")
+FENCE_EXEMPT_PREFIXES: tuple = ("/api/auth/", "/api/tenants", "/api/signals")
 
 
 @dataclass(frozen=True)

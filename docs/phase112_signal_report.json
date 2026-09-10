@@ -1,0 +1,709 @@
+{
+ "phase": "11.2",
+ "checks": [
+  {
+   "name": "0.1 a fresh read-only ServiceAccount token was minted for the worker",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "0.2 real PostgreSQL migrated to head",
+   "ok": true,
+   "detail": "postgresql://cortex:cortex@127.0.0.1:55437/cortex_p112"
+  },
+  {
+   "name": "1.1 the worker refuses to start when the read capabilities are not commissioned",
+   "ok": true,
+   "detail": "ernetes.pods.watch (CapabilityNotFound), kubernetes.pod.get (CapabilityNotFound). Commission them through the capability registry (an operator act); the worker never registers capabilities for itself "
+  },
+  {
+   "name": "1.2 the worker refuses to start without a tenant",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "1.3 three read-only capabilities commissioned; two real tenants provisioned",
+   "ok": true,
+   "detail": "tenant-e202fd8281d3 / tenant-272551873618"
+  },
+  {
+   "name": "2.0 the worker environment carries the READ token and NO restart credential",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "2.1 the worker established a real position from a governed LIST and holds the stream role",
+   "ok": true,
+   "detail": "{\"outcome\": \"established\", \"events_seen\": 0, \"recorded\": 1, \"deduped\": 0, \"facts\": {}, \"candidates\": 0, \"backoff_seconds\": 0.0, \"relisted\": false, \"leader\": tru"
+  },
+  {
+   "name": "2.2 the position is a durable observation with the cluster's own resourceVersion",
+   "ok": true,
+   "detail": "{'origin': 'list', 'podCount': 3, 'namespace': 'cortex-p99b', 'resourceVersion': '64419'}"
+  },
+  {
+   "name": "2.3 the worker exports signal metrics through the existing Prometheus registry",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "3.1 the cluster itself reports CrashLoopBackOff (ground truth, not injected)",
+   "ok": true,
+   "detail": "{\"pod\": \"p112-crashy-986bd6479-vzqhh\", \"restarts\": 5, \"seen_at\": 1789038232.4408782, \"uid\": \"69f8d26f-08f0-4217-84b1-ea57b00cdafb\", \"finishedAt\": \"2026-09-10T11"
+  },
+  {
+   "name": "3.2 the worker observed the failing pod through the governed watch + pod.get enrichment",
+   "ok": true,
+   "detail": "{\"uid\": \"69f8d26f-08f0-4217-84b1-ea57b00cdafb\", \"kind\": \"Pod\", \"name\": \"p112-crashy-986bd6479-vzqhh\", \"phase\": \"Running\", \"cluster\": \"k3d-cortex-p99b\", \"workload\": \"p112-crashy\", \"eventType\": \"MODIFIED\", \"namespace\": \"co"
+  },
+  {
+   "name": "3.3 the observation is tenant-scoped, identity-digested, with provenance and execution refs",
+   "ok": true,
+   "detail": "{\"_version\": 1, \"_contract\": \"cortexprime.world.provenance_ref\", \"trace_ref\": \"01M25FJVPTC1EV81K6C3V6WP6K\", \"source_ref\": \"connector:kubernetes\", \"produced_by\": \"signal:kubernetes-worker/1\", \"executio"
+  },
+  {
+   "name": "3.4 source-native identity is intact (cluster, namespace, kind, name, uid, resourceVersion, eventType)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "3.5 a World fact derived from the observation (cw_fact) -- the detection input",
+   "ok": true,
+   "detail": "14 fact rows"
+  },
+  {
+   "name": "3.6 the failure is projected as an incident candidate with correlation context and handed off",
+   "ok": true,
+   "detail": "{\"candidate_id\": \"cand_0780d6a3bb41ba540e992dd1\", \"tenant_id\": \"tenant-e202fd8281d3\", \"kind\": \"kubernetes.pod.backoff\", \"subject_refs\": [\"kubernetes:pod:cortex-p99b/p112-crashy-986bd6479-vzqhh\"], \"correlation\": {\"cluster\": \"k3d-cortex-p99b\", \"namespace\": \"cort"
+  },
+  {
+   "name": "3.7 metrics: persisted, facts derived and a handoff are counted",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "4.1 tenant A reads its candidate through the product API",
+   "ok": true,
+   "detail": "{\"tenant_id\":\"tenant-e202fd8281d3\",\"count\":1,\"candidates\":[{\"candidate_id\":\"cand_0780d6a3bb41ba540e992dd1\",\"tenant_id\":\""
+  },
+  {
+   "name": "4.2 tenant B sees ZERO candidates and ZERO signals",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "4.3 recent signals carry native identity, provenance and trust",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "4.4 no token -> 401",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "4.5 a tenant claim without a durable membership is refused (403), never served",
+   "ok": true,
+   "detail": "{\"detail\":\"membership_in_another_tenant: you are not an active member of this tenant\"}"
+  },
+  {
+   "name": "5.1 SIGTERM/CTRL_BREAK stops the worker gracefully and releases the role",
+   "ok": true,
+   "detail": "stopped in 5.7s rc=0"
+  },
+  {
+   "name": "5.2 the restarted worker resumed from the durable position (no re-list, no invented position)",
+   "ok": true,
+   "detail": "{\"outcome\": \"observed\", \"events_seen\": 1, \"recorded\": 0, \"deduped\": 0, \"facts\": {}, \"candidates\": 1, \"backoff_seconds\": "
+  },
+  {
+   "name": "5.3 re-delivered events collide on identity: zero duplicate identities in the ledger",
+   "ok": true,
+   "detail": "deduplicated=0.0 rows 53->57"
+  },
+  {
+   "name": "6.1 the second instance for the same tenant is a FOLLOWER (SQL leadership, fenced)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "6.2 after a hard kill the follower takes the role once the lease lapses, and resumes the stream",
+   "ok": true,
+   "detail": "{\"outcome\": \"observed\", \"events_seen\": 2, \"recorded\": 1, \"deduped\": 0, \"facts\": {\"asserted\": 1}, \"candidates\": 1, \"backo"
+  },
+  {
+   "name": "6.3 takeover produced no duplicate identities and no fabricated observations",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "7.1 the paused API server is reported as a failed cycle with backoff, not as an idle success",
+   "ok": true,
+   "detail": "{\"outcome\": \"watch_failed\", \"events_seen\": 0, \"recorded\": 0, \"deduped\": 0, \"facts\": {}, \"candidates\": 0, \"backoff_seconds\": 1.0, \"relisted\": false, \"leader\": tr"
+  },
+  {
+   "name": "7.2 after the API returns the stream resumes",
+   "ok": true,
+   "detail": "{\"outcome\": \"observed\", \"events_seen\": 2, \"recorded\": 0, \"deduped\": 0, \"facts\": {}, \"candidates\": 1, \"backoff_seconds\": "
+  },
+  {
+   "name": "7.3 the outage is counted (retries and provider errors)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "8.1 the worker survives the database outage and resumes once it returns",
+   "ok": true,
+   "detail": "{\"outcome\": \"observed\", \"events_seen\": 1, \"recorded\": 0, \"deduped\": 0, \"facts\": {}, \"candidates\": 1, \"backoff_seconds\": "
+  },
+  {
+   "name": "8.2 no duplicate identities after the outage",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "9a.3 an event storm over the window cap is handled by an EXPLICIT relist: loss is counted and the checkpoint names the stall (never a silent drop, never a wedged stream)",
+   "ok": true,
+   "detail": "{'origin': 'list_after_stall', 'podCount': 64, 'namespace': 'cortex-p99b', 'stallReason': 'stall: 4 consecutive failures at position 64588', 'resourceVersion': '65232'}"
+  },
+  {
+   "name": "9a.4 after the storm the stream is healthy again",
+   "ok": true,
+   "detail": "{\"outcome\": \"idle\", \"events_seen\": 0, \"recorded\": 0, \"deduped\": 0, \"facts\": {}, \"candidates\": 1, \"ba"
+  },
+  {
+   "name": "9a.5 the standalone worker stops gracefully before the API takes the runtime roles",
+   "ok": true,
+   "detail": "5.3s"
+  },
+  {
+   "name": "9.0 the API process runs the signal loop EMBEDDED in its own governed runtime and holds the stream role",
+   "ok": true,
+   "detail": "{\"outcome\": \"observed\", \"events_seen\": 1, \"recorded\": 0, \"deduped\": 0, \"facts\": {}, \"candidates\": 1, \"backoff_seconds\": 0.0, \"relisted\": fal"
+  },
+  {
+   "name": "9.1 Prometheus fired VictimServiceDown on a real down target, Alertmanager delivered it, the boundary admitted the tenant-bound token, and it is a durable tenant-A observation",
+   "ok": true,
+   "detail": "{\"endsAt\": null, \"labels\": {\"job\": \"victim-service\", \"service\": \"victim-service\", \"instance\": \"host.docker.internal:8113\", \"severity\": \"critical\", \"alertname\": \"VictimServiceDown\", \"namespace\": \"cortex-p99b\", \"tenant_hin"
+  },
+  {
+   "name": "9.2 identity is Alertmanager's fingerprint + startsAt; the tenant hint label is DATA, not tenancy",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "9.3 the accept is audited durably (who/tenant/source, no payload)",
+   "ok": true,
+   "detail": "[('ingress.accepted', 'recorded=1 deduplicated=0 rejected=0', {'path': '/api/signals/alertmanager', 'client': '127.0.0.1', 'method': 'POST', 'reason': 'recorded=1 deduplicated=0 rejected=0', 'source':"
+  },
+  {
+   "name": "9.4 Alertmanager's repeat notification did NOT create a second firing observation (deduplicated)",
+   "ok": true,
+   "detail": "firing rows=1 total=1"
+  },
+  {
+   "name": "9.5 the firing alert is an incident candidate with correlation (alertname, severity, service, namespace)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "9.6 bringing the target up resolved the alert; the resolution is a NEW lifecycle observation",
+   "ok": true,
+   "detail": "2026-09-10T11:10:46.532000+00:00"
+  },
+  {
+   "name": "9.7 the resolved alert is no longer a candidate",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "10.1 forged delivery: no token -> 401",
+   "ok": true,
+   "detail": "HTTP 401"
+  },
+  {
+   "name": "10.1 forged delivery: garbage token -> 401",
+   "ok": true,
+   "detail": "HTTP 401"
+  },
+  {
+   "name": "10.1 forged delivery: tenant-less token -> 403",
+   "ok": true,
+   "detail": "HTTP 403"
+  },
+  {
+   "name": "10.1 forged delivery: wrong-secret token -> 401",
+   "ok": true,
+   "detail": "HTTP 401"
+  },
+  {
+   "name": "10.2 a tenant-B token lands its alert in tenant B, never in tenant A",
+   "ok": true,
+   "detail": "HTTP 200"
+  },
+  {
+   "name": "10.3 a replayed delivery is deduplicated, not duplicated",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "10.4 an oversized delivery is refused (413)",
+   "ok": true,
+   "detail": "HTTP 413"
+  },
+  {
+   "name": "10.5 a malformed delivery is refused (400)",
+   "ok": true,
+   "detail": "HTTP 400"
+  },
+  {
+   "name": "10.6 a schema-violating delivery is refused (422)",
+   "ok": true,
+   "detail": "HTTP 422"
+  },
+  {
+   "name": "10.7 authority-shaped labels and instruction text are DATA under the token's tenant",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "10.8 a delivery over the alert cap is refused, never partially accepted",
+   "ok": true,
+   "detail": "HTTP 422"
+  },
+  {
+   "name": "11.1 100 distinct alerts in a burst: every one durably recorded, none lost, none duplicated",
+   "ok": true,
+   "detail": "rows=100"
+  },
+  {
+   "name": "11.2 the same 100 replayed: 100 deduplicated, ledger unchanged",
+   "ok": true,
+   "detail": "deduplicated=100"
+  },
+  {
+   "name": "11.3 the embedded loop is still cycling after the burst (not merely a stale status file)",
+   "ok": true,
+   "detail": "{\"outcome\": \"observed\", \"events_seen\": 1, \"recorded\": 0, \"deduped\": 0, \"facts\": {}, \"candidates\": 74"
+  },
+  {
+   "name": "12.1 zero provider writes: the standing deployments' generations are unchanged",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "12.2 the worker's ServiceAccount cannot patch deployments (read-only RBAC)",
+   "ok": true,
+   "detail": "no"
+  },
+  {
+   "name": "12.3 the signal path changed only World, governed-execution and audit tables; no schema change",
+   "ok": true,
+   "detail": "['audit_logs', 'connector_activity', 'cp_audit_chain', 'cp_audit_record', 'cp_binding', 'cp_execution', 'cp_leadership', 'cp_outbox', 'cw_fact', 'cw_observation']"
+  },
+  {
+   "name": "12.3b the signal modules import no V1 model, repository, service, connector or infrastructure module (static)",
+   "ok": true,
+   "detail": "[]"
+  },
+  {
+   "name": "12.4 the API ran the whole Alertmanager path with NO Redis (signal durability is PostgreSQL's)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "12.5 latency and failure are measurable from the registry",
+   "ok": true,
+   "detail": ""
+  }
+ ],
+ "deferred": [],
+ "measurements": {
+  "cluster_generations_before": {
+   "billing-api": 1,
+   "contained-worker": 134,
+   "payments-api": 133
+  },
+  "worker_boot_to_first_cycle_seconds": 4.0,
+  "cluster_apply_to_crashloop_seconds": 232.9,
+  "crashloop_kubectl_seen_to_recorded_seconds": 1.1,
+  "crashloop_apply_to_recorded_seconds": 234.0,
+  "worker_restart_to_progress_seconds": 30.1,
+  "observations_for_crashy_pod": {
+   "before_restart": 14,
+   "after": 14
+  },
+  "hard_kill_to_takeover_seconds": 40.1,
+  "api_outage_recovery_seconds": 17.2,
+  "pg_outage_recovery_seconds": 20.5,
+  "storm": {
+   "seconds_to_relist": 30.2,
+   "dropped_counter": 1.0,
+   "stall_checkpoints": 1,
+   "storm_pods_observed": 0,
+   "received": 5.0,
+   "persisted": 1.0
+  },
+  "api_boot_seconds": 97.0,
+  "db_tables_changed_by_v1_api_boot": {
+   "audit_logs": [
+    0,
+    4
+   ],
+   "connector_activity": [
+    0,
+    3
+   ],
+   "cp_audit_record": [
+    64,
+    77
+   ],
+   "cp_binding": [
+    83,
+    96
+   ],
+   "cp_execution": [
+    83,
+    96
+   ],
+   "cp_leadership": [
+    3,
+    4
+   ],
+   "cp_outbox": [
+    498,
+    655
+   ],
+   "cw_observation": [
+    65,
+    77
+   ]
+  },
+  "alert_prom_start_to_first_observation_seconds": 21.3,
+  "alert_startsAt_to_recorded_seconds": 5.0,
+  "alert_resolution_delivery_seconds": 12.2,
+  "alert_burst_100": {
+   "seconds": 3.75,
+   "per_second": 26.7,
+   "codes": {
+    "200": 100
+   },
+   "rows": 100
+  },
+  "embedded_loop_cycles": {
+   "at_api_up": 12,
+   "at_end": 30,
+   "seconds": 167.8
+  },
+  "cluster_generations_after": {
+   "billing-api": 1,
+   "contained-worker": 134,
+   "p112-crashy": 1,
+   "payments-api": 133
+  },
+  "db_tables_changed": {
+   "cp_leadership": {
+    "standalone": [
+     0,
+     3
+    ],
+    "api": [
+     4,
+     4
+    ]
+   },
+   "cw_observation": {
+    "standalone": [
+     0,
+     65
+    ],
+    "api": [
+     77,
+     199
+    ]
+   },
+   "connector_activity": {
+    "standalone": [
+     0,
+     0
+    ],
+    "api": [
+     3,
+     5
+    ]
+   },
+   "cp_binding": {
+    "standalone": [
+     0,
+     83
+    ],
+    "api": [
+     96,
+     115
+    ]
+   },
+   "cp_outbox": {
+    "standalone": [
+     0,
+     498
+    ],
+    "api": [
+     655,
+     773
+    ]
+   },
+   "cw_fact": {
+    "standalone": [
+     0,
+     15
+    ],
+    "api": [
+     15,
+     16
+    ]
+   },
+   "cp_execution": {
+    "standalone": [
+     0,
+     83
+    ],
+    "api": [
+     96,
+     116
+    ]
+   },
+   "cp_audit_record": {
+    "standalone": [
+     0,
+     64
+    ],
+    "api": [
+     77,
+     97
+    ]
+   },
+   "audit_logs": {
+    "standalone": [
+     0,
+     0
+    ],
+    "api": [
+     4,
+     191
+    ]
+   },
+   "cp_audit_chain": {
+    "standalone": [
+     0,
+     1
+    ],
+    "api": [
+     1,
+     1
+    ]
+   }
+  },
+  "v1_background_tables_written_during_api_run": {
+   "connector_activity": {
+    "standalone": [
+     0,
+     0
+    ],
+    "api": [
+     3,
+     5
+    ]
+   }
+  },
+  "latency_histograms": {
+   "cortex_signal_cycle_seconds": {
+    "count": 20.0,
+    "mean_seconds": 3.929
+   },
+   "cortex_signal_persist_seconds": {
+    "count": 0.0,
+    "mean_seconds": null
+   },
+   "cortex_signal_event_lag_seconds": {
+    "count": 1.0,
+    "mean_seconds": 0.344
+   },
+   "api_cortex_signal_ingest_seconds": {
+    "count": 206.0,
+    "mean_seconds": 0.013
+   },
+   "api_cortex_signal_persist_seconds": {
+    "count": 206.0,
+    "mean_seconds": 0.0109
+   }
+  },
+  "worker_counters": {
+   "cortex_signal_events_received_total": 5.0,
+   "cortex_signal_events_persisted_total": 1.0,
+   "cortex_signal_events_deduplicated_total": 0.0,
+   "cortex_signal_events_dropped_total": 2.0,
+   "cortex_signal_retries_total": 10.0,
+   "cortex_signal_reconnects_total": 2.0,
+   "cortex_signal_provider_errors_total": 10.0,
+   "cortex_signal_facts_derived_total": 1.0,
+   "cortex_signal_handoffs_total": 4.0
+  },
+  "api_embedded_counters": {
+   "cortex_signal_events_received_total": 252.0,
+   "cortex_signal_events_persisted_total": 105.0,
+   "cortex_signal_events_deduplicated_total": 102.0,
+   "cortex_signal_cycles_total": 30.0,
+   "cortex_signal_handoffs_total": 30.0
+  }
+ },
+ "negative_matrix": [
+  {
+   "case": "cross-tenant candidate read",
+   "stopped_by": "product_context tenant scope",
+   "detail": "0 candidates",
+   "provider_writes": 0
+  },
+  {
+   "case": "signal ingress no token",
+   "stopped_by": "auth_perimeter/ingress_boundary",
+   "detail": "HTTP 401",
+   "provider_writes": 0
+  },
+  {
+   "case": "signal ingress garbage token",
+   "stopped_by": "auth_perimeter/ingress_boundary",
+   "detail": "HTTP 401",
+   "provider_writes": 0
+  },
+  {
+   "case": "signal ingress tenant-less token",
+   "stopped_by": "auth_perimeter/ingress_boundary",
+   "detail": "HTTP 403",
+   "provider_writes": 0
+  },
+  {
+   "case": "signal ingress wrong-secret token",
+   "stopped_by": "auth_perimeter/ingress_boundary",
+   "detail": "HTTP 401",
+   "provider_writes": 0
+  },
+  {
+   "case": "cross-tenant alert injection",
+   "stopped_by": "token tenant + ledger tenant column",
+   "detail": "isolated to B",
+   "provider_writes": 0
+  },
+  {
+   "case": "injected authority labels",
+   "stopped_by": "ingress tenant from token; value is data",
+   "detail": "tenant A row only",
+   "provider_writes": 0
+  }
+ ],
+ "verdict": "VERIFIED",
+ "evidence": {
+  "crashloop": {
+   "ground_truth": {
+    "pod": "p112-crashy-986bd6479-vzqhh",
+    "restarts": 5,
+    "seen_at": 1789038232.4408782,
+    "uid": "69f8d26f-08f0-4217-84b1-ea57b00cdafb",
+    "finishedAt": "2026-09-10T11:02:42Z"
+   },
+   "observation_id": "wobs_01M25FT1ZKEQDW37P6DVZFXT8N",
+   "value": {
+    "uid": "69f8d26f-08f0-4217-84b1-ea57b00cdafb",
+    "kind": "Pod",
+    "name": "p112-crashy-986bd6479-vzqhh",
+    "phase": "Running",
+    "cluster": "k3d-cortex-p99b",
+    "workload": "p112-crashy",
+    "eventType": "MODIFIED",
+    "namespace": "cortex-p99b",
+    "enrichment": "pod.get",
+    "observedVia": "watch",
+    "lastExitCode": 1,
+    "restartCount": 5,
+    "waitingReason": "CrashLoopBackOff",
+    "resourceVersion": "64536",
+    "enrichmentExecution": "01M25FT1215BDA19Y8J2KAKSNE",
+    "lastTerminationReason": "Error"
+   },
+   "recorded_at": "2026-09-10T11:03:53.587983+00:00"
+  },
+  "candidate": {
+   "candidate_id": "cand_0780d6a3bb41ba540e992dd1",
+   "tenant_id": "tenant-e202fd8281d3",
+   "kind": "kubernetes.pod.backoff",
+   "subject_refs": [
+    "kubernetes:pod:cortex-p99b/p112-crashy-986bd6479-vzqhh"
+   ],
+   "correlation": {
+    "cluster": "k3d-cortex-p99b",
+    "namespace": "cortex-p99b",
+    "kind": "Pod",
+    "name": "p112-crashy-986bd6479-vzqhh",
+    "workload": "p112-crashy",
+    "phase": "Running",
+    "waitingReason": "CrashLoopBackOff",
+    "restartCount": 5,
+    "lastTerminationReason": "Error",
+    "lastExitCode": 1,
+    "tenant": "tenant-e202fd8281d3",
+    "workload_inferred_from_name": true,
+    "source": "kubernetes",
+    "observed_at": "2026-09-10T11:03:52.630944+00:00",
+    "recorded_at": "2026-09-10T11:03:52.630944+00:00",
+    "resourceVersion": "64536"
+   },
+   "evidence": [
+    "wobs_01M25FT1ZKEQDW37P6DVZFXT8N"
+   ],
+   "first_observed_at": "2026-09-10T11:03:52.630944+00:00",
+   "last_recorded_at": "2026-09-10T11:03:52.630944+00:00",
+   "sources": [
+    "kubernetes"
+   ],
+   "detail": "p112-crashy-986bd6479-vzqhh in cortex-p99b: CrashLoopBackOff, restarts=5",
+   "handoff": {
+    "incident_ref": "cand_0780d6a3bb41ba540e992dd1",
+    "subject_ref": "kubernetes:pod:cortex-p99b/p112-crashy-986bd6479-vzqhh",
+    "predicate": "state"
+   },
+   "authority": "none"
+  },
+  "alert": {
+   "observation_id": "wobs_01M25G4NT3X9R0SGHDC8MPAJ5W",
+   "subject": "alertmanager:alert:714530979b0335c8",
+   "value": {
+    "endsAt": null,
+    "labels": {
+     "job": "victim-service",
+     "service": "victim-service",
+     "instance": "host.docker.internal:8113",
+     "severity": "critical",
+     "alertname": "VictimServiceDown",
+     "namespace": "cortex-p99b",
+     "tenant_hint": "ignored-by-cortexprime"
+    },
+    "status": "firing",
+    "groupKey": "{}:{alertname=\"VictimServiceDown\"}",
+    "receiver": "cortexprime",
+    "startsAt": "2026-09-10T11:09:36.532000+00:00",
+    "annotations": {
+     "summary": "victim-service scrape target is down"
+    },
+    "fingerprint": "714530979b0335c8",
+    "groupStatus": "firing",
+    "observedVia": "alertmanager-webhook",
+    "generatorURL": "http://2e7c95f8523e:9090/graph?g0.expr=up%7Bjob%3D%22victim-service%22%7D+%3D%3D+0&g0.tab=1"
+   },
+   "recorded_at": "2026-09-10T11:09:41.571745+00:00"
+  }
+ },
+ "passed": 63,
+ "failed": 0,
+ "total": 63,
+ "duration_seconds": 682.2,
+ "negative_matrix_max_writes": 0
+}

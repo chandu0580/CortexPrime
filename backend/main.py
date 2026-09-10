@@ -125,6 +125,14 @@ async def lifespan(_app: FastAPI):
         _app.state.governed = governed_runtime
         log.info("Governed durable runtime ONLINE: %s",
                  governed_runtime.describe())
+        # Phase 11.2 (ADR-122): the signal fabric loop runs INSIDE this
+        # runtime process when configured (CORTEX_SIGNAL_TENANT_ID +
+        # CORTEX_SIGNAL_NAMESPACE), because the scheduler and audit-writer
+        # roles are per-store singletons and a runtime dispatches only the
+        # executions its own process started. Unconfigured: observes nothing.
+        from backend.signal.worker import start_embedded
+
+        _app.state.signal_worker = start_embedded(governed_runtime)
 
     # Repository Layer (Pilot Services)
     from backend.database.repositories.factory import repo_factory
@@ -1131,6 +1139,12 @@ async def lifespan(_app: FastAPI):
     #    the infrastructure teardown below means it never coordinates against
     #    a half-closed process.
     if governed_runtime is not None:
+        embedded_signal = getattr(_app.state, "signal_worker", None)
+        if embedded_signal is not None:
+            try:
+                embedded_signal.stop()
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Signal worker shutdown incomplete: %s", exc)
         try:
             governed_runtime.stop()
         except Exception as exc:

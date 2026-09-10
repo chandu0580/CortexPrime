@@ -305,6 +305,7 @@ def build_product_app(*, engine: Optional[ProductEngine] = None) -> FastAPI:
         set_engine(engine)
     from backend.api.product.authority_routes import router as authority_router
     from backend.api.product.membership_routes import router as membership_router
+    from backend.api.product.signal_routes import router as signal_router
 
     app.include_router(router)
     # The ONLY module carrying non-GET routes. Kept a separate include so the
@@ -318,4 +319,6 @@ def build_product_app(*, engine: Optional[ProductEngine] = None) -> FastAPI:
     # Phase 10.9. Membership administration: admit, activate, deactivate and
     # relabel. It confers no authority -- that is still the grant routes above.
     app.include_router(membership_router)
+    # Phase 11.2: read-only signal fabric views (recent signals, candidates).
+    app.include_router(signal_router)
     return app

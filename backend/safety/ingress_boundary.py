@@ -67,6 +67,7 @@ __all__ = [
     "IngressEnvelope",
     "ingress_max_body_bytes",
     "require_ingest_principal",
+    "require_governed_ingest_principal",
     "bound_body",
     "audit_ingress",
     "verify_github_delivery",
@@ -309,6 +310,46 @@ async def require_ingest_principal(
         raise await _refuse(request, status_code=status.HTTP_403_FORBIDDEN,
                             reason=reason, source=source, principal=principal)
 
+    declared = _content_length(request)
+    limit = ingress_max_body_bytes()
+    if declared is not None and declared > limit:
+        raise await _refuse(
+            request, status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            reason=f"payload of {declared} bytes exceeds the ingestion bound of {limit} bytes",
+            source=source, principal=principal)
+    return principal
+
+
+async def require_governed_ingest_principal(
+    request: Request,
+    claims: dict = Depends(require_user),
+) -> IngressPrincipal:
+    """The identity behind ingestion into a GOVERNED, tenant-scoped ledger.
+
+    Phase 11.2. Differs from :func:`require_ingest_principal` in exactly two
+    ways, both because the destination is the World Plane rather than a V1
+    store: the V1 single-tenant fence does not apply (the ledger is scoped by
+    tenant row, so a second tenant is isolated rather than refused), and a
+    token WITHOUT a tenant is refused, because an observation without a
+    tenant cannot exist. Everything else -- verified token, live tenant,
+    body bound, audit -- is the same boundary.
+    """
+    source = request.url.path
+    principal = IngressPrincipal(
+        principal_id=str(claims.get("sub") or ""),
+        tenant_id=(str(claims.get("tenant_id")).strip() if claims.get("tenant_id") else None),
+        auth_kind="jwt",
+        source=source,
+    )
+    if not principal.principal_id:
+        raise await _refuse(request, status_code=status.HTTP_403_FORBIDDEN,
+                            reason="the authenticated identity names no principal",
+                            source=source)
+    if not principal.tenant_id:
+        raise await _refuse(request, status_code=status.HTTP_403_FORBIDDEN,
+                            reason="governed signal ingestion requires a tenant-bound identity; "
+                                   "this token carries no tenant",
+                            source=source, principal=principal)
     declared = _content_length(request)
     limit = ingress_max_body_bytes()
     if declared is not None and declared > limit:

@@ -97,6 +97,12 @@ RESOURCE_PREDICATE = "state"
 ORIGIN_LIST = "list"
 ORIGIN_WATCH = "watch"
 ORIGIN_LIST_AFTER_EXPIRY = "list_after_expiry"
+#: Phase 11.2: a position deliberately abandoned by the supervisor after a
+#: window failed repeatedly at the same place (for example a window over the
+#: event cap, which the normalizer refuses rather than trims). Events between
+#: the abandoned position and the fresh LIST are LOST, and the checkpoint says
+#: so in provenance rather than hiding the gap.
+ORIGIN_LIST_AFTER_STALL = "list_after_stall"
 
 
 @dataclass(frozen=True)
@@ -173,6 +179,7 @@ class KubernetesWatchDriver:
         lease_seconds: int = 60,
         max_expiry_recoveries: int = 3,
         clock: Any = None,
+        enricher: Any = None,
     ) -> None:
         if not namespace or not isinstance(namespace, str):
             raise ContractViolation("a watch stream is scoped to a named namespace")
@@ -201,6 +208,15 @@ class KubernetesWatchDriver:
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._handle: Optional[Any] = None
         self._expiry_recoveries = 0
+        # Phase 11.2. A watch event names WHAT changed (type, kind, name, uid,
+        # resourceVersion) and nothing about the pod's state -- the watch
+        # operation's declared record fields are exactly those, and widening a
+        # governed contract is not this component's decision. The enricher, when
+        # supplied, is the supervisor's hook to read the state through the
+        # EXISTING governed ``kubernetes.pod.get`` capability and merge its
+        # scalars into the same observation, so one event yields one complete,
+        # identity-deduplicated observation. ``None`` keeps the 9.3 behaviour.
+        self._enricher = enricher
 
     # ------------------------------------------------------------------
     # Identity
@@ -346,6 +362,35 @@ class KubernetesWatchDriver:
             return self._establish(context, origin=ORIGIN_LIST)
         return self._watch(context, position)
 
+    def relist(self, context: Any, *, reason: str) -> WatchCycleReport:
+        """Abandon the current position and take a fresh one from a governed LIST.
+
+        Phase 11.2, for the supervisor: when a window fails repeatedly at the
+        same position (a window over the event cap is refused, never trimmed,
+        so the position can never move on its own), continuing to re-watch is
+        a loop that observes nothing. The honest recovery is to relist and to
+        record the gap. Events between the abandoned position and the new
+        one are lost and the checkpoint names it (``origin=list_after_stall``,
+        ``stallReason``). Leadership is re-asserted like every other advance.
+        """
+        if not self.hold_leadership():
+            return WatchCycleReport(
+                outcome="follower",
+                detail="another instance holds this tenant's stream role",
+            )
+        report = self._establish(context, origin=ORIGIN_LIST_AFTER_STALL,
+                                 stall_reason=str(reason)[:200])
+        if report.outcome == "established":
+            self._expiry_recoveries = 0
+            return WatchCycleReport(
+                outcome="relisted_after_stall", advanced_to=report.advanced_to,
+                observations_recorded=report.observations_recorded,
+                observations_deduped=report.observations_deduped,
+                execution_id=report.execution_id, provider_calls=report.provider_calls,
+                durations=report.durations, detail=str(reason)[:200],
+            )
+        return report
+
     def run(self, context: Any, *, windows: int) -> tuple:
         """A bounded sequence of cycles. Bounded because an unbounded loop in a
         library is a daemon somebody has to find a way to stop."""
@@ -355,7 +400,8 @@ class KubernetesWatchDriver:
 
     # ------------------------------------------------------------------
 
-    def _establish(self, context: Any, *, origin: str) -> WatchCycleReport:
+    def _establish(self, context: Any, *, origin: str,
+                   stall_reason: Optional[str] = None) -> WatchCycleReport:
         """Take a fresh position from a governed LIST.
 
         The resourceVersion recorded here is the one the cluster returned, copied
@@ -392,7 +438,8 @@ class KubernetesWatchDriver:
 
         recorded = self._checkpoint(
             outcome, version=version, origin=origin,
-            extra={"podCount": outcome.evidence.get("podCount")},
+            extra={"podCount": outcome.evidence.get("podCount"),
+                   "stallReason": stall_reason},
         )
         return WatchCycleReport(
             outcome="established", advanced_to=version,
@@ -547,18 +594,32 @@ class KubernetesWatchDriver:
                 # The normalizer already refuses an unidentifiable mutation; if
                 # one reached here it is skipped rather than given a placeholder.
                 continue
+            value = {
+                "eventType": kind,
+                "resourceVersion": event.get("resourceVersion"),
+                "kind": event.get("kind"),
+                "namespace": event.get("namespace"),
+                "name": name,
+                "uid": event.get("uid"),
+                "observedVia": "watch",
+            }
+            if self._enricher is not None and kind != "DELETED":
+                # A deleted pod has no state to read. For the rest, the state
+                # is read through the governed capability the supervisor
+                # composed; a read that fails yields an observation that says
+                # the enrichment was unavailable rather than one that guesses.
+                try:
+                    extra = self._enricher(name)
+                except Exception as exc:  # noqa: BLE001 - never a fabricated state
+                    extra = {"enrichment": f"unavailable:{type(exc).__name__}"}
+                if isinstance(extra, Mapping):
+                    for key, item in extra.items():
+                        if item is not None and key not in value:
+                            value[key] = item
             legs.append(ObservationLeg(
                 subject_ref=self.resource_subject(name),
                 predicate=RESOURCE_PREDICATE,
-                value={
-                    "eventType": kind,
-                    "resourceVersion": event.get("resourceVersion"),
-                    "kind": event.get("kind"),
-                    "namespace": event.get("namespace"),
-                    "name": name,
-                    "uid": event.get("uid"),
-                    "observedVia": "watch",
-                },
+                value=value,
                 observed_at=moment,
             ))
         return tuple(legs)

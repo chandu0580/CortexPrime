@@ -76,6 +76,36 @@ async def _verify_token(token: str) -> Optional[dict]:
     return payload
 
 
+def _tenant_store():
+    """The durable tenant store (``cp_tenant``) reachable from THIS process.
+
+    The product API composes a ``ProductEngine`` and publishes its tenant
+    repository through ``current_engine()``. ``backend.main`` never composes
+    that engine -- it composes the governed runtime and keeps it in the
+    dependency container -- so until Phase 11.2 every tenant-bearing token was
+    refused there as "no store". Both processes hold the same DurableStore;
+    this reads the same table through it. There is still no JSON fallback: a
+    process with neither returns ``None`` and the caller refuses.
+    """
+    from backend.api.product.app import current_engine
+
+    tenants = getattr(current_engine(), "tenants", None)
+    if tenants is not None:
+        return tenants
+    try:
+        from backend.core.dependency_container import container
+
+        runtime = container.resolve("governed_runtime")
+    except Exception:  # noqa: BLE001 - not registered, or no container: refuse below
+        return None
+    store = getattr(getattr(runtime, "persistence", None), "store", None)
+    if store is None:
+        return None
+    from backend.contexts.connectivity.infrastructure.sql_tenant import SqlTenantRepository
+
+    return SqlTenantRepository(store)
+
+
 async def require_user(
     creds: Optional[HTTPAuthorizationCredentials] = Depends(bearer),
     cortex_access: Optional[str] = Cookie(default=None),
@@ -98,15 +128,13 @@ async def require_user(
     # engine, and that fallback refuses on absence exactly as this one does.
     tenant_id = payload.get("tenant_id")
     if tenant_id:
-        from backend.api.product.app import current_engine
         from backend.auth.tenants import resolve_tenant
 
         # Phase 10.11: no JSON fallback. A missing store is not permission to
         # fall back to a file nobody governs -- it refuses, like every other
-        # unreadable authority in this codebase.
-        record, reason = resolve_tenant(
-            tenant_id=tenant_id,
-            tenants=getattr(current_engine(), "tenants", None))
+        # unreadable authority in this codebase. Phase 11.2: the store is the
+        # product engine's or the governed runtime's (same table).
+        record, reason = resolve_tenant(tenant_id=tenant_id, tenants=_tenant_store())
         if record is None:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -145,12 +173,9 @@ async def require_tenant(current_user: dict = Depends(require_user)) -> dict:
     # The JSON manager remains ONLY as a fallback for processes that have not
     # composed the durable engine -- and that fallback refuses on absence just
     # as the durable path does, so neither direction fails open.
-    from backend.api.product.app import current_engine
     from backend.auth.tenants import resolve_tenant
 
-    record, reason = resolve_tenant(
-        tenant_id=tenant_id,
-        tenants=getattr(current_engine(), "tenants", None))
+    record, reason = resolve_tenant(tenant_id=tenant_id, tenants=_tenant_store())
     if record is None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
