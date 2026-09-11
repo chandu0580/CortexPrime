@@ -53,6 +53,7 @@ surfaced, never converted into success.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Mapping, Optional, Tuple
 
 from backend.contracts.execution import (
@@ -105,6 +106,8 @@ _POLICY_VERSION = "k8s-read-policy/1"
 #: The smallest read-only set for the first incident-investigation vertical
 #: (Phase 9.0 §8: CrashLoopBackOff / deployment-failure). Deriving cause from pods,
 #: their events, their logs, and the owning deployment.
+KUBERNETES_REPLICASETS_OPERATION = "kubernetes.replicasets.list"
+
 KUBERNETES_READ_OPERATIONS = (
     "kubernetes.pods.list",
     "kubernetes.pod.get",
@@ -113,6 +116,10 @@ KUBERNETES_READ_OPERATIONS = (
     "kubernetes.deployment.get",
     "kubernetes.events.list",
     "kubernetes.pods.watch",
+    # Phase 11.3: the ReplicaSet lineage of a namespace -- every revision a
+    # Deployment ever rolled, each with its own image and creation time. This
+    # is the observable a "what changed, and when" question is answered from.
+    KUBERNETES_REPLICASETS_OPERATION,
 )
 
 #: The Phase 9.3 WATCH operation (ADR-083). A READ: it observes and cannot act.
@@ -147,6 +154,13 @@ KUBERNETES_REAL_READ_OPERATIONS = (
     # and are only now exposed, which is the point of declaring a contract ahead
     # of exposing it.
     "kubernetes.pod.get", "kubernetes.deployment.get",
+    # Phase 11.3 (ADR-123): the three reads an evidence-first investigation
+    # needs beyond pod and deployment state -- what the container SAID before
+    # it died (its logs, from the kubelet), what the CONTROL PLANE recorded
+    # about the object (its events), and what CHANGED (the ReplicaSet lineage
+    # that carries every revision's image). All three are READ and were
+    # declared in 9.1/11.3; none carries a write field.
+    "kubernetes.pod.logs", "kubernetes.events.list", KUBERNETES_REPLICASETS_OPERATION,
     # Phase 9.6's write is deliberately ABSENT. It is declared (see
     # ``kubernetes_write_catalog``) but not exposed: an IRREVERSIBLE_WRITE may
     # not be performed by a CONTAINED in-process worker, so putting it in the
@@ -189,6 +203,48 @@ _LABEL = ParameterSpec(name="labelSelector", kind=ParameterKind.STRING,
                        location=ParameterLocation.QUERY, max_length=512, required=False)
 _LIMIT = ParameterSpec(name="limit", kind=ParameterKind.INTEGER,
                        location=ParameterLocation.QUERY, required=False)
+# Phase 11.3 -- log and event reads are BOUNDED by declaration. A log read
+# without a tail bound is an unbounded allocation in every parser between the
+# kubelet and the World Plane; the caps below are the most any caller can ask.
+_TAIL = ParameterSpec(name="tailLines", kind=ParameterKind.INTEGER,
+                      location=ParameterLocation.QUERY, required=False,
+                      min_value=1, max_value=500)
+_SINCE = ParameterSpec(name="sinceSeconds", kind=ParameterKind.INTEGER,
+                       location=ParameterLocation.QUERY, required=False,
+                       min_value=1, max_value=86400)
+#: ``previous=true`` asks the kubelet for the PREVIOUS container instance's log
+#: -- for a crash-looping container that is the log of the run that died,
+#: which is the one an investigation wants.
+_PREVIOUS = ParameterSpec(name="previous", kind=ParameterKind.BOOLEAN,
+                          location=ParameterLocation.QUERY, required=False)
+_FIELD = ParameterSpec(name="fieldSelector", kind=ParameterKind.STRING,
+                       location=ParameterLocation.QUERY, max_length=512, required=False)
+
+#: Log evidence is never the log. It is the bounded, declared, scrubbed SHAPE
+#: of the log: each distinct message pattern once, with how often it recurred
+#: and at what level. The raw text stays on the kubelet.
+LOG_MAX_PATTERNS = 32
+_LOG_PATTERN_RECORDS = RecordEvidenceSpec(
+    field_name="patterns",
+    fields=("pattern", "count", "level", "firstLine"),
+    max_records=LOG_MAX_PATTERNS,
+    max_string_length=200,
+)
+EVENTS_MAX_RECORDS = 64
+_EVENT_RECORDS = RecordEvidenceSpec(
+    field_name="events",
+    fields=("reason", "type", "message", "count", "firstTimestamp", "lastTimestamp",
+            "involvedKind", "involvedName"),
+    max_records=EVENTS_MAX_RECORDS,
+    max_string_length=240,
+)
+REPLICASETS_MAX_RECORDS = 64
+_REPLICASET_RECORDS = RecordEvidenceSpec(
+    field_name="replicaSets",
+    fields=("name", "revision", "image", "replicas", "readyReplicas",
+            "creationTimestamp", "ownerName", "templateDigest"),
+    max_records=REPLICASETS_MAX_RECORDS,
+)
 
 #: The watch continuation point. REQUIRED, and required for a reason: a watch
 #: without a resourceVersion means "start from now, and also send me the current
@@ -262,8 +318,11 @@ def kubernetes_read_catalog() -> OperationCatalog:
                             # status separates those two as cleanly.
                             "lastExitCode", "lastTerminationReason")),
             _read("kubernetes.pod.logs", "/api/v1/namespaces/{namespace}/pods/{name}/log",
-                  parameters=(_NS, _NAME), evidence=("name", "lineCount"),
-                  required=()),   # log body is text; no envelope / no resourceVersion
+                  parameters=(_NS, _NAME, _TAIL, _SINCE, _PREVIOUS),
+                  # Phase 11.3: the declared SHAPE of a log, never its text.
+                  evidence=("lineCount", "errorLineCount", "truncated", "logUnavailable",
+                            "patternCount", "patternsTruncated"),
+                  required=("lineCount",), records=_LOG_PATTERN_RECORDS),
             _read("kubernetes.deployments.list",
                   "/apis/apps/v1/namespaces/{namespace}/deployments",
                   parameters=(_NS, _LABEL, _LIMIT),
@@ -278,8 +337,18 @@ def kubernetes_read_catalog() -> OperationCatalog:
                             # stands or falls on.
                             "revision", "image")),
             _read("kubernetes.events.list", "/api/v1/namespaces/{namespace}/events",
-                  parameters=(_NS, _LIMIT),
-                  evidence=(_RV, "kind", "apiVersion", "eventCount")),
+                  parameters=(_NS, _LIMIT, _FIELD),
+                  # Phase 11.3: the control plane's own account of an object --
+                  # BackOff, Unhealthy, Failed, ScalingReplicaSet -- with the
+                  # timestamps that place them. Bounded and truncation-declared.
+                  evidence=(_RV, "kind", "apiVersion", "eventCount", "eventsTruncated"),
+                  records=_EVENT_RECORDS),
+            _read(KUBERNETES_REPLICASETS_OPERATION,
+                  "/apis/apps/v1/namespaces/{namespace}/replicasets",
+                  parameters=(_NS, _LABEL, _LIMIT),
+                  evidence=(_RV, "kind", "apiVersion", "replicaSetCount",
+                            "replicaSetsTruncated"),
+                  records=_REPLICASET_RECORDS),
             _watch(),
         ),
     )
@@ -517,6 +586,8 @@ class KubernetesWatchDecoder:
     """
 
     def decode(self, spec: Any, exchange: Any) -> Tuple[Any, Optional[str]]:
+        if spec.operation == "kubernetes.pod.logs":
+            return self._decode_log(spec, exchange)
         if str(spec.static_query.get("watch", "")).lower() != "true":
             return exchange.json()
         if exchange.status_code not in spec.success_statuses:
@@ -560,6 +631,85 @@ class KubernetesWatchDecoder:
                 )
             events.append(event)
         return {"events": events}, None
+
+    @staticmethod
+    def _decode_log(spec: Any, exchange: Any) -> Tuple[Any, Optional[str]]:
+        """Phase 11.3: a pod log is ``text/plain``, not a JSON document.
+
+        A failed log read (403, 404, 400 for a container that never ran) is an
+        ordinary ``Status`` JSON document and keeps the provider's dialect for
+        the translator. A successful one is wrapped as ``{"log": text}`` for the
+        normalizer, which turns it into declared, bounded pattern evidence. A
+        truncated body is ACCEPTED and marked: unlike a watch window, a partial
+        log is still true evidence of what the container said -- the bound is
+        declared (``tailLines``), and the mark says the bound was hit.
+        """
+        if exchange.status_code not in spec.success_statuses:
+            return exchange.json()
+        raw = exchange.body
+        if raw is None:
+            return {"log": "", "truncated": False}, None
+        text = raw.decode("utf-8", errors="replace")
+        return {"log": text, "truncated": bool(exchange.truncated)}, None
+
+
+_LOG_ERROR_WORDS = ("fatal", "panic", "error", "exception", "traceback", "critical",
+                    "failed", "cannot", "unable", "refused", "denied")
+_LOG_WARN_WORDS = ("warn",)
+_LOG_TS = re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?")
+_LOG_UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+_LOG_HEX = re.compile(r"\b(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{8,}\b")
+_LOG_IP = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b")
+_LOG_NUM = re.compile(r"\b\d+(?:\.\d+)?\b")
+_LOG_WS = re.compile(r"\s+")
+_LOG_UNAVAILABLE = re.compile(r"unable to retrieve container logs|previous terminated container .* not found|"
+                              r"container .* is waiting to start", re.IGNORECASE)
+
+
+def _template_digest(containers: Any) -> str:
+    from backend.platform.hashing import compute_digest
+
+    shape = []
+    for container in containers:
+        if not isinstance(container, Mapping):
+            continue
+        env = container.get("env")
+        env_names = sorted(str(e.get("name")) for e in env if isinstance(e, Mapping)) if isinstance(env, list) else []
+        env_from = container.get("envFrom")
+        shape.append({
+            "image": container.get("image"), "command": container.get("command"),
+            "args": container.get("args"), "env": env_names,
+            "envFrom": len(env_from) if isinstance(env_from, list) else 0,
+            "resources": container.get("resources"),
+        })
+    return compute_digest(shape).value[:16]
+
+
+def _log_level(line: str) -> str:
+    lowered = line.lower()
+    if any(word in lowered for word in _LOG_ERROR_WORDS):
+        return "error"
+    if any(word in lowered for word in _LOG_WARN_WORDS):
+        return "warning"
+    return "info"
+
+
+def _log_pattern(line: str) -> str:
+    """Deterministic message shape: identifiers and numbers become placeholders,
+    whitespace collapses, secrets are scrubbed, length is bounded."""
+    shaped = _LOG_TS.sub("<ts>", line)
+    shaped = _LOG_UUID.sub("<uuid>", shaped)
+    shaped = _LOG_IP.sub("<ip>", shaped)
+    shaped = _LOG_HEX.sub("<hex>", shaped)
+    shaped = _LOG_NUM.sub("#", shaped)
+    shaped = _LOG_WS.sub(" ", shaped).strip()
+    return _scrub(shaped)[:200]
+
+
+def _scrub(text: str) -> str:
+    from backend.platform.credentials.redaction import scrub_text
+
+    return scrub_text(text, max_length=1024)
 
 
 class KubernetesReadNormalizer:
@@ -605,6 +755,23 @@ class KubernetesReadNormalizer:
             out["deploymentCount"] = len(items)
         elif op == "kubernetes.events.list" and isinstance(items, list):
             out["eventCount"] = len(items)
+            records = [self._event_record(item) for item in items if isinstance(item, Mapping)]
+            # Newest last-seen first, then deterministic. The cap is declared;
+            # exceeding it is declared too ("eventsTruncated"), never silent.
+            records.sort(key=lambda r: (r.get("lastTimestamp") or "", r.get("reason") or ""),
+                         reverse=True)
+            out["eventsTruncated"] = len(records) > EVENTS_MAX_RECORDS
+            out["events"] = records[:EVENTS_MAX_RECORDS]
+        elif op == KUBERNETES_REPLICASETS_OPERATION and isinstance(items, list):
+            out["replicaSetCount"] = len(items)
+            records = [self._replicaset_record(item) for item in items
+                       if isinstance(item, Mapping)]
+            records.sort(key=lambda r: (r.get("creationTimestamp") or "", r.get("name") or ""),
+                         reverse=True)
+            out["replicaSetsTruncated"] = len(records) > REPLICASETS_MAX_RECORDS
+            out["replicaSets"] = records[:REPLICASETS_MAX_RECORDS]
+        elif op == "kubernetes.pod.logs":
+            out = self._normalize_log(body)
         elif op == "kubernetes.pod.get":
             self._lift_identity(out, meta)
             status = body.get("status")
@@ -647,6 +814,134 @@ class KubernetesReadNormalizer:
                     if isinstance(status.get(field), int):
                         out[field] = status[field]
         return out
+
+    # -- Phase 11.3 lifts ----------------------------------------------------
+
+    @staticmethod
+    def _event_record(item: Mapping) -> dict:
+        """One Kubernetes Event as declared scalars. Copied, never computed;
+        the message is bounded and secret-scrubbed because an event message is
+        free text the control plane copied from a component."""
+        record: dict = {}
+        for field_name in ("reason", "type", "firstTimestamp", "lastTimestamp"):
+            value = item.get(field_name)
+            if isinstance(value, str) and value:
+                record[field_name] = value
+        if "lastTimestamp" not in record:
+            value = item.get("eventTime")
+            if isinstance(value, str) and value:
+                record["lastTimestamp"] = value
+        message = item.get("message")
+        if isinstance(message, str) and message:
+            record["message"] = _scrub(message)[:240]
+        count = item.get("count")
+        if isinstance(count, int) and not isinstance(count, bool):
+            record["count"] = count
+        involved = item.get("involvedObject")
+        if isinstance(involved, Mapping):
+            kind = involved.get("kind")
+            name = involved.get("name")
+            if isinstance(kind, str) and kind:
+                record["involvedKind"] = kind
+            if isinstance(name, str) and name:
+                record["involvedName"] = name
+        return record
+
+    @staticmethod
+    def _replicaset_record(item: Mapping) -> dict:
+        record: dict = {}
+        meta = item.get("metadata")
+        if isinstance(meta, Mapping):
+            name = meta.get("name")
+            if isinstance(name, str) and name:
+                record["name"] = name
+            created = meta.get("creationTimestamp")
+            if isinstance(created, str) and created:
+                record["creationTimestamp"] = created
+            annotations = meta.get("annotations")
+            if isinstance(annotations, Mapping):
+                revision = annotations.get("deployment.kubernetes.io/revision")
+                if isinstance(revision, str) and revision:
+                    record["revision"] = revision
+            owners = meta.get("ownerReferences")
+            if isinstance(owners, list):
+                for owner in owners:
+                    if isinstance(owner, Mapping) and isinstance(owner.get("name"), str):
+                        record["ownerName"] = owner["name"]
+                        break
+        spec = item.get("spec")
+        if isinstance(spec, Mapping):
+            replicas = spec.get("replicas")
+            if isinstance(replicas, int) and not isinstance(replicas, bool):
+                record["replicas"] = replicas
+            template = spec.get("template")
+            if isinstance(template, Mapping):
+                inner = template.get("spec")
+                if isinstance(inner, Mapping):
+                    containers = inner.get("containers")
+                    if isinstance(containers, list) and containers:
+                        first = containers[0]
+                        if isinstance(first, Mapping) and isinstance(first.get("image"), str):
+                            record["image"] = first["image"]
+                        # A digest of what the containers RUN: image, command,
+                        # args, env names, resources. Two revisions with the
+                        # same digest differ only in metadata -- a rollout that
+                        # changed nothing the process could feel.
+                        record["templateDigest"] = _template_digest(containers)
+        status = item.get("status")
+        if isinstance(status, Mapping):
+            ready = status.get("readyReplicas")
+            if isinstance(ready, int) and not isinstance(ready, bool):
+                record["readyReplicas"] = ready
+        return record
+
+    @staticmethod
+    def _normalize_log(body: Mapping) -> dict:
+        """The declared shape of a log: distinct message patterns, counted.
+
+        Deterministic: timestamps, identifiers, addresses and numbers are
+        replaced by placeholders so the SAME message recurring with different
+        ids is one pattern with a count -- ten copies of one error are one
+        piece of evidence that happened ten times, not ten pieces. Every
+        pattern is secret-scrubbed before it can become an Observation, and
+        capped in length. The raw text never leaves this function.
+        """
+        text = body.get("log")
+        if not isinstance(text, str):
+            text = ""
+        lines = [line for line in text.splitlines() if line.strip()]
+        # The kubelet answers 200 with its OWN error text when the requested
+        # container log is gone ("unable to retrieve container logs for
+        # containerd://..."). That is not the application saying anything; it is
+        # the instrument saying it has nothing. Declared as such, and kept out
+        # of the patterns, so an absent log can never refute a hypothesis.
+        unavailable = [line for line in lines if _LOG_UNAVAILABLE.search(line)]
+        lines = [line for line in lines if not _LOG_UNAVAILABLE.search(line)]
+        patterns: dict = {}
+        error_lines = 0
+        for number, line in enumerate(lines, start=1):
+            level = _log_level(line)
+            if level == "error":
+                error_lines += 1
+            key = _log_pattern(line)
+            entry = patterns.get(key)
+            if entry is None:
+                patterns[key] = {"pattern": key, "count": 1, "level": level,
+                                 "firstLine": number}
+            else:
+                entry["count"] += 1
+                if level == "error" and entry["level"] != "error":
+                    entry["level"] = "error"
+        records = sorted(patterns.values(), key=lambda r: (-r["count"], r["firstLine"]))
+        return {
+            "lineCount": len(lines),
+            "errorLineCount": error_lines,
+            "truncated": bool(body.get("truncated", False)),
+            "logUnavailable": bool(unavailable) and not lines,
+            "patternCount": len(records),
+            "patternsTruncated": len(records) > LOG_MAX_PATTERNS,
+            "patterns": records[:LOG_MAX_PATTERNS],
+        }
 
     @classmethod
     def _pod_record(cls, pod: Mapping) -> dict:
@@ -1003,5 +1298,6 @@ def kubernetes_read_profiles() -> dict:
     scope = {"kubernetes.pods.list": "namespace", "kubernetes.pod.get": "pod",
              "kubernetes.pod.logs": "pod", "kubernetes.deployments.list": "namespace",
              "kubernetes.deployment.get": "deployment", "kubernetes.events.list": "namespace",
-             KUBERNETES_WATCH_OPERATION: "namespace"}
+             KUBERNETES_WATCH_OPERATION: "namespace",
+             KUBERNETES_REPLICASETS_OPERATION: "namespace"}
     return {op: _profile(op, scope[op]) for op in KUBERNETES_READ_OPERATIONS}

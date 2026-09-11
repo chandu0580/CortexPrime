@@ -332,10 +332,12 @@ class TestRecordEvidence:
         assert "events" not in _spec().evidence({"eventCount": 0, "events": []})
 
     def test_record_evidence_stays_the_exception_not_the_rule(self):
-        # Only the two operations whose answer is genuinely a SEQUENCE declare
-        # record evidence: a watch window (9.3) and a pod list (9.4). Every other
-        # read keeps flat scalar evidence, and only the watch carries a static
-        # query. Pinned so record evidence does not spread by habit.
+        # Only operations whose answer is genuinely a SEQUENCE declare record
+        # evidence: a watch window (9.3), a pod list (9.4), and -- Phase 11.3 --
+        # the three investigation reads whose answers ARE sequences: log
+        # message patterns, control-plane events, ReplicaSet revisions. Every
+        # other read keeps flat scalar evidence, and only the watch carries a
+        # static query. Pinned so record evidence does not spread by habit.
         with_records, with_query = set(), set()
         for name in kubernetes_read_catalog().operations:
             spec = kubernetes_read_catalog().require(name)
@@ -343,7 +345,9 @@ class TestRecordEvidence:
                 with_records.add(name)
             if spec.static_query:
                 with_query.add(name)
-        assert with_records == {KUBERNETES_WATCH_OPERATION, "kubernetes.pods.list"}
+        assert with_records == {KUBERNETES_WATCH_OPERATION, "kubernetes.pods.list",
+                                "kubernetes.pod.logs", "kubernetes.events.list",
+                                "kubernetes.replicasets.list"}
         assert with_query == {KUBERNETES_WATCH_OPERATION}
 
 

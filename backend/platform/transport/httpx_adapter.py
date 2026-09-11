@@ -78,6 +78,7 @@ more likely to be overlooked.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Mapping, Optional, Tuple
 
 from backend.contracts.errors import ContractViolation
@@ -299,6 +300,13 @@ class HttpxTransportAdapter:
         budget = request.policy.budget
         host = request.endpoint.host
         sent = False
+        # Phase 11.3 (ADR-123): the policy's TOTAL budget, applied to the body.
+        # connect/read/write timeouts are per operation on the socket; a body
+        # that keeps trickling bytes (a Kubernetes watch that outlives its own
+        # timeoutSeconds, a slow provider) never trips them and would be read
+        # until the provider chose to stop. The total budget is the bound the
+        # policy already declares; here it is finally enforced.
+        deadline = time.monotonic() + float(request.effective_timeouts.total_seconds)
 
         try:
             built = client.build_request(
@@ -323,7 +331,8 @@ class HttpxTransportAdapter:
                 # provider. From here the operation was delivered whatever else
                 # goes wrong.
                 sent = True
-                body, truncated = _read_bounded(response, budget.max_response_bytes)
+                body, truncated = _read_bounded(response, budget.max_response_bytes,
+                                                deadline=deadline)
                 return TransportOutcome(
                     delivery=DeliveryState.DELIVERED,
                     connection=connection,
@@ -489,15 +498,24 @@ def _pinned_url(endpoint: Any, address: str) -> str:
     return f"{endpoint.scheme}://{literal}:{endpoint.port}{endpoint.path}{query}"
 
 
-def _read_bounded(response: Any, limit: int) -> Tuple[bytes, bool]:
+def _read_bounded(response: Any, limit: int, *, deadline: Optional[float] = None) -> Tuple[bytes, bool]:
     """Read at most ``limit`` bytes, and say so when there was more.
 
     Never silently: a truncated body that looked complete would be parsed as
     complete, and a provider could use that to make a partial answer look whole.
+
+    ``deadline`` (a ``time.monotonic`` instant) bounds the WHOLE read: a body
+    still arriving past it raises ``httpx.ReadTimeout``, which the caller
+    classifies exactly like a socket read timeout. Without it a stream that
+    keeps sending bytes is read for as long as the provider likes.
     """
     chunks: list = []
     total = 0
     for chunk in response.iter_bytes():
+        if deadline is not None and time.monotonic() > deadline:
+            import httpx
+
+            raise httpx.ReadTimeout("the transport total budget elapsed while the body was still arriving")
         remaining = limit - total
         if remaining <= 0:
             return b"".join(chunks), True

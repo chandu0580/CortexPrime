@@ -12,6 +12,7 @@ from backend.llm_provider.providers.gemini_adapter import GeminiAdapter
 from backend.llm_provider.providers.groq_adapter import GroqAdapter
 from backend.llm_provider.providers.ollama_adapter import OllamaAdapter
 from backend.llm_provider.providers.openai_adapter import OpenAIAdapter
+from backend.llm_provider.providers.openai_compatible_adapter import OpenAICompatibleAdapter
 from backend.llm_provider.providers.openrouter_adapter import OpenRouterAdapter
 from backend.llm_provider.providers.together_adapter import TogetherAdapter
 
@@ -102,6 +103,7 @@ class ProviderRegistry:
             GeminiAdapter(),
             DeepSeekAdapter(),
             OllamaAdapter(),
+            OpenAICompatibleAdapter(),
         ]
         for p in builtins:
             if p.name not in self._providers:

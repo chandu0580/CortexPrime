@@ -83,6 +83,11 @@ from backend.contexts.execution.infrastructure.adapters.connector import (
 from backend.platform.transport import ConnectionPolicy, TransportBroker, TransportEndpoint
 
 __all__ = [
+    "DEPLOYMENT_UNAVAILABLE_OPERATION",
+    "POD_MEMORY_RATIO_OPERATION",
+    "POD_RESTARTS_RANGE_OPERATION",
+    "RANGE_STEP_SECONDS",
+    "RANGE_MAX_SPAN_SECONDS",
     "PROMETHEUS_PROVIDER_ID",
     "PROMETHEUS_PROVIDER",
     "PROMETHEUS_READ_OPERATIONS",
@@ -112,8 +117,31 @@ PROMETHEUS_SELF_OPERATION = "prometheus.self_build_info"
 #: and working-set bytes far below the limit is what rules it out.
 POD_MEMORY_OPERATION = "prometheus.pod_memory_bytes"
 
+#: Phase 11.3 (ADR-123): two more declared queries an investigation turns on.
+#: Whether a Deployment is short of replicas as the metrics pipeline sees it
+#: (kube-state-metrics, DERIVED from the API server -- corroboration, never an
+#: independent origin), and the restart count over a bounded WINDOW so the
+#: investigation can place the onset of a crash loop in time rather than
+#: reading one instant.
+DEPLOYMENT_UNAVAILABLE_OPERATION = "prometheus.deployment_unavailable"
+POD_RESTARTS_RANGE_OPERATION = "prometheus.pod_restarts_range"
+#: Working-set memory as a RATIO of the container's own limit, computed by
+#: Prometheus from two cAdvisor series. A container without a limit divides by
+#: zero and answers +Inf, which the projection reads as "unlimited" rather than
+#: as pressure. This is what lets an investigation ask "is it at its limit?"
+#: without the platform having to know the limit from another read.
+POD_MEMORY_RATIO_OPERATION = "prometheus.pod_memory_ratio"
+
 PROMETHEUS_READ_OPERATIONS = (POD_RESTARTS_OPERATION, PROMETHEUS_SELF_OPERATION,
-                              POD_MEMORY_OPERATION)
+                              POD_MEMORY_OPERATION, DEPLOYMENT_UNAVAILABLE_OPERATION,
+                              POD_RESTARTS_RANGE_OPERATION, POD_MEMORY_RATIO_OPERATION)
+
+#: A range query is BOUNDED by declaration: the caller supplies only a start and
+#: an end (unix seconds), the step is a constant of the operation, and the span
+#: may not exceed this many seconds. The platform computes the window from the
+#: investigation; the model never sees a time parameter.
+RANGE_STEP_SECONDS = 30
+RANGE_MAX_SPAN_SECONDS = 3600
 
 #: The instrument identifiers that reach an Observation's ``source_ref``.
 #:
@@ -222,6 +250,8 @@ class PrometheusVectorNormalizer:
         if not isinstance(data, Mapping):
             raise ValueError(f"{spec.operation}: the response carries no data object")
         result_type = data.get("resultType")
+        if spec.path_template == "/api/v1/query_range":
+            return self._normalize_matrix(spec, body, data, result_type)
         if result_type != "vector":
             raise ValueError(
                 f"{spec.operation}: expected an instant-query vector, got "
@@ -283,6 +313,86 @@ class PrometheusVectorNormalizer:
             out["sampleTimestamp"] = latest_timestamp
         return out
 
+    def _normalize_matrix(self, spec: ProviderOperationSpec, body: Mapping,
+                          data: Mapping, result_type: Any) -> Any:
+        """Phase 11.3: a range query answers a MATRIX -- per series, a list of
+        ``[timestamp, value]`` pairs. Each series is reduced to declared
+        scalars: the first and last sample values with their instants, the
+        min and max, and how many samples there were. Values stay the strings
+        Prometheus sent for first/last; min/max are compared numerically and
+        re-emitted as the original strings, so nothing is re-typed. A series
+        with no samples is refused; a sample without a time is refused."""
+        if result_type != "matrix":
+            raise ValueError(
+                f"{spec.operation}: expected a range-query matrix, got "
+                f"resultType={result_type!r}; this operation is not defined for "
+                "that answer shape"
+            )
+        result = data.get("result")
+        if not isinstance(result, list):
+            raise ValueError(f"{spec.operation}: the matrix result is not a list")
+        declared = spec.response_evidence_records
+        reserved = {"first", "last", "min", "max", "firstTimestamp", "lastTimestamp",
+                    "sampleCount"}
+        label_fields = tuple(
+            name for name in (declared.fields if declared else ()) if name not in reserved
+        )
+        series: list = []
+        latest_timestamp: Optional[float] = None
+        for index, item in enumerate(result):
+            if not isinstance(item, Mapping):
+                raise ValueError(f"{spec.operation}: series {index} is not an object")
+            values = item.get("values")
+            if not isinstance(values, list) or not values:
+                raise ValueError(
+                    f"{spec.operation}: series {index} carries no samples; an empty "
+                    "series is not a value"
+                )
+            first_ts = last_ts = None
+            first_v = last_v = None
+            min_v = max_v = None
+            min_s = max_s = None
+            for pair in values:
+                if not isinstance(pair, list) or len(pair) != 2:
+                    raise ValueError(f"{spec.operation}: series {index} has a malformed sample")
+                ts, raw = pair
+                if not isinstance(ts, (int, float)) or isinstance(ts, bool):
+                    raise ValueError(f"{spec.operation}: series {index} has a non-numeric timestamp")
+                if not isinstance(raw, str):
+                    raise ValueError(f"{spec.operation}: series {index} has a non-string value")
+                try:
+                    numeric = float(raw)
+                except ValueError as exc:
+                    raise ValueError(f"{spec.operation}: series {index} has a non-numeric sample") from exc
+                if first_ts is None or ts < first_ts:
+                    first_ts, first_v = float(ts), raw
+                if last_ts is None or ts >= last_ts:
+                    last_ts, last_v = float(ts), raw
+                if min_v is None or numeric < min_v:
+                    min_v, min_s = numeric, raw
+                if max_v is None or numeric > max_v:
+                    max_v, max_s = numeric, raw
+            record = {"first": first_v, "last": last_v, "min": min_s, "max": max_s,
+                      "firstTimestamp": first_ts, "lastTimestamp": last_ts,
+                      "sampleCount": len(values)}
+            labels = item.get("metric")
+            if isinstance(labels, Mapping):
+                for name in label_fields:
+                    label = labels.get(name)
+                    if isinstance(label, str) and label:
+                        record[name] = label
+            series.append(record)
+            latest_timestamp = last_ts if latest_timestamp is None else max(latest_timestamp, last_ts)
+        out: dict = {
+            "status": body.get("status"),
+            "resultType": result_type,
+            "series": series,
+            "seriesCount": len(series),
+        }
+        if latest_timestamp is not None:
+            out["sampleTimestamp"] = latest_timestamp
+        return out
+
 
 def _instant_query(
     *, operation: str, promql: str, record_fields: Tuple[str, ...],
@@ -302,6 +412,43 @@ def _instant_query(
         success_statuses=(200,),
         # An empty vector is a legitimate answer (nothing matched), so the only
         # field a valid answer must always carry is the count.
+        response_required_fields=("seriesCount",),
+        response_evidence_fields=("status", "resultType", "seriesCount",
+                                  "sampleTimestamp"),
+        response_evidence_records=RecordEvidenceSpec(
+            field_name="series", fields=record_fields,
+            max_records=PROMETHEUS_MAX_SERIES),
+        static_headers=_PROM_HEADERS,
+        provider_timeout_seconds=_TIMEOUT,
+        max_response_bytes=1024 * 1024,
+    )
+
+
+def _range_query(
+    *, operation: str, promql: str, record_fields: Tuple[str, ...],
+) -> ProviderOperationSpec:
+    """One declared range query (Phase 11.3). The PromQL and the step are
+    constants of the operation; ``start``/``end`` are the only parameters, both
+    integers (unix seconds), both bounded. The normalizer reduces each series'
+    samples to declared scalars -- first/last/min/max and their instants -- so
+    the answer stays bounded regardless of the window."""
+    from backend.contexts.execution.domain.provider_operation import (
+        ParameterKind, ParameterLocation, ParameterSpec,
+    )
+
+    start = ParameterSpec(name="start", kind=ParameterKind.INTEGER,
+                          location=ParameterLocation.QUERY, min_value=0)
+    end = ParameterSpec(name="end", kind=ParameterKind.INTEGER,
+                        location=ParameterLocation.QUERY, min_value=0)
+    return ProviderOperationSpec(
+        operation=operation,
+        method="GET",
+        path_template="/api/v1/query_range",
+        side_effect_class=SideEffectClass.READ,
+        effect_semantics=EffectSemantics.READ_ONLY,
+        parameters=(start, end),
+        static_query={"query": promql, "step": str(RANGE_STEP_SECONDS)},
+        success_statuses=(200,),
         response_required_fields=("seriesCount",),
         response_evidence_fields=("status", "resultType", "seriesCount",
                                   "sampleTimestamp"),
@@ -372,6 +519,62 @@ def prometheus_read_catalog(*, namespace: str) -> OperationCatalog:
                     f'{{namespace="{namespace}", container!=""}})'
                 ),
                 record_fields=("pod", "namespace", "container", "value", "timestamp"),
+            ),
+            # Phase 11.3 (ADR-123): each side is aggregated PER POD before the
+            # division. cAdvisor keeps one working-set series per container
+            # instance, so a pod that has restarted carries several (the OOM
+            # scenario had five) and a division on the raw series is refused
+            # by Prometheus ("many-to-one matching must be explicit"). The
+            # limit is read from the pod cgroup (container=""), which outlives
+            # container restarts -- the container-level limit series vanishes
+            # while the pod waits in back-off, exactly when the investigator
+            # asks -- and so does the container-level WORKING-SET series when the
+            # container dies within a second of starting (a panic at startup;
+            # measured: no series at all for such pods). Both sides therefore
+            # read the pod cgroup, whose working set is the sum of its
+            # containers. The numerator is the scraped PEAK over the last thirty
+            # minutes, not the instant sample: a burst is what the question is
+            # about. An unlimited pod (cAdvisor reports the int64 maximum, not
+            # +Inf) yields no series, and no series decides nothing.
+            _instant_query(
+                operation=POD_MEMORY_RATIO_OPERATION,
+                promql=(
+                    "max by (pod, namespace) (max_over_time("
+                    "container_memory_working_set_bytes"
+                    f'{{namespace="{namespace}", container=""}}[30m])) '
+                    "/ on (pod, namespace) "
+                    "(max by (pod, namespace) ("
+                    "container_spec_memory_limit_bytes"
+                    f'{{namespace="{namespace}", container=""}}) < 1e18)'
+                ),
+                record_fields=("pod", "namespace", "value", "timestamp"),
+            ),
+            # Phase 11.3: replicas a Deployment is short of, as kube-state-metrics
+            # re-exports the API server's own status. DERIVED lineage, like the
+            # restart count -- corroboration of a governed deployment read, never
+            # a second independent origin.
+            _instant_query(
+                operation=DEPLOYMENT_UNAVAILABLE_OPERATION,
+                promql=(
+                    "max by (deployment, namespace) "
+                    "(kube_deployment_status_replicas_unavailable"
+                    f'{{namespace="{namespace}"}})'
+                ),
+                record_fields=("deployment", "namespace", "value", "timestamp"),
+            ),
+            # Phase 11.3: the restart count over a bounded window, so an
+            # investigation can say WHEN restarts began rather than only that
+            # they happened. Same instrument and lineage as the instant read.
+            _range_query(
+                operation=POD_RESTARTS_RANGE_OPERATION,
+                promql=(
+                    "max by (pod, namespace, container) "
+                    "(kube_pod_container_status_restarts_total"
+                    f'{{namespace="{namespace}"}})'
+                ),
+                record_fields=("pod", "namespace", "container", "first", "last",
+                               "min", "max", "firstTimestamp", "lastTimestamp",
+                               "sampleCount"),
             ),
         ),
     )

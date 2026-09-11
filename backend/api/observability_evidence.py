@@ -61,6 +61,9 @@ __all__ = [
 #: world is its own* — not a provider, not an endpoint, not a connector.
 ORIGIN_KUBERNETES_CLUSTER = "kubernetes-cluster"
 ORIGIN_PROMETHEUS_SERVER = "prometheus-server"
+#: Phase 11.3: the kubelet (cAdvisor + container logs) as its own origin.
+ORIGIN_KUBELET = "kubelet"
+INSTRUMENT_KUBELET_LOGS = "kubelet:container-logs"
 
 #: The Kubernetes API's own instrument id, as the governed K8s reads record it.
 INSTRUMENT_KUBERNETES_API = "connector:kubernetes"
@@ -98,15 +101,32 @@ def observability_lineage_policy():
     is deliberately not overridden with a catch-all.
     """
     from backend.contexts.execution.infrastructure.adapters.connectors.prometheus import (
-        INSTRUMENT_KUBE_STATE_METRICS, INSTRUMENT_PROMETHEUS_SELF,
+        INSTRUMENT_KUBE_STATE_METRICS, INSTRUMENT_KUBELET, INSTRUMENT_PROMETHEUS_SELF,
     )
     from backend.world.application.lineage import (
         LineagePolicy, LineageRelation, LineageRule,
     )
 
     return LineagePolicy(
-        name="phase94-observability-lineage/1",
+        name="phase113-observability-lineage/2",
         rules=(
+            # Phase 11.3 (ADR-123). The kubelet is a different origin from the
+            # API server: cAdvisor measures the container runtime directly, and
+            # container logs are read from the runtime's log files. Both are
+            # the SAME daemon, so they share one origin -- two kubelet readings
+            # corroborate each other but are not independent of each other.
+            LineageRule(
+                source_kind=_METRIC_SOURCE_KIND,
+                source_ref=INSTRUMENT_KUBELET,
+                origin_id=ORIGIN_KUBELET,
+                relation=LineageRelation.DIRECT,
+            ),
+            LineageRule(
+                source_kind=_METRIC_SOURCE_KIND,
+                source_ref=INSTRUMENT_KUBELET_LOGS,
+                origin_id=ORIGIN_KUBELET,
+                relation=LineageRelation.DIRECT,
+            ),
             # The cluster's own API, reporting its own state. The strongest
             # lineage there is.
             LineageRule(
@@ -227,6 +247,27 @@ def observability_freshness_policy(*, metric_horizon_seconds: float = 120.0,
             FreshnessRule(name="deployed-revision", source_kind=_METRIC_SOURCE_KIND,
                           predicate="deployed_revision",
                           horizon_seconds=deployment_horizon_seconds),
+            # Phase 11.3 (ADR-123): the investigation reads this phase added.
+            # A log's patterns and a pod's events describe what already
+            # happened, so they stay useful about as long as the cluster's
+            # state; the rollout history changes only when somebody deploys.
+            FreshnessRule(name="log-patterns", source_kind=_METRIC_SOURCE_KIND,
+                          predicate="log_patterns", horizon_seconds=cluster_horizon_seconds),
+            FreshnessRule(name="log-patterns-previous", source_kind=_METRIC_SOURCE_KIND,
+                          predicate="log_patterns_previous", horizon_seconds=cluster_horizon_seconds),
+            FreshnessRule(name="pod-events", source_kind=_METRIC_SOURCE_KIND,
+                          predicate="events", horizon_seconds=cluster_horizon_seconds),
+            FreshnessRule(name="rollout-history", source_kind=_METRIC_SOURCE_KIND,
+                          predicate="rollout_history",
+                          horizon_seconds=deployment_horizon_seconds),
+            FreshnessRule(name="deployment-state", source_kind=_METRIC_SOURCE_KIND,
+                          predicate="deployment_state",
+                          horizon_seconds=cluster_horizon_seconds),
+            FreshnessRule(name="replicas-unavailable", source_kind=_METRIC_SOURCE_KIND,
+                          predicate="replicas_unavailable",
+                          horizon_seconds=metric_horizon_seconds),
+            FreshnessRule(name="restart-onset", source_kind=_METRIC_SOURCE_KIND,
+                          predicate="restart_onset", horizon_seconds=metric_horizon_seconds),
         ),
     )
 

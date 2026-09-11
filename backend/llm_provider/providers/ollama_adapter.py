@@ -127,27 +127,79 @@ class OllamaAdapter(LLMProvider):
                 )
             model = request.model or self._default_model
             prompt = self._build_prompt(request)
+            num_ctx = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
+            # Phase 11.3 (ADR-123 D-17): Ollama TRUNCATES a prompt longer than its
+            # window and says so only in its own server log (measured: prompts of
+            # 8,948 and 18,914 tokens cut to 4,098, the system instructions lost
+            # from the front). A truncated prompt is not the context the platform
+            # assembled, so it is refused here, before any call, on a conservative
+            # estimate: three characters per token, plus the tokens the answer
+            # may use. The caller records the refusal like any provider failure.
+            answer_tokens = int(request.max_tokens or 0)
+            estimated_prompt_tokens = len(prompt) // 3
+            if estimated_prompt_tokens + answer_tokens > num_ctx:
+                return LLMResponse(
+                    content="", model=model, provider=self.name,
+                    error=(f"prompt exceeds the provider context window: about "
+                           f"{estimated_prompt_tokens} prompt tokens + {answer_tokens} for the "
+                           f"answer > num_ctx {num_ctx}; refused rather than silently truncated"),
+                    finish_reason=FinishReason.ERROR,
+                    latency_ms=(time.monotonic() - start) * 1000,
+                    request_id=request.request_id,
+                )
             payload = {
                 "model": model,
                 "prompt": prompt,
                 "stream": False,
                 "options": {
                     "temperature": request.temperature,
+                    # Phase 11.3: the model's default context (2048) truncates an
+                    # investigation context silently; state the window.
+                    "num_ctx": num_ctx,
                 },
             }
             if request.max_tokens:
                 payload["options"]["num_predict"] = request.max_tokens
             if request.stop:
                 payload["options"]["stop"] = request.stop
+            # Phase 11.3: honour a JSON response format the way the OpenAI-shaped
+            # adapters do. Ollama's ``format: json`` constrains decoding to JSON.
+            if (request.response_format or {}).get("type") == "json_object":
+                payload["format"] = "json"
 
-            response = await self._http_client.post("/api/generate", json=payload)
+            # Phase 11.3: honour the request's own timeout rather than the client's
+            # fixed 30 s -- a CPU-bound local model legitimately takes longer.
+            response = await self._http_client.post(
+                "/api/generate", json=payload,
+                timeout=httpx.Timeout(float(request.timeout_seconds or 60.0), connect=10.0))
+            if response.status_code != 200:
+                latency = (time.monotonic() - start) * 1000
+                return LLMResponse(
+                    content="", model=model, provider=self.name,
+                    error=f"ollama HTTP {response.status_code}: {response.text[:200]}",
+                    finish_reason=FinishReason.ERROR,
+                    latency_ms=latency, request_id=request.request_id,
+                )
             data = response.json()
             latency = (time.monotonic() - start) * 1000
+            # Phase 11.3: Ollama reports token counts as prompt_eval_count /
+            # eval_count; normalise them so the governed boundary can budget.
+            usage = None
+            if isinstance(data.get("prompt_eval_count"), int) or isinstance(data.get("eval_count"), int):
+                usage = {
+                    "prompt_tokens": int(data.get("prompt_eval_count") or 0),
+                    "completion_tokens": int(data.get("eval_count") or 0),
+                }
+                usage["total_tokens"] = usage["prompt_tokens"] + usage["completion_tokens"]
             return LLMResponse(
                 content=data.get("response", ""),
                 model=model, provider=self.name,
-                finish_reason=FinishReason.STOP,
+                usage=usage,
+                finish_reason=(FinishReason.STOP if data.get("done_reason", "stop") == "stop"
+                               else FinishReason.LENGTH),
                 latency_ms=latency, request_id=request.request_id,
+                raw={"done_reason": data.get("done_reason"),
+                     "total_duration_ns": data.get("total_duration")},
             )
         except Exception as exc:
             latency = (time.monotonic() - start) * 1000

@@ -214,6 +214,69 @@ class _CortexMetrics:
             "cortex_signal_worker_leader",
             "1 when this worker holds the stream role, else 0",
         )
+        # -- Phase 11.3: detection + investigation (ADR-123) ---------------
+        self.detections = _counter(
+            "cortex_detections_total",
+            "Sustained detections recorded from the signal fabric, by condition",
+            ["condition"],
+        )
+        self.investigations_opened = _counter(
+            "cortex_investigations_opened_total",
+            "Investigations opened from detections, by incident class",
+            ["incident_class"],
+        )
+        self.investigations_concluded = _counter(
+            "cortex_investigations_concluded_total",
+            "Investigations concluded, by outcome and confidence",
+            ["outcome", "confidence"],
+        )
+        self.investigation_steps = _counter(
+            "cortex_investigation_steps_total",
+            "Engine steps taken, by step outcome",
+            ["outcome"],
+        )
+        self.investigation_reads = _counter(
+            "cortex_investigation_reads_total",
+            "Governed evidence reads made by investigations, by tool and result",
+            ["tool", "result"],
+        )
+        self.investigation_model_calls = _counter(
+            "cortex_investigation_model_calls_total",
+            "Model proposals requested, by provider and result",
+            ["provider", "result"],
+        )
+        self.investigation_model_tokens = _counter(
+            "cortex_investigation_model_tokens_total",
+            "Model tokens spent by investigations, by provider and direction",
+            ["provider", "direction"],
+        )
+        self.investigation_model_seconds = _histogram(
+            "cortex_investigation_model_seconds",
+            "Wall time of one model proposal",
+            ["provider"],
+            buckets=(0.5, 1, 2, 5, 10, 20, 30, 60, 120, 180, 300),
+        )
+        self.investigation_seconds = _histogram(
+            "cortex_investigation_seconds",
+            "Wall time from investigation open to conclusion",
+            ["outcome"],
+            buckets=(1, 5, 10, 30, 60, 120, 300, 600, 1200, 1800),
+        )
+        self.investigation_evidence_seconds = _histogram(
+            "cortex_investigation_evidence_seconds",
+            "Wall time of one governed evidence read inside an investigation",
+            ["tool"],
+            buckets=(0.5, 1, 2, 5, 10, 20, 30, 60, 90),
+        )
+        self.investigation_cost_usd = _counter(
+            "cortex_investigation_cost_usd_total",
+            "Estimated model cost of investigations in USD, by provider",
+            ["provider"],
+        )
+        self.investigations_active = _gauge(
+            "cortex_investigations_active",
+            "Investigations currently being run by this process",
+        )
         self.mission_duration = _histogram(
             "cortex_mission_duration_seconds",
             "Wall-clock duration of missions in seconds",

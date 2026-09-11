@@ -132,7 +132,17 @@ async def lifespan(_app: FastAPI):
         # executions its own process started. Unconfigured: observes nothing.
         from backend.signal.worker import start_embedded
 
-        _app.state.signal_worker = start_embedded(governed_runtime)
+        # Phase 11.3 (ADR-123): the investigator runs beside the signal loop
+        # in this same process, for the same reason. It receives the signal
+        # loop's candidates through the DetectionHandoff seam, detects
+        # sustained conditions, opens ONE investigation per incident and runs
+        # it to an evidence-backed conclusion. It composes no write capability.
+        from backend.api.investigation_runtime import start_embedded_investigator
+
+        _app.state.investigator = start_embedded_investigator(governed_runtime)
+        _app.state.signal_worker = start_embedded(
+            governed_runtime,
+            handoff=_app.state.investigator.handoff if _app.state.investigator else None)
 
     # Repository Layer (Pilot Services)
     from backend.database.repositories.factory import repo_factory
@@ -1145,6 +1155,12 @@ async def lifespan(_app: FastAPI):
                 embedded_signal.stop()
             except Exception as exc:  # noqa: BLE001
                 log.warning("Signal worker shutdown incomplete: %s", exc)
+        embedded_investigator = getattr(_app.state, "investigator", None)
+        if embedded_investigator is not None:
+            try:
+                embedded_investigator.stop()
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Investigator shutdown incomplete: %s", exc)
         try:
             governed_runtime.stop()
         except Exception as exc:

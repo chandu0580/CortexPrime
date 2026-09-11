@@ -103,6 +103,35 @@ class AssembledContext:
     def included_sections(self) -> tuple[ContextSection, ...]:
         return tuple(s for s in self.sections if s.included)
 
+    def prompt_view(self) -> dict:
+        """What a model is shown: the INCLUDED sections' content, in priority
+        order, and the names of the excluded sections with the reason -- never
+        their content.
+
+        Phase 11.3 (ADR-123 D-17): ``to_dict`` is the recorded context (digest,
+        provenance, budget, every section, included or not) and it was also what
+        the prompt carried, so a section the budget had excluded still reached
+        the model with all of its content. Measured on the live cluster: the
+        excluded world-evidence section was about three quarters of every
+        investigation prompt, and the local provider silently truncated the
+        rest. The budget now bounds what a model sees; ``context_digest`` still
+        identifies the full assembled context, which ``to_dict`` still records.
+        The ``sections`` / ``section_type`` / ``content`` / ``included`` shape is
+        kept so a deterministic port reading the prompt reads it unchanged."""
+        return {
+            "investigation_ref": self.investigation_ref,
+            "context_digest": self.context_digest,
+            "sections": [
+                {"section_type": s.section_type, "content": s.content,
+                 "source_ref": s.source_ref, "freshness": s.freshness, "included": True}
+                for s in self.sections if s.included
+            ],
+            "excluded_sections": [
+                {"section_type": s.section_type, "reason": s.exclusion_reason}
+                for s in self.sections if not s.included
+            ],
+        }
+
     def to_dict(self) -> dict:
         return {
             "investigation_ref": self.investigation_ref, "tenant_id": self.tenant_id,

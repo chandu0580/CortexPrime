@@ -164,7 +164,9 @@ class GovernedModelProposalPort:
     def propose(self, *, context, investigation, now: datetime) -> InvestigationProposal:
         from backend.harness.llm_boundary import InvalidModelOutput, TraceEvidenceMissing
 
-        prompt = json.dumps(context.to_dict(), sort_keys=True, default=str)
+        # Phase 11.3 (ADR-123 D-17): the model sees the budgeted view, not the
+        # full recorded context (which still carries every excluded section).
+        prompt = json.dumps(context.prompt_view(), sort_keys=True, default=str)
         step = investigation.steps_taken
         corr = compute_digest({"inv": investigation.investigation_ref, "step": step}).value[:16]
         try:
@@ -188,16 +190,38 @@ class GovernedModelProposalPort:
         # from the model's JSON (which cannot even carry them — extra fields fail).
         provider = getattr(span, "model_provider", None) or self._provider_label
         digest = compute_digest(proposal_schema.model_dump()).value[:16]
-        return InvestigationProposal(
-            provider=provider, proposal_digest=digest,
-            interpretation=proposal_schema.interpretation,
-            proposed_hypotheses=tuple(
-                ProposedHypothesis(hypothesis_ref=h.ref, proposition=h.proposition,
-                                   subject_ref=h.subject_ref, temporal_fit=h.temporal_fit)
-                for h in proposal_schema.hypotheses),
-            proposed_test=_to_proposed_test(proposal_schema.test),
-            proposed_tests=tuple(_to_proposed_test(t) for t in proposal_schema.tests),
-            suggested_conclusion=None)
+        # Phase 11.3 (ADR-123 D-20): the schema bounds the SHAPE of model output;
+        # the platform contracts bound its MEANING. Measured on the live cluster:
+        # glm-5.2 restated the seeded hypotheses with empty references and subjects;
+        # the schema accepted them, the engine tried to record them in the
+        # differential, the DifferentialHypothesis contract refused them, and the raw
+        # ContractViolation crashed the investigation. The fields that contract
+        # requires are checked here, and content that breaks a platform contract is
+        # a rejected proposal, exactly as malformed JSON is: the step is consumed,
+        # nothing is used, nothing crashes.
+        from backend.contracts.errors import ContractViolation
+        from backend.intelligence.application.proposal import TestRejected
+
+        incomplete = [h for h in proposal_schema.hypotheses
+                      if not (str(h.ref).strip() and str(h.subject_ref).strip() and str(h.proposition).strip())]
+        if incomplete:
+            raise ModelSchemaRejected(
+                f"model proposal breaks a platform contract: {len(incomplete)} hypothesis(es) without a "
+                "reference, subject or proposition")
+        try:
+            return InvestigationProposal(
+                provider=provider, proposal_digest=digest,
+                interpretation=proposal_schema.interpretation,
+                proposed_hypotheses=tuple(
+                    ProposedHypothesis(hypothesis_ref=h.ref, proposition=h.proposition,
+                                       subject_ref=h.subject_ref, temporal_fit=h.temporal_fit)
+                    for h in proposal_schema.hypotheses),
+                proposed_test=_to_proposed_test(proposal_schema.test),
+                proposed_tests=tuple(_to_proposed_test(t) for t in proposal_schema.tests),
+                suggested_conclusion=None)
+        except (ContractViolation, TestRejected, ValueError, TypeError) as exc:
+            raise ModelSchemaRejected(
+                f"model proposal breaks a platform contract: {type(exc).__name__}: {str(exc)[:200]}") from exc
 
     def propose_prediction(self, *, context, investigation, hypothesis_ref: str,
                            now: datetime) -> ProposedPrediction:
@@ -207,7 +231,7 @@ class GovernedModelProposalPort:
         from the span, never the model's JSON."""
         from backend.harness.llm_boundary import InvalidModelOutput, TraceEvidenceMissing
 
-        prompt = json.dumps({"context": context.to_dict(), "hypothesis_ref": hypothesis_ref},
+        prompt = json.dumps({"context": context.prompt_view(), "hypothesis_ref": hypothesis_ref},
                             sort_keys=True, default=str)
         step = investigation.steps_taken
         corr = compute_digest({"inv": investigation.investigation_ref,

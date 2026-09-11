@@ -150,8 +150,12 @@ class LLMServiceModelPort:
     """Default port over ``backend.llm_provider.LLMService`` (lazy import so
     the harness package itself never drags provider SDK initialization in)."""
 
-    def __init__(self, model: Optional[str] = None) -> None:
+    def __init__(self, model: Optional[str] = None, *, provider: Optional[str] = None,
+                 timeout_seconds: float = 60.0, max_tokens: Optional[int] = None) -> None:
         self._model = model
+        self._provider = provider or ""
+        self._timeout = timeout_seconds
+        self._max_tokens = max_tokens
         self._service = None
 
     async def _service_instance(self):
@@ -172,8 +176,12 @@ class LLMServiceModelPort:
         response = await service.generate(
             prompt,
             model=self._model or "",
+            provider=self._provider,
             system_prompt=system_prompt,
             response_format={"type": "json_object"},
+            timeout_seconds=self._timeout,
+            max_tokens=self._max_tokens,
+            temperature=0.0,
         )
         if getattr(response, "error", None):
             raise RuntimeError(f"model call failed: {response.error}")

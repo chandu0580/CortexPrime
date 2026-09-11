@@ -233,15 +233,20 @@ class TestRealExposure:
         # continues it, 9.5 the two reads a CrashLoopBackOff differential turns
         # on (how the container died; what revision is deployed). The other two
         # declared operations stay contract-only.
+        # Phase 11.3 (ADR-123) added the three reads an evidence-first
+        # investigation discriminates on beyond state and revision: what the
+        # container SAID (logs, from the kubelet), what the control plane
+        # RECORDED (events), and what CHANGED (the ReplicaSet lineage). The
+        # deployments list stays contract-only: nothing discriminates on it.
         catalog = kubernetes_real_read_catalog()
         assert set(catalog.operations) == set(KUBERNETES_REAL_READ_OPERATIONS)
         assert set(KUBERNETES_REAL_READ_OPERATIONS) == {
             "kubernetes.pods.list", "kubernetes.pods.watch",
-            "kubernetes.pod.get", "kubernetes.deployment.get"}
+            "kubernetes.pod.get", "kubernetes.deployment.get",
+            "kubernetes.pod.logs", "kubernetes.events.list",
+            "kubernetes.replicasets.list"}
         assert set(kubernetes_read_catalog().operations) - set(
-            KUBERNETES_REAL_READ_OPERATIONS) == {
-            "kubernetes.pod.logs", "kubernetes.deployments.list",
-            "kubernetes.events.list"}
+            KUBERNETES_REAL_READ_OPERATIONS) == {"kubernetes.deployments.list"}
 
     def test_real_specs_are_the_declared_contract(self):
         full, real = kubernetes_read_catalog(), kubernetes_real_read_catalog()

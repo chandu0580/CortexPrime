@@ -82,10 +82,21 @@ def _sample(pod="flapper-1", value="7", ts=1788508710.0, container="flapper"):
 class TestPrometheusDeclaration:
     def test_no_operation_accepts_any_caller_parameter(self):
         # The whole PromQL-injection surface, absent by construction rather than
-        # closed by a check somebody has to remember.
+        # closed by a check somebody has to remember. Phase 11.3 added ONE range
+        # query whose only parameters are two bounded INTEGER instants (start,
+        # end) the platform computes from the investigation window -- nothing a
+        # caller supplies can reach the query text.
+        from backend.contexts.execution.domain.provider_operation import ParameterKind
+
         catalog = prometheus_read_catalog(namespace=NS)
         for operation in catalog.operations:
-            assert catalog.require(operation).parameters == ()
+            spec = catalog.require(operation)
+            if spec.path_template == "/api/v1/query_range":
+                assert tuple(p.name for p in spec.parameters) == ("start", "end")
+                assert all(p.kind is ParameterKind.INTEGER for p in spec.parameters)
+                assert "query" in spec.static_query and "step" in spec.static_query
+            else:
+                assert spec.parameters == ()
 
     def test_the_promql_is_declared_and_in_the_digest(self):
         import dataclasses

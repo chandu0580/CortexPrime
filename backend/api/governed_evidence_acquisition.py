@@ -90,6 +90,12 @@ class InvestigationTool:
     project: Callable[[Mapping[str, Any]], Any]
     source_ref: str
     payload_from_subject: Callable[[str], Mapping[str, Any]]
+    # Phase 11.3 (ADR-123 D-19): a compiled pattern over a FAILED read's reason
+    # that means the provider answered "this evidence does not exist" (for a
+    # container log: the instance is gone). Such a read is absence, not a
+    # platform failure: the port answers ``absent`` and the investigation goes
+    # on. Declared per tool, never inferred; every other failure still blocks.
+    absent_when: Optional[Any] = None
 
     def __post_init__(self) -> None:
         for name in ("key", "operation", "subject_kind", "predicate",
@@ -99,6 +105,8 @@ class InvestigationTool:
                 raise ContractViolation(f"an investigation tool needs a {name}")
         if not callable(self.project) or not callable(self.payload_from_subject):
             raise ContractViolation("project and payload_from_subject must be callable")
+        if self.absent_when is not None and not callable(getattr(self.absent_when, "search", None)):
+            raise ContractViolation("absent_when must be a compiled pattern")
 
 
 class ToolRegistry:
@@ -236,6 +244,18 @@ class GovernedEvidenceAcquisition:
         outcome = self._reader.read(self._context, operation=tool.operation,
                                     payload=payload)
         if not outcome.succeeded:
+            failure = str(outcome.failure_reason or "")
+            if tool.absent_when is not None and tool.absent_when.search(failure):
+                # Phase 11.3 (ADR-123 D-19): measured on the live cluster, the API
+                # server answered a request for a container's previous log with an
+                # error ("previous terminated container ... not found") where in
+                # other runs the kubelet answered 200 with the same text. Both mean
+                # the log does not exist. Not observed is not a value, and it is
+                # not a blocked investigation either (D-15).
+                return EvidenceResult(
+                    ok=False, absent=True, subject_ref=subject, predicate=tool.predicate,
+                    reason=(f"{tool.key!r}: the provider reports this evidence does not exist: "
+                            f"{failure[:200]}"))
             return _refused(f"the governed read failed: {outcome.failure_reason}")
 
         try:
@@ -247,9 +267,15 @@ class GovernedEvidenceAcquisition:
             # The read succeeded and the instrument did not report this field.
             # That is "not observed", which is not the same as any value, so no
             # observation is recorded and the hypothesis stays where it was.
-            return _refused(
-                f"{tool.key!r} succeeded but the provider reported no "
-                f"{tool.predicate!r} for {subject!r}; not observed is not a value")
+            # Phase 11.3 (ADR-123 D-15): said explicitly (``absent=True``) so the
+            # engine continues instead of concluding BLOCKED -- a container that
+            # dies within a second has no cAdvisor series, and that absence must
+            # not end an investigation that still has the kubelet's termination
+            # and log to read.
+            return EvidenceResult(
+                ok=False, absent=True, subject_ref=subject, predicate=tool.predicate,
+                reason=(f"{tool.key!r} succeeded but the provider reported no "
+                        f"{tool.predicate!r} for {subject!r}; not observed is not a value"))
 
         from backend.api.governed_read_observer import GovernedReadObserver, ObservationLeg
 

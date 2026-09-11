@@ -51,11 +51,22 @@ __all__ = ["InvestigationBudget", "StepOutcome", "StepResult", "InvestigationEng
 
 @dataclass(frozen=True)
 class InvestigationBudget:
-    """Explicit deterministic budgets. When exhausted, the loop terminates."""
+    """Explicit deterministic budgets. When exhausted, the loop terminates.
+
+    ``max_steps`` bounds model proposals (one per step) and ``max_reads`` bounds
+    governed reads. Phase 11.3 adds the two an unattended runner needs:
+    ``max_seconds`` of wall clock (enforced by the runner between steps, since the
+    engine itself takes injected instants) and ``max_tokens`` of model usage
+    (enforced by the proposal port, which is the only place usage is known).
+    Neither is a target; both are ceilings past which the loop settles on the
+    evidence it has and says so.
+    """
 
     max_steps: int = 8
     max_reads: int = 12
     context: ContextBudget = ContextBudget()
+    max_seconds: Optional[float] = None
+    max_tokens: Optional[int] = None
 
 
 class StepOutcome(str, __import__("enum").Enum):
@@ -63,6 +74,7 @@ class StepOutcome(str, __import__("enum").Enum):
     NO_TEST = "no_test"            # the model proposed no valid test this step
     TEST_REJECTED = "test_rejected"  # the proposed test was refused by policy
     TERMINATED = "terminated"      # a terminal conclusion was reached
+    EVIDENCE_ABSENT = "evidence_absent"  # the read succeeded; the instrument reported nothing for the subject
 
 
 @dataclass(frozen=True)
@@ -85,6 +97,7 @@ class InvestigationEngine:
         model_port, evidence_port, world_read_port, policy: EvidenceSelectionPolicy,
         harness_version: str, available_tools: tuple[str, ...],
         produced_by: str = "intelligence:engine/1", experience_port=None,
+        compatible: Optional[Callable[[str, str], bool]] = None,
     ) -> None:
         self._svc = service
         self._assembler = assembler
@@ -95,6 +108,9 @@ class InvestigationEngine:
         self._harness_version = harness_version
         self._tools = tuple(available_tools)
         self._produced_by = produced_by
+        # Phase 11.3: a declared compatibility between hypotheses (composition
+        # supplies it; None means every pair competes, the pre-11.3 rule).
+        self._compatible = compatible
         # Optional (Phase 8.6): prior-investigation experience, injected into the
         # model's context as clearly-labelled HISTORY — never current world truth.
         self._experience = experience_port
@@ -171,7 +187,7 @@ class InvestigationEngine:
             # the leading hypothesis (if any) with its residual uncertainty named —
             # never a fabricated resolution, never FALSE for the open alternatives,
             # never a claim of Assurance verification.
-            summary = settle(inv)
+            summary = settle(inv, compatible=self._compatible)
             concluded = self._svc.conclude(
                 investigation=inv, conclusion=InvestigationConclusion(summary.conclusion),
                 cause=summary.residual_uncertainty, now=now)
@@ -217,6 +233,15 @@ class InvestigationEngine:
             # GOVERNED READ: acquire evidence (the ONLY new world contact, via port).
             result = self._evidence.acquire(tenant=inv.tenant, request=validated.request, now=now)
             did_read = True
+            if not result.ok and getattr(result, "absent", False):
+                # Phase 11.3 (ADR-123 D-15): the world was asked and answered
+                # "nothing about this subject". No observation exists to link;
+                # the hypothesis keeps its status and its stated gap; the test
+                # stays recorded so the plan does not ask again; the read is
+                # spent. The investigation continues on what else can be read.
+                inv = self._svc.checkpoint(investigation=inv, now=now, steps_delta=1, reads_delta=1)
+                return StepResult(StepOutcome.EVIDENCE_ABSENT, inv, context.context_digest,
+                                  proposal.provider, reason=f"evidence absent: {result.reason}", gaps=gaps)
             if not result.ok:
                 concluded = self._svc.conclude(
                     investigation=inv, conclusion=InvestigationConclusion.BLOCKED,
@@ -324,10 +349,13 @@ class InvestigationEngine:
         ev_for = target.evidence_for
         ev_against = target.evidence_against
         obs_ref = result.observation_ref or "obs"
-        if validated.supports_value is not None and _eq(obs, validated.supports_value):
+        # Phase 11.3: structured expectations ({"$in": ...}, {"$gte": ...}, ...)
+        # are evaluated by the platform's deterministic matcher; a plain value
+        # still means exact equality. Still never a model verdict.
+        if validated.supports_value is not None and matches(validated.supports_value, obs):
             new_status = HypothesisStatus.SUPPORTED
             ev_for = tuple(dict.fromkeys(ev_for + (obs_ref,)))
-        elif validated.contradicts_value is not None and _eq(obs, validated.contradicts_value):
+        elif validated.contradicts_value is not None and matches(validated.contradicts_value, obs):
             new_status = HypothesisStatus.REFUTED
             ev_against = tuple(dict.fromkeys(ev_against + (obs_ref,)))
         updated = replace(target, status=new_status, evidence_for=ev_for, evidence_against=ev_against)
@@ -341,13 +369,20 @@ class InvestigationEngine:
                                       cause=f"single hypothesis affirmed: {supported[0].hypothesis_ref}",
                                       now=now)
         if len(supported) >= 2:
+            refs = [h.hypothesis_ref for h in supported]
+            if self._compatible is not None and all(
+                    self._compatible(a, b) for i, a in enumerate(refs) for b in refs[i + 1:]):
+                if open_:
+                    return None  # composite so far; alternatives still open -- keep testing
+                return self._svc.conclude(investigation=inv, conclusion=InvestigationConclusion.RESOLVED,
+                                          cause=f"composite explanation affirmed: {refs}", now=now)
             return self._svc.conclude(investigation=inv, conclusion=InvestigationConclusion.CONFLICTED,
                                       cause="multiple hypotheses supported", now=now)
         return None  # keep investigating
 
     def _budget_conclusion(self, inv: Investigation) -> InvestigationConclusion:
         # One honest terminal read shared with the no-more-tests path (Part P).
-        return InvestigationConclusion(settle(inv).conclusion)
+        return InvestigationConclusion(settle(inv, compatible=self._compatible).conclusion)
 
 
 def _temporal(value: str) -> TemporalFit:
@@ -359,3 +394,6 @@ def _temporal(value: str) -> TemporalFit:
 
 def _eq(a: Any, b: Any) -> bool:
     return compute_digest(a).value == compute_digest(b).value
+
+
+from backend.intelligence.application.matching import matches  # noqa: E402 - after helpers

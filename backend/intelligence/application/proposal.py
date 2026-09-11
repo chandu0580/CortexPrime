@@ -173,6 +173,12 @@ class EvidenceResult:
     source_ref: Optional[str] = None
     execution_ref: Optional[str] = None
     reason: str = ""
+    # Phase 11.3 (ADR-123 D-15): the read SUCCEEDED and the instrument reported
+    # nothing for this subject. Not a value (no observation is recorded) and
+    # not a failure of the platform (the read happened): the hypothesis stays
+    # where it was and the investigation goes on. Distinct from ``ok=False``
+    # alone, which is a refused or failed read and ends in BLOCKED.
+    absent: bool = False
 
 
 @dataclass(frozen=True)

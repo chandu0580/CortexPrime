@@ -75,6 +75,7 @@ migration infrastructure — never imported into a context.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from typing import Any, Mapping, Optional
 
@@ -1394,6 +1395,50 @@ def build_execution_lifecycle(
     return dispatcher, recovery
 
 
+class _FairReentrantLock:
+    """A ticket lock: acquire order is release order. ``threading.RLock`` makes
+    no fairness promise and, on this platform, a thread that releases and
+    immediately re-acquires wins every time -- which is exactly what a watch
+    loop does, and exactly how it starved the investigator (Phase 11.3)."""
+
+    def __init__(self) -> None:
+        self._cv = threading.Condition()
+        self._next_ticket = 0
+        self._serving = 0
+        self._owner: Optional[int] = None
+        self._count = 0
+
+    def acquire(self) -> None:
+        me = threading.get_ident()
+        with self._cv:
+            if self._owner == me:
+                self._count += 1
+                return
+            ticket = self._next_ticket
+            self._next_ticket += 1
+            while self._serving != ticket or self._owner is not None:
+                self._cv.wait()
+            self._owner = me
+            self._count = 1
+
+    def release(self) -> None:
+        with self._cv:
+            if self._owner != threading.get_ident():
+                raise RuntimeError("release of a fair lock by a thread that does not hold it")
+            self._count -= 1
+            if self._count == 0:
+                self._owner = None
+                self._serving += 1
+                self._cv.notify_all()
+
+    def __enter__(self) -> "_FairReentrantLock":
+        self.acquire()
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        self.release()
+
+
 class GovernedCapabilityReader:
     """Runs one declared READ operation through the whole governed path.
 
@@ -1414,6 +1459,12 @@ class GovernedCapabilityReader:
     ticks the existing scheduler. It cannot dispatch, cannot lease, cannot record
     an outcome, and cannot conclude anything the scheduler did not conclude.
     """
+
+    #: One governed read in flight per process (see ``read``). FAIR and
+    #: re-entrant: waiters are served in arrival order, so a loop that reads
+    #: back-to-back (the signal watch) cannot starve another thread's single
+    #: read (an investigation), and a reader composed inside a read still works.
+    READ_LOCK = None  # assigned below the class body
 
     def __init__(
         self,
@@ -1458,8 +1509,17 @@ class GovernedCapabilityReader:
                 f"{operation!r} is a {definition.contract.side_effect_class.value} "
                 "and cannot be performed through the read path; a mutation goes "
                 "through GovernedCapabilityWriter, which requires an approval")
-        return self._perform(context, operation=operation, payload=payload,
-                             node_id=node_id, workflow_id=workflow_id)
+        # Phase 11.3 (ADR-123): ONE governed read in flight per process. Every
+        # reader thread drives the shared scheduler with its own tenant context
+        # (the runtime's own loop dispatches only platform work), and two
+        # threads ticking at once perform each other's executions and block on
+        # each other's rows -- the stall Phase 11.2 recorded as F-6, reproduced
+        # with the signal loop and the investigator in one process. Reads are
+        # short (a watch window, a pod get); serialising them costs seconds and
+        # removes the deadlock by construction.
+        with GovernedCapabilityReader.READ_LOCK:
+            return self._perform(context, operation=operation, payload=payload,
+                                 node_id=node_id, workflow_id=workflow_id)
 
     def _perform(
         self,
@@ -1566,14 +1626,25 @@ class GovernedCapabilityReader:
         is the correct behaviour and is why the budget outlives one lease."""
         self._runtime.scheduler.track(execution_id)
         terminal = {"succeeded", "failed", "unknown", "skipped"}
-        for _ in range(self._max_ticks):
-            self._runtime.scheduler.tick(context)
-            stream = self._runtime.executions.stream_state(context, execution_id)
-            states = {n["node_id"]: n["state"] for n in stream.get("nodes", ())}
-            if states.get(node_id) in terminal:
-                return states.get(node_id)
-            time.sleep(self._tick_seconds)
-        return None
+        try:
+            for _ in range(self._max_ticks):
+                self._runtime.scheduler.tick(context)
+                stream = self._runtime.executions.stream_state(context, execution_id)
+                states = {n["node_id"]: n["state"] for n in stream.get("nodes", ())}
+                if states.get(node_id) in terminal:
+                    return states.get(node_id)
+                time.sleep(self._tick_seconds)
+            return None
+        finally:
+            # Phase 11.3 (ADR-123): a read that is done leaves the dispatch set.
+            # Until now every governed read stayed tracked for the life of the
+            # process, so each tick re-loaded every execution ever read here --
+            # a cost that grew with every watch window and every enrichment
+            # until the loop crawled to a stop. That is the stall Phase 11.2
+            # recorded as F-6. A read execution never finalises at the
+            # aggregate level (the node succeeds; the run stays "running"), so
+            # nothing else would ever have removed it.
+            self._runtime.scheduler.untrack(execution_id)
 
     def _aggregate(
         self, context: Any, execution_id: str, node_id: str
@@ -1600,6 +1671,9 @@ class GovernedCapabilityReader:
             getattr(attempt, "failure_reason", None),
         )
 
+
+
+GovernedCapabilityReader.READ_LOCK = _FairReentrantLock()
 
 class GovernedCapabilityWriter(GovernedCapabilityReader):
     """The typed door for a governed MUTATION — Phase 9.6 (ADR-086).

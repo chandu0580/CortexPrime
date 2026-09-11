@@ -101,8 +101,11 @@ class TestKubernetesCatalog:
         cat = kubernetes_read_catalog()
         assert set(cat.operations) == set(KUBERNETES_READ_OPERATIONS)
         # Six reads for the first incident vertical (9.1), plus the WATCH that
-        # continues the list (9.3). Pinned so a seventh does not appear by habit.
-        assert len(KUBERNETES_READ_OPERATIONS) == 7
+        # continues the list (9.3), plus the ReplicaSet lineage read (11.3) that
+        # answers "what changed, and when". Pinned so a ninth does not appear
+        # by habit.
+        assert len(KUBERNETES_READ_OPERATIONS) == 8
+        assert "kubernetes.replicasets.list" in KUBERNETES_READ_OPERATIONS
 
     def test_catalog_is_read_only_by_construction(self):
         cat = kubernetes_read_catalog()

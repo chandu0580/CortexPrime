@@ -46,6 +46,15 @@ class ReasoningKind(str, Enum):
     PREDICTION = "prediction"
     PREDICTION_EVALUATION = "prediction_evaluation"
     EXPERIENCE_USE = "experience_use"
+    DETECTION = "detection"
+    """Phase 11.3 (ADR-123): a sustained condition the detector decided is worth
+    an investigation -- the platform's judgement about the world, with the
+    observations that made it. Not world truth; a reasoning artefact."""
+    ASSESSMENT = "assessment"
+    """Phase 11.3 (ADR-123): the categorical confidence assessment of a concluded
+    investigation -- outcome, confidence, basis, contradictions, unknowns, next
+    step, recommendation candidate (authority none). Computed from the
+    differential and evidence lineage by stated rules; never a model verdict."""
     """Phase 8.6: a record that a prior investigation EPISODE was retrieved and
     injected into a current investigation's context — the calibration substrate for
     "did historical experience help or mislead?" (Part T). References only; whether

@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
+from typing import Callable, Optional
 
 from backend.contracts.world import HypothesisStatus
 from backend.intelligence.application.proposal import ProposedTest, test_identity
@@ -232,7 +232,7 @@ def select_test(*, candidates, investigation, available_tools) -> TestSelection:
     return TestSelection(chosen, quality, tuple(classifications), f"selected {tid} ({quality.value})")
 
 
-def settle(investigation) -> DiagnosticSummary:
+def settle(investigation, *, compatible: Optional[Callable[[str, str], bool]] = None) -> DiagnosticSummary:
     """The honest terminal read when no further discriminating test is available.
 
     RESOLVED means exactly one hypothesis is supported by admissible world evidence
@@ -250,7 +250,19 @@ def settle(investigation) -> DiagnosticSummary:
     open_ = tuple(h.hypothesis_ref for h in investigation.differential
                   if h.status in (HypothesisStatus.OPEN, HypothesisStatus.UNRESOLVED))
 
-    if len(supported) >= 2:
+    if len(supported) >= 2 and compatible is not None and all(
+            compatible(a, b) for i, a in enumerate(supported) for b in supported[i + 1:]):
+        # Phase 11.3 (ADR-123): hypotheses the composition DECLARED compatible
+        # -- a change-attribution hypothesis ("revision N introduced it") and
+        # the mechanism it introduced ("the configuration is invalid") -- are
+        # one composite explanation, not a conflict. The declaration comes
+        # from the incident class's vocabulary, never from the model.
+        conclusion = InvestigationConclusion.RESOLVED
+        residual = (f"composite explanation: {list(supported)} are supported and declared "
+                    f"compatible; not Assurance-verified")
+        if open_:
+            residual += f"; alternatives not eliminated: {list(open_)}"
+    elif len(supported) >= 2:
         conclusion = InvestigationConclusion.CONFLICTED
         residual = f"competing supported hypotheses {list(supported)}; unresolved by evidence"
     elif len(supported) == 1:

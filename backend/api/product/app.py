@@ -104,6 +104,12 @@ class ProductEngine:
     #: came from a gitignored JSON file that require_tenant read on every
     #: request.
     tenants: Any = None
+    #: Phase 11.3. The reasoning ledger (cw_reasoning) -- detections and
+    #: investigation assessments live there as reasoning artefacts, never as
+    #: world truth -- and the harness trace store (cp_harness_trace), which is
+    #: the only durable record of model spend. Both read-only here.
+    reasoning: Any = None
+    traces: Any = None
 
 
 def current_engine() -> Optional[ProductEngine]:
@@ -125,6 +131,8 @@ def compose_engine() -> Optional[ProductEngine]:
     """
     try:
         from backend.api.application_runtime import build_governed_runtime
+        from backend.harness.trace_sql import SqlTraceRecorder
+        from backend.world.infrastructure.sql_reasoning import SqlReasoningRepository
         from backend.assurance.infrastructure import SqlVerificationRepository
         from backend.intelligence.application.investigation_service import (
             InvestigationService,
@@ -194,6 +202,8 @@ def compose_engine() -> Optional[ProductEngine]:
             grants=SqlAuthorityGrantRepository(store),
             memberships=SqlMembershipRepository(store),
             tenants=SqlTenantRepository(store),
+            reasoning=SqlReasoningRepository(store),
+            traces=SqlTraceRecorder(store),
             remediation=_compose_remediation(runtime),
             runtime=runtime,
             execution_context_factory=_execution_context,
@@ -306,6 +316,7 @@ def build_product_app(*, engine: Optional[ProductEngine] = None) -> FastAPI:
     from backend.api.product.authority_routes import router as authority_router
     from backend.api.product.membership_routes import router as membership_router
     from backend.api.product.signal_routes import router as signal_router
+    from backend.api.product.assessment_routes import router as assessment_router
 
     app.include_router(router)
     # The ONLY module carrying non-GET routes. Kept a separate include so the
@@ -321,4 +332,6 @@ def build_product_app(*, engine: Optional[ProductEngine] = None) -> FastAPI:
     app.include_router(membership_router)
     # Phase 11.2: read-only signal fabric views (recent signals, candidates).
     app.include_router(signal_router)
+    # Phase 11.3: read-only detection and assessment views (assessment, cost).
+    app.include_router(assessment_router)
     return app

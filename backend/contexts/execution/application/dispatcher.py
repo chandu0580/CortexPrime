@@ -64,6 +64,7 @@ from backend.contexts.execution.domain.dispatch import (
 )
 from backend.contexts.execution.domain.effects import profile_for
 from backend.contexts.execution.domain.invocation import (
+    InvocationRefusal,
     Clock,
     InvocationRefused,
     InvocationRequest,
@@ -336,6 +337,34 @@ class ExecutionDispatcher:
                     dispatched=False,
                     invocation_refusal="binding_missing",
                     detail={"reason": "no capability binding exists for this node"},
+                ),
+                events,
+            )
+
+        # Phase 11.3 (ADR-123 F-9): a context the gateway will certainly refuse
+        # must not lease. The gateway's tenancy stage refuses EVERY invocation a
+        # platform-internal context makes -- but only after the lease below is
+        # taken, and the quiet reclaim then rightly declines to take back a
+        # lease that has not lapsed. Measured on the live cluster: the runtime's
+        # own loop (platform context) leased a tenant's governed read out from
+        # under the tenant's reader, the gateway refused it, and the node stayed
+        # LEASED for the whole lease term while the reader waited on it. Refusing
+        # here takes no lease, records the same refusal, and leaves the node for
+        # the context that can invoke it.
+        if getattr(context, "is_platform_internal", False):
+            self._release(context, candidate)
+            self._metrics.increment("execution.invocation.refused", labels=tenant)
+            return (
+                DispatchResult(
+                    node_id=candidate.node_id,
+                    dispatched=False,
+                    invocation_refusal=InvocationRefusal.TENANT_UNKNOWN.value,
+                    detail={
+                        "reason": "a platform-internal context cannot invoke a "
+                                  "tenant capability; nothing was leased",
+                        "retryable": False,
+                        "security_relevant": False,
+                    },
                 ),
                 events,
             )
