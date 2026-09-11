@@ -146,7 +146,7 @@ Confidence (`confidence.assess`): categorical, from statuses + lineage origins +
 | `CORTEX_INVESTIGATION_MODEL_TIMEOUT_SECONDS` | 180 | per model call |
 | `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` / `LLM_ALLOW_PLAINTEXT_HTTP` | unset | the hosted OpenAI-compatible provider (D-18); values only in the git-ignored `backend/.env` |
 | `CORTEX_INVESTIGATION_MODEL_MAX_OUTPUT_TOKENS` | 900 | answer tokens per model proposal; the hosted model pass sets 4096 (glm-5.2 reasons before answering) and a 150000-token investigation ceiling |
-| `CORTEX_P113_MODEL_PROVIDER` | `ollama` | harness model-pass provider: `ollama` or `openai-compatible` |
+| `CORTEX_P113_MODEL_PROVIDER` | `openai-compatible` | harness model-pass provider: the operator-provided GLM-5.2 key by default; `ollama` still accepted |
 | `CORTEX_INVESTIGATION_CONTEXT_TOKENS` | 4000 | the context assembler's size budget per proposal; the harness model pass sets 1500 for the local CPU model |
 | `CORTEX_INVESTIGATION_MAX_STEPS` / `_MAX_READS` / `_MAX_SECONDS` / `_MAX_TOKENS` | 16 / 12 / 900 / 24000 | budgets (steps sized to the staged plan, D-16; the harness model pass raises seconds to 3600 and the model timeout to 600 for the local CPU provider) |
 | `CORTEX_INVESTIGATION_RESUME` | 1 | resume active investigations at start |

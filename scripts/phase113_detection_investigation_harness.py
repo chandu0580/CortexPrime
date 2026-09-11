@@ -47,7 +47,9 @@ KSM_NODEPORT = 30080
 MODEL_PASS = os.environ.get("CORTEX_P113_MODEL", "0") == "1"
 #: Iteration aid: run a subset of scenarios (the full set is the phase record).
 SELECTED = set((os.environ.get("CORTEX_P113_SCENARIOS") or "S1,S2,S3,S4,S5").split(","))
-MODEL_PROVIDER = os.environ.get("CORTEX_P113_MODEL_PROVIDER", "ollama")
+# The model pass uses the operator-provided GLM-5.2 key by default (backend/.env LLM_*);
+# "ollama" remains accepted for a local provider.
+MODEL_PROVIDER = os.environ.get("CORTEX_P113_MODEL_PROVIDER", "openai-compatible")
 MODEL_NAME = os.environ.get("CORTEX_P113_MODEL_NAME", "llama3.2")
 OLLAMA_URL = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
 REPORT_PATH = REPO / "docs" / "phase113_detection_investigation_report.json"
