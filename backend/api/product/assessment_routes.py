@@ -142,10 +142,14 @@ def investigation_cost(
         "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens,
         "total_tokens": prompt_tokens + completion_tokens,
         "model_latency_ms": round(latency, 1),
-        "estimated_usd": (assessment_cost or {}).get("estimated_usd", 0.0),
+        "estimated_usd": (assessment_cost or {}).get(
+            "estimated_usd", 0.0 if prompt_tokens + completion_tokens == 0 else None),
+        "monetary_cost": (assessment_cost or {}).get(
+            "monetary_cost", "none (no tokens spent)" if prompt_tokens + completion_tokens == 0
+            else "unknown: no provider pricing is configured"),
         "governed_reads": investigation.reads_taken, "steps": investigation.steps_taken,
         "wall_seconds": (assessment_cost or {}).get("wall_seconds"),
         "calls": calls[:50], "authority": "none",
-        "note": "tokens and latency come from the durable model trace; USD is the static "
-                "cost table's estimate (a local provider prices at zero)",
+        "note": "tokens and latency come from the durable model trace; no provider price is configured, "
+                "so money is reported as unknown rather than invented",
     }

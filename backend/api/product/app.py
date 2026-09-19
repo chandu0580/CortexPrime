@@ -263,8 +263,22 @@ def _compose_remediation(runtime):
             return GovernedCapabilityWriter(
                 runtime=rt, capability_definitions=definitions, principal=principal)
 
+        definitions = {COMMISSIONED_OPERATION: definition}
+        # Phase 11.4 (ADR-124): the rollback capability's definition, when
+        # commissioned, so the approval queue and the decision route derive its
+        # risk from its own contract instead of treating it as unresolvable.
+        # The product's own proposal flow still proposes only the restart, and
+        # the execute route refuses runtime-owned plans.
+        try:
+            rollback = runtime.capabilities.get(_platform_context(), GetCapability(
+                capability_id="platform.kubernetes.deployment.rollback", version=1))
+            if rollback is not None:
+                definitions["kubernetes.deployment.rollback"] = rollback
+        except Exception:  # noqa: BLE001 - not commissioned in this deployment
+            pass
+
         return RemediationService(
-            definitions={COMMISSIONED_OPERATION: definition},
+            definitions=definitions,
             approvals=SqlApprovalRepository(runtime.persistence.store),
             writer_factory=writer_factory,
             environment=ExecutionEnvironment.DEVELOPMENT,
@@ -334,4 +348,10 @@ def build_product_app(*, engine: Optional[ProductEngine] = None) -> FastAPI:
     app.include_router(signal_router)
     # Phase 11.3: read-only detection and assessment views (assessment, cost).
     app.include_router(assessment_router)
+    # Phase 11.4 (ADR-124): read-only remediation plans, replay, cost and
+    # autonomy metrics. Every route is a GET; a human's decision on a plan is
+    # the existing approval decision route above.
+    from backend.api.product.remediation_routes import router as governed_remediation_router
+
+    app.include_router(governed_remediation_router)
     return app

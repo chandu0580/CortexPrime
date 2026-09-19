@@ -72,6 +72,11 @@ class CapabilityProfile(Contract):
     reversible: bool
     timeout_seconds: float
     policy_version: str
+    compensation: Optional[str] = None
+    """Phase 11.4 (ADR-124): the capability that COMPENSATES this one (L10's
+    compensable class), declared on the contract. A declaration, not a guarantee:
+    whether the compensation is available for a particular action is verified by
+    the platform at plan time and again as a precondition of execution."""
 
     def __post_init__(self) -> None:
         for name in ("capability_ref", "provider", "operation", "resource_scope",
@@ -104,6 +109,8 @@ class CapabilityProfile(Contract):
                     "a READ capability requires no verification (nothing to verify)")
             if not self.reversible:
                 raise ContractViolation("a READ is trivially reversible; reversible must be True")
+            if self.compensation is not None:
+                raise ContractViolation("a READ changes nothing and declares no compensation")
         else:  # a mutating operation
             if self.verification_requirement is VerificationRequirement.NONE:
                 raise ContractViolation(
@@ -114,13 +121,20 @@ class CapabilityProfile(Contract):
     def is_read_only(self) -> bool:
         return self.side_effect_class is SideEffectClass.READ
 
-    def to_capability(self) -> Capability:
+    def to_capability(self, *, compensation_verified: bool = False) -> Capability:
         """Bridge to the Phase-8 ``Capability`` the ``AutonomyPolicy`` consumes —
-        reusing the existing type, not duplicating it."""
+        reusing the existing type, not duplicating it.
+
+        ``compensable`` is True only when a compensation is DECLARED and the
+        caller states it VERIFIED availability for the action being decided. The
+        default is False, so a caller that verified nothing gets the stricter
+        irreversible treatment."""
         return Capability(
             capability_ref=self.capability_ref, operation=self.operation,
             resource_class=self.resource_scope, side_effect_class=self.side_effect_class,
-            reversible=self.reversible)
+            reversible=self.reversible,
+            compensable=bool(self.compensation) and bool(compensation_verified)
+            and self.side_effect_class is not SideEffectClass.DESTRUCTIVE)
 
     def to_dict(self) -> dict:
         return {
@@ -133,4 +147,5 @@ class CapabilityProfile(Contract):
             "verification_requirement": self.verification_requirement.value,
             "resource_scope": self.resource_scope, "reversible": self.reversible,
             "timeout_seconds": self.timeout_seconds, "policy_version": self.policy_version,
+            "compensation": self.compensation,
         }

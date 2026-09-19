@@ -199,7 +199,8 @@ def observability_authority_policy():
 
 def observability_freshness_policy(*, metric_horizon_seconds: float = 120.0,
                                    cluster_horizon_seconds: float = 300.0,
-                                   deployment_horizon_seconds: float = 3600.0):
+                                   deployment_horizon_seconds: float = 3600.0,
+                                   outcome_horizon_seconds: float = 604800.0):
     """How long each kind of evidence stays FRESH.
 
     Two horizons, because the two instruments go stale for different reasons and
@@ -268,6 +269,28 @@ def observability_freshness_policy(*, metric_horizon_seconds: float = 120.0,
                           horizon_seconds=metric_horizon_seconds),
             FreshnessRule(name="restart-onset", source_kind=_METRIC_SOURCE_KIND,
                           predicate="restart_onset", horizon_seconds=metric_horizon_seconds),
+            # Phase 11.4 (ADR-124): the proposition an independent remediation
+            # verifier observes after an action -- which template is running,
+            # whether the Deployment is available, whether its pods crash-loop.
+            # Phase 11.4 record run 7 (F-7): the independent verifier records a
+            # FRESH governed observation immediately before every adjudication --
+            # if that read fails the proposition is incomplete and the verdict is
+            # returned before Assurance ever runs. So by adjudication time the
+            # live world has just been read. A short horizon here does not guard
+            # against stale world state (that path is already closed); it only
+            # mis-fires on the World Plane's correct dedup: when a remediation
+            # restores a workload to a value it was recently observed in, the
+            # identical fact deduplicates (no new version), its valid_from stays
+            # old, and a freshly re-confirmed, genuinely-true outcome is demoted
+            # to INSUFFICIENT. A SUPPORTED verdict still requires the observed
+            # value to equal the expected one, so a long horizon never admits an
+            # unestablished success -- it only stops a real one being lost to a
+            # dedup artifact. The horizon remains finite so evidence with no
+            # recent observation at all is still refused.
+            FreshnessRule(name="remediation-outcome", source_kind=_METRIC_SOURCE_KIND,
+                          predicate="remediation_outcome", horizon_seconds=outcome_horizon_seconds),
+            FreshnessRule(name="remediation-target", source_kind=_METRIC_SOURCE_KIND,
+                          predicate="remediation_target", horizon_seconds=outcome_horizon_seconds),
         ),
     )
 

@@ -126,3 +126,29 @@ def test_the_lock_is_reentrant_for_a_reader_composed_inside_a_read():
     with GovernedCapabilityReader.READ_LOCK:
         with GovernedCapabilityReader.READ_LOCK:
             assert True
+
+
+def test_a_gateway_refusal_at_dispatch_reaches_the_caller_for_its_own_node_only():
+    """Phase 11.4 run 8: a write refused by the gateway at dispatch (approval
+    digest, binding ...) is reclaimed as UNKNOWN with no attempt reason, so the
+    caller was told ``None``. The gateway's code is taken from this process's
+    dispatch report -- and only for this execution's node, never another's."""
+    def result(node, code):
+        return SimpleNamespace(node_id=node, invocation_refusal=code)
+
+    class _Refusing(_Scheduler):
+        def tick(self, context):
+            super().tick(context)
+            return SimpleNamespace(cycles=(
+                SimpleNamespace(execution_id="other", results=(result("n", "someone_elses_refusal"),)),
+                SimpleNamespace(execution_id="exec-7", results=(result("m", "another_node"),
+                                                                result("n", "approval_digest_mismatch"))),
+            ))
+
+    runtime = SimpleNamespace(scheduler=_Refusing(), executions=_Executions(terminal_after=1))
+    reader = GovernedCapabilityReader(
+        runtime=runtime, capability_definitions={"kubernetes.pod.get": object()},
+        principal=PrincipalRef(principal_id="t", kind=PrincipalKind.PLATFORM), max_ticks=3, tick_seconds=0.0)
+    refusals: list = []
+    reader._drive(object(), "exec-7", "n", refusals=refusals)
+    assert refusals == ["approval_digest_mismatch"]

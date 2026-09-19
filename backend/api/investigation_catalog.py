@@ -417,6 +417,13 @@ def _rollout_history(workload: str, window: InvestigationWindow):
             "containerSpecChanged": bool(previous and previous.get("templateDigest") is not None
                                          and previous.get("templateDigest") != current.get("templateDigest")),
             "latestRolloutAt": current.get("creationTimestamp"),
+            # Phase 11.4 (ADR-124): the full-template identity of the current and
+            # previous revisions, so a remediation plan can bind the diagnosis to
+            # the template it was made about (not to a revision number, which a
+            # rollback renumbers).
+            "currentPodTemplateDigest": current.get("podTemplateDigest"),
+            "previousRevision": str(previous.get("revision", "")) if previous else None,
+            "previousPodTemplateDigest": previous.get("podTemplateDigest") if previous else None,
             "recentChange": recent,
             "changeAfterIncident": after,
             "changeWindow": [window.change_start.isoformat(), window.change_end.isoformat()],

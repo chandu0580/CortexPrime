@@ -28,6 +28,7 @@ from __future__ import annotations
 from typing import Optional
 
 from backend.platform.identity.generators import prefixed_id
+from backend.contracts.execution import SideEffectClass
 from backend.contracts.policy import RiskClassification, RiskLevel
 from backend.contracts.intelligence.investigation import AutonomyLevel
 from backend.contracts.intelligence.calibration import (
@@ -181,20 +182,35 @@ class AutonomyPolicy:
                       downgraded_from=allowed.value)
 
         # 9. REVERSIBILITY — an irreversible action at/above the floor needs a human (Part H).
+        #    Phase 11.4 (ADR-124): L10 prices three classes. A COMPENSABLE action
+        #    (declared compensation, verified available for THIS action) is not
+        #    forced to a human here when the versioned policy explicitly allows the
+        #    compensable class to earn autonomy; it continues to the approval gate
+        #    with every earlier gate already passed. Without that explicit policy,
+        #    or for anything not compensable, the rule is exactly as it was.
+        compensable_path = (config.compensable_autonomy and capability.compensable
+                            and capability.side_effect_class is not SideEffectClass.DESTRUCTIVE)
         if (allowed.rank >= config.require_reversible_at_or_above.rank
-                and capability.side_effect_class.mutates and not capability.reversible):
+                and capability.side_effect_class.mutates and not capability.reversible
+                and not compensable_path):
             forced = _level(min(allowed.rank, _A3.rank))
             return mk(allowed, forced, AutonomyEligibility.HUMAN_APPROVAL_REQUIRED,
                       ApprovalRequirement.HUMAN_APPROVAL,
-                      "irreversible action: human approval required; no delegated autonomy",
+                      ("irreversible action: human approval required; no delegated autonomy"
+                       if not capability.compensable else
+                       "compensable action, but this policy does not let the compensable class "
+                       "earn delegated autonomy: human approval required"),
                       downgraded_from=allowed.value if forced.rank < allowed.rank else None)
 
         # 10. APPROVAL — the earned level with its explicit approval requirement.
         approval = _approval_for(allowed)
         elig = (AutonomyEligibility.HUMAN_APPROVAL_REQUIRED if allowed is _A3
                 else AutonomyEligibility.ELIGIBLE)
+        reversibility = ("reversible" if capability.reversible else
+                         "compensable (declared compensation verified available)"
+                         if capability.compensable else "irreversible")
         reason = (f"earned {allowed.value}: reliability {rate:.2f} over "
                   f"{reliability.decided_count} independently-evaluated outcomes, assurance "
-                  f"coverage {coverage:.2f}, blast {risk.level.value}, reversible="
-                  f"{capability.reversible}")
+                  f"coverage {coverage:.2f}, blast {risk.level.value}, reversibility="
+                  f"{reversibility}")
         return mk(allowed, allowed, elig, approval, reason)

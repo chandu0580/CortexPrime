@@ -263,3 +263,30 @@ class TestFailureInjection:
                             budget=LoopBudget(max_iterations=1))
             result = await _run(loop)
             assert not result.completed
+
+
+def test_a_provider_failure_leaves_a_span_with_its_cause_and_still_raises():
+    """Phase 11.4 run 9 (F-10): an unavailable provider raised before any span
+    was built, so the one call that could not be made left no durable trace.
+    The failure span carries the scrubbed cause and no output; the error still
+    propagates, so a failed call never becomes a proposal."""
+    import asyncio
+
+    class Unavailable:
+        _provider, _model = "openai-compatible", "glm-5.2"
+
+        async def generate(self, *, system_prompt, prompt):
+            raise RuntimeError("model call failed: upstream 502 api_key=sk-live-SHOULDNOTLEAK123456")
+
+    recorder = InMemoryTraceRecorder()
+    boundary = GovernedModelBoundary(model_port=Unavailable(), recorder=recorder,
+                                     harness_version=CURRENT_HARNESS_VERSION)
+    with pytest.raises(RuntimeError):
+        asyncio.run(boundary.propose(schema=ToolProposal, system_prompt="s", prompt="p", mission_id="m",
+                                     iteration=0, step_id="st", correlation_id="c", trace_id="t",
+                                     trace_span_id="sp"))
+    (span,) = recorder.spans
+    reason = span.to_dict().get("stop_or_failure_reason") if hasattr(span, "to_dict") else span.stop_or_failure_reason
+    assert "provider call failed" in reason and "upstream 502" in reason
+    assert "SHOULDNOTLEAK" not in repr(span)
+    assert span.model_provider == "openai-compatible"

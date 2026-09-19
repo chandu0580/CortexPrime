@@ -59,6 +59,18 @@ class ReasoningKind(str, Enum):
     injected into a current investigation's context — the calibration substrate for
     "did historical experience help or mislead?" (Part T). References only; whether
     it helped is computed later (Phase 8.7), never asserted here."""
+    REMEDIATION_PLAN = "remediation_plan"
+    """Phase 11.4 (ADR-124): one governed remediation plan -- the platform's
+    typed, digest-bound action for an incident (target, parameters, risk,
+    reversibility class, blast radius, expected state, verification criteria,
+    compensation, authority). Built by the platform from a validated proposal
+    and fresh evidence; never model text. Immutable: a later stage is a new
+    event, never an edit."""
+    REMEDIATION_EVENT = "remediation_event"
+    """Phase 11.4 (ADR-124): one stage of a remediation's lifecycle (proposal
+    decision, autonomy decision, approval, execution, verification, outcome,
+    recovery), appended in order. The lifecycle is the fold of these events;
+    replay reads them and can change nothing."""
 
 
 class ReasoningRejected(ContractViolation):

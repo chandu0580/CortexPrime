@@ -134,13 +134,10 @@ class RemediationService:
         not understand yields no proposal, rather than a guess about what the
         operator probably meant.
         """
-        match = _SUBJECT.match((incident_ref or "").strip())
-        if match is None:
-            return None
-        name = match.group("name")
-        if match.group("kind") == "pod":
-            name = _POD_SUFFIX.sub("", name) or name
-        return match.group("namespace"), name
+        # Phase 11.4: one implementation, shared with the remediation planner.
+        from backend.api.remediation_planning import workload_of
+
+        return workload_of(incident_ref)
 
     def propose(
         self, *, investigation: Any, tenant_id: str, principal_id: str,

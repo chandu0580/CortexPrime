@@ -657,16 +657,26 @@ class InvestigationRunner:
                 completion_tokens += int(usage.get("completion_tokens") or 0)
             if isinstance(span.get("latency_ms"), (int, float)):
                 latency += float(span["latency_ms"])
-        usd = 0.0
-        for provider, calls in providers.items():
-            usd += _estimate_usd(provider, stack.get("model_name") or "", prompt_tokens, completion_tokens)
+        # Phase 11.4 (ADR-124, mandate §59): no provider price is configured in
+        # this platform, and the old estimate returned 0.0 for every provider --
+        # a fabricated price of zero. Tokens are measured; money is not, and says
+        # so. A pass that spent no tokens honestly costs nothing.
+        total_tokens = prompt_tokens + completion_tokens
+        usd: Optional[float] = 0.0 if total_tokens == 0 else None
+        if usd is None:
+            estimate = 0.0
+            for provider, calls in providers.items():
+                estimate += _estimate_usd(provider, stack.get("model_name") or "", prompt_tokens, completion_tokens)
+            usd = round(estimate, 6) if estimate else None
         if usd:
             self._count_value("investigation_cost_usd", usd, stack["provider_label"])
         return {
             "model_calls": model_calls, "providers": providers,
             "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens,
-            "total_tokens": prompt_tokens + completion_tokens,
-            "model_latency_ms": round(latency, 1), "estimated_usd": round(usd, 6),
+            "total_tokens": total_tokens,
+            "model_latency_ms": round(latency, 1), "estimated_usd": usd,
+            "monetary_cost": ("none (no tokens spent)" if total_tokens == 0 else
+                              "unknown: no provider pricing is configured" if usd is None else "estimated"),
             "governed_reads": investigation.reads_taken, "steps": investigation.steps_taken,
             "wall_seconds": round(seconds, 2),
         }
@@ -916,9 +926,13 @@ class EmbeddedInvestigator:
         self.runner.stop(timeout=timeout)
 
 
-def start_embedded_investigator(runtime: Any, *, metrics: Any = None) -> Optional[EmbeddedInvestigator]:
+def start_embedded_investigator(runtime: Any, *, metrics: Any = None,
+                                on_outcome: Optional[Callable[..., Any]] = None) -> Optional[EmbeddedInvestigator]:
     """Compose and start the investigator beside the signal worker when the
-    signal loop is configured. Unconfigured: nothing happens (pre-11.3)."""
+    signal loop is configured. Unconfigured: nothing happens (pre-11.3).
+
+    ``on_outcome`` (Phase 11.4) receives each concluded investigation -- the
+    remediation runtime's hook. The investigator still composes no write."""
     tenant_id = (os.getenv("CORTEX_SIGNAL_TENANT_ID") or "").strip()
     namespace = (os.getenv("CORTEX_SIGNAL_NAMESPACE") or "").strip()
     if not (tenant_id and namespace):
@@ -933,7 +947,8 @@ def start_embedded_investigator(runtime: Any, *, metrics: Any = None) -> Optiona
                 metrics = _metrics
             except Exception:  # noqa: BLE001
                 metrics = None
-        handoff, runner = build_investigation_runtime(runtime, config=config, metrics=metrics)
+        handoff, runner = build_investigation_runtime(runtime, config=config, metrics=metrics,
+                                                      on_outcome=on_outcome)
     except Exception as exc:  # noqa: BLE001 - the API keeps booting; investigation does not run half-composed
         log.error("embedded investigator refused to start: %s", exc)
         return None

@@ -277,6 +277,64 @@ class _CortexMetrics:
             "cortex_investigations_active",
             "Investigations currently being run by this process",
         )
+        # -- Phase 11.4: governed remediation (ADR-124) ---------------------
+        self.remediation_plans = _counter(
+            "cortex_remediation_plans_total",
+            "Remediation plans built, by the authority the platform decided",
+            ["authority"],
+        )
+        self.remediation_proposals_rejected = _counter(
+            "cortex_remediation_proposals_rejected_total",
+            "Remediation proposals not planned, by stage (rejected/prohibited/recommendation_only)",
+            ["stage"],
+        )
+        self.remediation_approvals = _counter(
+            "cortex_remediation_approvals_total",
+            "Remediation approvals, by decision (requested/granted/denied/expired) and decider kind",
+            ["decision", "decider"],
+        )
+        self.remediation_executions = _counter(
+            "cortex_remediation_executions_total",
+            "Remediation executions, by result (started/executed/failed/unknown/refused/duplicate)",
+            ["result"],
+        )
+        self.remediation_verifications = _counter(
+            "cortex_remediation_verifications_total",
+            "Independent verifications of remediations, by verdict",
+            ["verdict"],
+        )
+        self.remediation_recoveries = _counter(
+            "cortex_remediation_recoveries_total",
+            "Bounded recovery decisions after a remediation, by action",
+            ["action"],
+        )
+        self.remediation_actions = _counter(
+            "cortex_remediation_actions_total",
+            "Remediation actions that reached the executor, by authority (autonomous/human_approved)",
+            ["authority"],
+        )
+        self.remediation_action_seconds = _histogram(
+            "cortex_remediation_action_seconds",
+            "Wall time of one governed remediation execution",
+            ["result"],
+            buckets=(0.5, 1, 2, 5, 10, 20, 30, 60, 120),
+        )
+        self.remediation_verification_seconds = _histogram(
+            "cortex_remediation_verification_seconds",
+            "Wall time from execution to an independent verification verdict",
+            ["verdict"],
+            buckets=(1, 5, 10, 20, 30, 60, 120, 300, 600),
+        )
+        self.remediation_model_calls = _counter(
+            "cortex_remediation_model_calls_total",
+            "Remediation proposals requested from the model, by provider and result",
+            ["provider", "result"],
+        )
+        self.remediation_model_tokens = _counter(
+            "cortex_remediation_model_tokens_total",
+            "Model tokens spent on remediation planning, by provider and direction",
+            ["provider", "direction"],
+        )
         self.mission_duration = _histogram(
             "cortex_mission_duration_seconds",
             "Wall-clock duration of missions in seconds",

@@ -1571,8 +1571,12 @@ class GovernedCapabilityReader:
             return GovernedReadOutcome(
                 operation=operation, execution_id="", node_state=None,
                 succeeded=False, evidence={},
+                # Phase 11.4 record run 2 (F-3): this read ``decision.reason``, a
+                # field AuthorizationDecision does not have, so every refusal
+                # said "authorization refused: None" and hid its cause.
                 failure_reason=f"authorization refused: "
-                               f"{getattr(decision, 'reason', None)}",
+                               f"{','.join(getattr(decision, 'reason_codes', ()) or ()) or 'no reason recorded'}"
+                               f" (effect={getattr(getattr(decision, 'effect', None), 'value', None)})",
                 duration_seconds=time.monotonic() - started_at,
             )
 
@@ -1607,8 +1611,19 @@ class GovernedCapabilityReader:
                 duration_seconds=time.monotonic() - started_at,
             )
 
-        state = self._drive(context, execution_id, node)
+        refusals: list = []
+        state = self._drive(context, execution_id, node, refusals=refusals)
         evidence, status, reason = self._aggregate(context, execution_id, node)
+        if not reason and state != "succeeded" and refusals:
+            # Phase 11.4 run 8: a gateway refusal at dispatch (approval digest,
+            # binding, credential ...) is reclaimed as UNKNOWN with no attempt
+            # reason, so a refused write reported "None" to its caller. The code
+            # is the gateway's own, taken from this process's dispatch report;
+            # the full refusal is in the audit trail (execution.refused).
+            reason = f"invocation refused at dispatch: {refusals[-1]}"
+        elif not reason and state == "unknown":
+            reason = ("the node never completed: its invocation was refused or its lease "
+                      "reclaimed by another dispatcher; see the audit trail (execution.refused)")
         return GovernedReadOutcome(
             operation=operation, execution_id=execution_id, node_state=state,
             succeeded=state == "succeeded", evidence=evidence, status=status,
@@ -1617,7 +1632,8 @@ class GovernedCapabilityReader:
 
     # ------------------------------------------------------------------
 
-    def _drive(self, context: Any, execution_id: str, node_id: str) -> Optional[str]:
+    def _drive(self, context: Any, execution_id: str, node_id: str,
+               refusals: Optional[list] = None) -> Optional[str]:
         """Tick the existing scheduler until the node is terminal.
 
         Not a second scheduler: this calls ``tick`` on the one that already
@@ -1628,7 +1644,15 @@ class GovernedCapabilityReader:
         terminal = {"succeeded", "failed", "unknown", "skipped"}
         try:
             for _ in range(self._max_ticks):
-                self._runtime.scheduler.tick(context)
+                report = self._runtime.scheduler.tick(context)
+                if refusals is not None:
+                    for cycle in getattr(report, "cycles", ()) or ():
+                        if getattr(cycle, "execution_id", None) != execution_id:
+                            continue
+                        for result in getattr(cycle, "results", ()) or ():
+                            code = getattr(result, "invocation_refusal", None)
+                            if code and getattr(result, "node_id", None) == node_id:
+                                refusals.append(str(code))
                 stream = self._runtime.executions.stream_state(context, execution_id)
                 states = {n["node_id"]: n["state"] for n in stream.get("nodes", ())}
                 if states.get(node_id) in terminal:
@@ -1890,3 +1914,281 @@ def build_contained_worker_connector(
         metrics=metrics,
     )
     return WorkerEntry(implementation=implementation), adapter, catalog
+
+
+#: Phase 11.4 (ADR-124). The provider id of the CONTAINED rollback path.
+#:
+#: Its own id, for the reason ``kubernetes-contained`` has its own: a different
+#: address (the rollback worker), a different identity (a ServiceAccount that
+#: may read ReplicaSets and patch Deployments in one namespace) and a different
+#: credential. One id for both workers would put two credentials behind one
+#: name, and the broker would hand either worker the other's token.
+CONTAINED_ROLLBACK_PROVIDER_ID = "kubernetes-contained-rollback"
+DEPLOYMENT_ROLLBACK_OPERATION = "kubernetes.deployment.rollback"
+
+
+def contained_rollback_worker_catalog():
+    """The one operation the rollback worker performs, as the PLATFORM sees it.
+
+    ``POST /execute`` again: the catalog describes the dial that leaves this
+    process. Every parameter is a typed scalar in the body and every one is in
+    the approval digest, so an approval for "roll payments-api back to revision
+    3 from revision 4, template X to template Y, under policy P" cannot authorize
+    any other rollback. There is no field in which a template, a patch, a
+    selector, a path or a URL could be expressed.
+    """
+    from backend.contexts.execution.domain.provider_operation import (
+        OperationCatalog, ParameterKind, ParameterLocation, ParameterSpec,
+        ProviderOperationSpec,
+    )
+    from backend.contracts.execution import EffectSemantics, SideEffectClass
+
+    def _body(name, kind, **extra):
+        return ParameterSpec(name=name, kind=kind, location=ParameterLocation.BODY, **extra)
+
+    return OperationCatalog(
+        CONTAINED_ROLLBACK_PROVIDER_ID,
+        (
+            ProviderOperationSpec(
+                operation=DEPLOYMENT_ROLLBACK_OPERATION,
+                method="POST",
+                path_template="/execute",
+                # Irreversible by this codebase's definition (a declared inverse
+                # must FULLY restore the prior state, and pods are replaced and
+                # revision numbers advance); compensable in L10's terms, which
+                # the capability contract declares separately.
+                side_effect_class=SideEffectClass.IRREVERSIBLE_WRITE,
+                effect_semantics=EffectSemantics.NON_IDEMPOTENT_WRITE,
+                parameters=(
+                    _body("namespace", ParameterKind.RESOURCE_SEGMENT, max_length=253),
+                    _body("name", ParameterKind.RESOURCE_SEGMENT, max_length=253),
+                    _body("uid", ParameterKind.STRING, max_length=36),
+                    _body("expected_generation", ParameterKind.INTEGER, min_value=1, max_value=10 ** 12),
+                    _body("expected_revision", ParameterKind.INTEGER, min_value=1, max_value=10 ** 12),
+                    _body("expected_template_digest", ParameterKind.STRING, max_length=64),
+                    _body("target_revision", ParameterKind.INTEGER, min_value=1, max_value=10 ** 12),
+                    _body("target_template_digest", ParameterKind.STRING, max_length=64),
+                    _body("plan_id", ParameterKind.STRING, max_length=80),
+                    _body("policy_version", ParameterKind.STRING, max_length=80),
+                ),
+                success_statuses=(200,),
+                response_required_fields=(),
+                response_evidence_fields=(
+                    "kind", "name", "namespace", "resourceVersion", "generation",
+                    "templateDigest", "rolledBackByAction", "targetRevision",
+                    "compensationRevision", "dryRun", "noop", "preconditionFailed",
+                    "reasonCode",
+                ),
+                static_headers={"content-type": "application/json"},
+                provider_timeout_seconds=60,
+                max_response_bytes=1024 * 1024,
+            ),
+        ),
+    )
+
+
+def build_contained_rollback_worker_connector(
+    *,
+    transport_broker: Any,
+    connection_policy: Any,
+    environment: ExecutionEnvironment,
+    worker_url: str,
+    capability_id: str,
+    capability_version: int,
+    implementation_digest: str,
+    worker_id: str = "kubernetes-contained-rollback-worker",
+    preflight: Optional[Any] = None,
+    metrics: Optional[Any] = None,
+) -> tuple:
+    """The CONTAINED rollback worker (ADR-124). Same shape and same honesty as
+    :func:`build_contained_worker_connector`: CONTAINED because the thing it
+    dispatches to is out of this process, HTTPS because the credential is the
+    connection's authorization header, pinned implementation version, and
+    ``supports_provider_idempotency=False`` because a rollback repeated with a
+    new identity would be a second rollout -- repeat-safety comes from the
+    preconditions the worker tests, not from a key."""
+    from backend.contracts.connector import IsolationTier
+    from backend.contexts.execution import WorkerEntry, WorkerInterface, WorkerScope
+    from backend.contexts.execution.domain.worker import WorkerKind
+    from backend.contexts.execution.domain.worker_directory import WorkerImplementation
+    from backend.contexts.execution.infrastructure.adapters.channel import (
+        ProviderChannel, TransportEndpoint, TransportKind,
+    )
+    from backend.contexts.execution.infrastructure.adapters.contained_worker import (
+        ContainedRollbackWorkerAdapter,
+    )
+    from backend.contracts.execution import EffectSemantics
+    from backend.contracts.provider import ProviderRef
+
+    provider = ProviderRef(provider_id=CONTAINED_ROLLBACK_PROVIDER_ID)
+    catalog = contained_rollback_worker_catalog()
+    endpoint = TransportEndpoint.parse(worker_url, transport=TransportKind.HTTPS, environment=environment)
+    if endpoint.is_plaintext:
+        raise ValueError("the contained rollback worker endpoint must be HTTPS; the execution "
+                         "credential is exposed on every plaintext request")
+    channel = ProviderChannel(provider=provider, broker=transport_broker, base_endpoint=endpoint,
+                              policy=connection_policy, transport=TransportKind.HTTPS)
+    implementation = WorkerImplementation(
+        worker_id=worker_id,
+        worker_kind=WorkerKind.CONNECTOR,
+        interface=WorkerInterface.CONNECTOR,
+        implementation=("backend.contexts.execution.infrastructure.adapters.contained_worker."
+                        "ContainedRollbackWorkerAdapter"),
+        implementation_version=ContainedRollbackWorkerAdapter.IMPLEMENTATION_VERSION,
+        isolation=IsolationTier.CONTAINED,
+        scope=WorkerScope.PLATFORM,
+        supported_environments=frozenset({environment}),
+        supported_effects=frozenset({EffectSemantics.NON_IDEMPOTENT_WRITE}),
+        supported_providers=frozenset({CONTAINED_ROLLBACK_PROVIDER_ID}),
+        supported_operations=frozenset({ContainedRollbackWorkerAdapter.OPERATION}),
+        supports_provider_idempotency=False,
+    )
+    adapter = ContainedRollbackWorkerAdapter(
+        implementation=implementation, provider=provider, channel=channel,
+        capability_id=capability_id, capability_version=capability_version,
+        implementation_digest=implementation_digest, preflight=preflight, metrics=metrics,
+    )
+    return WorkerEntry(implementation=implementation), adapter, catalog
+
+
+#: The read capabilities the remediation runtime plans and verifies with. The
+#: rollback itself is the only write; everything else it touches is a READ,
+#: through the same governed door the investigator uses.
+REMEDIATION_READ_OPERATIONS = ("kubernetes.deployment.get", "kubernetes.replicasets.list",
+                               "kubernetes.pods.list")
+REMEDIATION_OPTIONAL_READS = ("prometheus.deployment_unavailable",)
+
+
+def build_remediation_runtime(runtime: Any, *, config: Any, metrics: Optional[Any] = None) -> Any:
+    """Compose the governed remediation runtime (ADR-124) over a running runtime.
+
+    Here, in a composition root, because it joins two contexts: the approval
+    store and implied risk (connectivity) with the approval digest and the
+    idempotency store (execution). The runtime module itself imports neither.
+
+    Refuses when the rollback capability or the reads it needs are not
+    commissioned: a remediator that cannot act or cannot verify must say so at
+    boot, not plan actions it could never take or never check.
+    """
+    from backend.api.governed_read_observer import GovernedReadObserver
+    from backend.api.observability_evidence import (
+        observability_authority_policy, observability_freshness_policy, observability_lineage_policy,
+    )
+    from backend.api.remediation_planning import CapabilityFacts
+    from backend.api.remediation_runtime import RemediationPorts, RemediationRuntime, RUNTIME_PRINCIPAL
+    from backend.assurance.application.verifier import AssuranceVerifier
+    from backend.assurance.infrastructure import SqlVerificationRepository
+    from backend.contexts.connectivity.application.commands import GetCapability
+    from backend.contexts.connectivity.domain.authorization import CapabilityOperation, implied_risk_for
+    from backend.contexts.connectivity.infrastructure.sql_approval import SqlApprovalRepository
+    from backend.contexts.execution.domain.invocation import canonical_approval_digest
+    from backend.contexts.execution.infrastructure.sql_coordination import SqlIdempotencyStore
+    from backend.contracts.identity import PrincipalKind, PrincipalRef
+    from backend.contracts.tenant import TenantRef
+    from backend.harness.trace_sql import SqlTraceRecorder
+    from backend.intelligence.application.investigation_service import InvestigationService
+    from backend.intelligence.infrastructure import SqlInvestigationRepository
+    from backend.platform.context import ExecutionContext
+    from backend.platform.context.identity import IdentityContext
+    from backend.signal.worker import _commission_connector_worker
+    from backend.world.application import FactDerivation, ObservationIngestion, WorldQuery
+    from backend.world.infrastructure import SqlFactRepository, SqlObservationRepository
+    from backend.world.infrastructure.sql_reasoning import SqlReasoningRepository
+
+    store = runtime.persistence.store
+    platform_ctx = ExecutionContext.platform_internal(
+        reason="remediation runtime: capability lookup", component="cortexprime.remediator",
+        source="lifecycle")
+    rollback = runtime.capabilities.get(platform_ctx, GetCapability(
+        capability_id=f"platform.{DEPLOYMENT_ROLLBACK_OPERATION}", version=1))
+    if rollback is None:
+        raise RuntimeError("the remediation runtime refuses to start: platform.kubernetes.deployment.rollback "
+                           "is not commissioned")
+    if not getattr(getattr(runtime, "authorization", None), "has_approval_authority", False):
+        # F-4: without an approval store every approval fails closed, so every
+        # plan would be approved by a human and then refused at execution.
+        raise RuntimeError("the remediation runtime refuses to start: this process's authorization has no "
+                           "approval store, so no approval could ever authorize a remediation here")
+    reads: dict = {}
+    for operation in REMEDIATION_READ_OPERATIONS + REMEDIATION_OPTIONAL_READS:
+        try:
+            reads[operation] = runtime.capabilities.get(platform_ctx, GetCapability(
+                capability_id=f"platform.{operation}", version=1))
+        except Exception:  # noqa: BLE001 - optional reads may be absent
+            if operation in REMEDIATION_READ_OPERATIONS:
+                raise RuntimeError(f"the remediation runtime refuses to start: {operation} is not "
+                                   "commissioned; a remediation it cannot verify is one it must not take")
+    for worker_id in ("kubernetes-connector", "prometheus-connector", "kubernetes-contained-rollback-worker"):
+        try:
+            _commission_connector_worker(runtime, platform_ctx, worker_id=worker_id)
+        except Exception:  # noqa: BLE001 - a worker that is not composed simply refuses its dispatch
+            log.info("remediation worker %s not admitted", worker_id)
+
+    principal = PrincipalRef(principal_id=RUNTIME_PRINCIPAL, kind=PrincipalKind.PLATFORM)
+    environment = ExecutionEnvironment(config.environment)
+
+    def context_factory():
+        return ExecutionContext.for_tenant(
+            tenant_id=config.tenant_id,
+            identity=IdentityContext(principal=principal, capabilities=("capability:invoke",)),
+            source="remediator")
+
+    contract = rollback.contract
+
+    def approval_digest(payload: Mapping[str, Any]) -> str:
+        return canonical_approval_digest(
+            capability_ref=str(rollback.reference.value), capability_digest=rollback.digest,
+            operation=DEPLOYMENT_ROLLBACK_OPERATION, tenant_id=config.tenant_id,
+            principal_id=RUNTIME_PRINCIPAL, environment=environment, payload=dict(payload))
+
+    observations = SqlObservationRepository(store)
+    facts = SqlFactRepository(store)
+    query = WorldQuery(facts=facts, observations=observations, authority_policy=observability_authority_policy(),
+                       freshness_policy=observability_freshness_policy())
+    verifications = SqlVerificationRepository(store)
+    traces = SqlTraceRecorder(store)
+    proposal_port = None
+    if config.model_provider:
+        from backend.harness.llm_boundary import GovernedModelBoundary, LLMServiceModelPort
+        from backend.harness.version import CURRENT_HARNESS_VERSION
+        from backend.intelligence.application.remediation_proposal import GovernedRemediationProposalPort
+
+        model = LLMServiceModelPort(config.model_name or None, provider=config.model_provider,
+                                    timeout_seconds=config.model_timeout_seconds,
+                                    max_tokens=config.model_max_output_tokens)
+        proposal_port = GovernedRemediationProposalPort(
+            boundary=GovernedModelBoundary(model_port=model, recorder=traces, harness_version=CURRENT_HARNESS_VERSION),
+            provider_label=config.model_provider)
+    ports = RemediationPorts(
+        tenant=TenantRef(tenant_id=config.tenant_id),
+        reader=GovernedCapabilityReader(runtime=runtime, capability_definitions=reads, principal=principal),
+        writer=GovernedCapabilityWriter(runtime=runtime,
+                                        capability_definitions={DEPLOYMENT_ROLLBACK_OPERATION: rollback},
+                                        principal=principal),
+        approvals=SqlApprovalRepository(store),
+        reasoning=SqlReasoningRepository(store),
+        observations=observations,
+        observer=GovernedReadObserver(ingestion=ObservationIngestion(repository=observations),
+                                      source_ref="connector:kubernetes",
+                                      produced_by="platform:remediation-runtime/1"),
+        derivation=FactDerivation(repository=facts),
+        assurance=AssuranceVerifier(query=query, repository=verifications,
+                                    lineage_policy=observability_lineage_policy()),
+        verifications=verifications,
+        idempotency=SqlIdempotencyStore(store),
+        investigations=InvestigationService(repository=SqlInvestigationRepository(store)),
+        context_factory=context_factory,
+        approval_digest=approval_digest,
+        capability=CapabilityFacts(
+            capability_ref=str(rollback.reference.value), capability_digest=rollback.digest,
+            operation=DEPLOYMENT_ROLLBACK_OPERATION,
+            risk_floor=implied_risk_for(contract.effect_semantics, contract.side_effect_class),
+            side_effect_class=contract.side_effect_class,
+            compensation_declared=bool(getattr(contract, "compensation_capability", None))),
+        authorization_operation=CapabilityOperation.INVOKE.value,
+        proposal_port=proposal_port,
+        audit=getattr(runtime, "audit", None),
+        traces=traces,
+        metrics=metrics,
+    )
+    return RemediationRuntime(config=config, ports=ports)

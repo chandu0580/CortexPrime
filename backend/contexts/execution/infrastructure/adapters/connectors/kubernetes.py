@@ -87,6 +87,9 @@ __all__ = [
     "KubernetesRestartBodyBuilder",
     "ROLLOUT_RESTART_OPERATION",
     "RESTART_ANNOTATION",
+    "DEPLOYMENT_ROLLBACK_OPERATION",
+    "ROLLBACK_ANNOTATION",
+    "pod_template_digest",
     "kubernetes_write_profiles",
     "KUBERNETES_WATCH_OPERATION",
     "KUBERNETES_WATCH_EVENT_TYPES",
@@ -137,6 +140,52 @@ ROLLOUT_RESTART_OPERATION = "kubernetes.workload.rollout_restart"
 #: question asked afterwards. The value is the platform's own action identity, so
 #: the annotation answers it.
 RESTART_ANNOTATION = "cortexprime.io/restarted-by-action"
+
+#: Phase 11.4 (ADR-124): the second governed Kubernetes write -- roll ONE
+#: Deployment back to ONE known revision. Performed only by the CONTAINED
+#: rollback worker (its own provider id, its own ServiceAccount); it is not in
+#: this in-process connector's catalog and never will be.
+DEPLOYMENT_ROLLBACK_OPERATION = "kubernetes.deployment.rollback"
+
+#: The annotation the rollback worker writes on the Deployment's OWN metadata
+#: (never the pod template, which would create a revision nobody approved).
+ROLLBACK_ANNOTATION = "cortexprime.io/rolled-back-by-action"
+
+#: The label the Deployment controller adds to a ReplicaSet's template; the only
+#: label by which a ReplicaSet's template differs from the Deployment's.
+POD_TEMPLATE_HASH_LABEL = "pod-template-hash"
+
+
+def pod_template_digest(template: Any) -> str:
+    """The digest of a full pod template, identical to the rollback worker's.
+
+    ``sha256`` over canonical JSON (sorted keys, no whitespace) of the template
+    minus the controller's ``pod-template-hash`` label and the serializer's
+    ``metadata.creationTimestamp``. The same declared template therefore has the
+    same digest on a Deployment and on the ReplicaSet created from it. The copy
+    in ``workers/contained_k8s_rollback/worker.py`` must answer identically; a
+    unit test holds them to it. Unlike ``_template_digest`` (what the containers
+    RUN, for the regression hypothesis), this covers the whole template, because
+    a rollback writes the whole template.
+    """
+    import copy
+    import hashlib
+    import json
+
+    if not isinstance(template, Mapping):
+        raise ValueError("a pod template must be an object")
+    body = copy.deepcopy(dict(template))
+    meta = body.get("metadata")
+    if isinstance(meta, Mapping):
+        meta = dict(meta)
+        labels = meta.get("labels")
+        if isinstance(labels, Mapping):
+            meta["labels"] = {k: v for k, v in labels.items() if k != POD_TEMPLATE_HASH_LABEL}
+        meta.pop("creationTimestamp", None)
+        body["metadata"] = meta
+    canonical = json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
 
 #: Phase 9.2 exposed exactly ONE real operation (Part E): the smallest read that
 #: proves the whole governed chain against a live API server. Phase 9.3 adds
@@ -242,7 +291,11 @@ REPLICASETS_MAX_RECORDS = 64
 _REPLICASET_RECORDS = RecordEvidenceSpec(
     field_name="replicaSets",
     fields=("name", "revision", "image", "replicas", "readyReplicas",
-            "creationTimestamp", "ownerName", "templateDigest"),
+            "creationTimestamp", "ownerName", "templateDigest",
+            # Phase 11.4 (ADR-124): which Deployment OBJECT owns it (a name can
+            # be reused by a recreated Deployment; a UID cannot) and the digest
+            # of its full template, which is what a rollback would write.
+            "ownerUid", "podTemplateDigest"),
     max_records=REPLICASETS_MAX_RECORDS,
 )
 
@@ -291,7 +344,10 @@ def _read(operation: str, path_template: str, *, parameters, evidence,
 #: record evidence; the cap is the same one the watch window uses.
 _POD_RECORDS = RecordEvidenceSpec(
     field_name="pods",
-    fields=("name", "namespace", "uid", "phase", "restartCount", "waitingReason"),
+    fields=("name", "namespace", "uid", "phase", "restartCount", "waitingReason",
+            # Phase 11.4 (ADR-124): readiness and the owning ReplicaSet, so an
+            # independent verifier can say which revision's pods are ready.
+            "ready", "ownerName"),
     max_records=WATCH_MAX_EVENTS,
 )
 
@@ -335,7 +391,17 @@ def kubernetes_read_catalog() -> OperationCatalog:
                             # Phase 9.5: what is actually deployed. A revision
                             # change is the observable a regression hypothesis
                             # stands or falls on.
-                            "revision", "image")),
+                            "revision", "image",
+                            # Phase 11.4 (ADR-124): what a rollback plan binds to
+                            # and what an independent verifier checks -- the
+                            # object's identity (uid, generation), the digest of
+                            # the template it runs, whether the controller has
+                            # caught up (observedGeneration, updated/unavailable)
+                            # and the controller's own conditions.
+                            "uid", "generation", "observedGeneration", "updatedReplicas",
+                            "unavailableReplicas", "paused", "templateDigest",
+                            "revisionHistoryLimit", "availableCondition", "progressingReason",
+                            "rolledBackByAction", "persistentVolumeClaims")),
             _read("kubernetes.events.list", "/api/v1/namespaces/{namespace}/events",
                   parameters=(_NS, _LIMIT, _FIELD),
                   # Phase 11.3: the control plane's own account of an object --
@@ -813,6 +879,48 @@ class KubernetesReadNormalizer:
                 for field in ("readyReplicas", "availableReplicas"):
                     if isinstance(status.get(field), int):
                         out[field] = status[field]
+                # Phase 11.4 (ADR-124): whether the controller has caught up with
+                # the spec, and its own account of availability and progress.
+                for field in ("updatedReplicas", "unavailableReplicas", "observedGeneration"):
+                    value = status.get(field)
+                    if isinstance(value, int) and not isinstance(value, bool):
+                        out[field] = value
+                for condition in status.get("conditions") or ():
+                    if not isinstance(condition, Mapping):
+                        continue
+                    if condition.get("type") == "Available" and isinstance(condition.get("status"), str):
+                        out["availableCondition"] = condition["status"]
+                    if condition.get("type") == "Progressing" and isinstance(condition.get("reason"), str):
+                        out["progressingReason"] = condition["reason"]
+            # Phase 11.4 (ADR-124): the identity and template a rollback plan binds
+            # to. Copied or digested, never inferred: a missing field stays absent.
+            if isinstance(meta, Mapping):
+                uid = meta.get("uid")
+                if isinstance(uid, str) and uid:
+                    out["uid"] = uid
+                generation = meta.get("generation")
+                if isinstance(generation, int) and not isinstance(generation, bool):
+                    out["generation"] = generation
+                annotations = meta.get("annotations")
+                if isinstance(annotations, Mapping):
+                    stamped_rollback = annotations.get(ROLLBACK_ANNOTATION)
+                    if isinstance(stamped_rollback, str) and stamped_rollback:
+                        out["rolledBackByAction"] = stamped_rollback
+            if isinstance(wanted, Mapping):
+                if isinstance(wanted.get("paused"), bool):
+                    out["paused"] = wanted["paused"]
+                limit = wanted.get("revisionHistoryLimit")
+                if isinstance(limit, int) and not isinstance(limit, bool):
+                    out["revisionHistoryLimit"] = limit
+                template = wanted.get("template")
+                if isinstance(template, Mapping):
+                    out["templateDigest"] = pod_template_digest(template)
+                    # Whether the workload mounts persistent data: a count of the
+                    # template's persistentVolumeClaim volumes, never a guess.
+                    pod_spec = template.get("spec")
+                    volumes = pod_spec.get("volumes") if isinstance(pod_spec, Mapping) else None
+                    out["persistentVolumeClaims"] = sum(
+                        1 for v in (volumes or ()) if isinstance(v, Mapping) and v.get("persistentVolumeClaim"))
         return out
 
     # -- Phase 11.3 lifts ----------------------------------------------------
@@ -868,6 +976,8 @@ class KubernetesReadNormalizer:
                 for owner in owners:
                     if isinstance(owner, Mapping) and isinstance(owner.get("name"), str):
                         record["ownerName"] = owner["name"]
+                        if isinstance(owner.get("uid"), str) and owner["uid"]:
+                            record["ownerUid"] = owner["uid"]
                         break
         spec = item.get("spec")
         if isinstance(spec, Mapping):
@@ -876,6 +986,7 @@ class KubernetesReadNormalizer:
                 record["replicas"] = replicas
             template = spec.get("template")
             if isinstance(template, Mapping):
+                record["podTemplateDigest"] = pod_template_digest(template)
                 inner = template.get("spec")
                 if isinstance(inner, Mapping):
                     containers = inner.get("containers")
@@ -961,6 +1072,13 @@ class KubernetesReadNormalizer:
                 value = meta.get(field_name)
                 if isinstance(value, str) and value:
                     record[field_name] = value
+            owners = meta.get("ownerReferences")
+            if isinstance(owners, list):
+                for owner in owners:
+                    if isinstance(owner, Mapping) and owner.get("controller") is True \
+                            and isinstance(owner.get("name"), str):
+                        record["ownerName"] = owner["name"]
+                        break
         status = pod.get("status")
         if isinstance(status, Mapping):
             phase = status.get("phase")
@@ -971,6 +1089,10 @@ class KubernetesReadNormalizer:
                 record["restartCount"] = restarts
             if waiting is not None:
                 record["waitingReason"] = waiting
+            for condition in status.get("conditions") or ():
+                if isinstance(condition, Mapping) and condition.get("type") == "Ready" \
+                        and isinstance(condition.get("status"), str):
+                    record["ready"] = condition["status"] == "True"
         return record
 
     @classmethod
@@ -1290,6 +1412,32 @@ def kubernetes_write_profiles() -> dict:
             verification_requirement=VerificationRequirement.INDEPENDENT_READBACK,
             resource_scope="deployment", reversible=False,
             timeout_seconds=_TIMEOUT, policy_version=_POLICY_VERSION),
+        # Phase 11.4 (ADR-124): the second governed write, and the first whose
+        # L10 class is COMPENSABLE. Still ``reversible=False`` -- pods are
+        # replaced and revision numbers advance, so no inverse FULLY restores the
+        # prior state -- but it declares its compensation: the same rollback
+        # capability, targeting the pre-action revision, whose ReplicaSet the
+        # controller retains. Capability-level risk stays HIGH, so every rollback
+        # needs an approval artifact; whether that artifact may be delegated is
+        # decided per action by the plan's risk and the autonomy policy.
+        DEPLOYMENT_ROLLBACK_OPERATION: CapabilityProfile(
+            capability_ref=f"platform.{DEPLOYMENT_ROLLBACK_OPERATION}",
+            provider="kubernetes-contained-rollback", operation=DEPLOYMENT_ROLLBACK_OPERATION,
+            side_effect_class=SideEffectClass.IRREVERSIBLE_WRITE,
+            effect_semantics=EffectSemantics.NON_IDEMPOTENT_WRITE,
+            risk=RiskClassification(
+                level=RiskLevel.HIGH,
+                factors=RiskFactors(side_effect_class=SideEffectClass.IRREVERSIBLE_WRITE,
+                                    environment="development", resource_count=1, reversible=False),
+                rationale=(
+                    "replaces one Deployment's pod template with the template of a revision it "
+                    "already ran; its pods are replaced and revision numbers advance (no full "
+                    "inverse), and the pre-action revision stays available as a compensation")),
+            autonomy_ceiling=AutonomyLevel.A4_AUTONOMOUS,
+            verification_requirement=VerificationRequirement.INDEPENDENT_READBACK,
+            resource_scope="deployment", reversible=False,
+            timeout_seconds=60.0, policy_version=_POLICY_VERSION,
+            compensation=f"platform.{DEPLOYMENT_ROLLBACK_OPERATION}"),
     }
 
 

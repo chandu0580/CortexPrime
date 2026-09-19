@@ -27,6 +27,7 @@ span, so scripted evidence can never masquerade as a real model run.
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Mapping, Optional, Protocol, Type, TypeVar
@@ -41,6 +42,8 @@ from backend.harness.trace import (
 )
 from backend.harness.version import HarnessVersion
 from backend.platform.credentials.redaction import scrub_text
+
+_log = logging.getLogger(__name__)
 
 __all__ = [
     "InvalidModelOutput",
@@ -262,9 +265,46 @@ class GovernedModelBoundary:
             }
         ).value[:16]
 
-        invocation = await self._port.generate(
-            system_prompt=safe_system, prompt=safe_prompt
-        )
+        try:
+            invocation = await self._port.generate(
+                system_prompt=safe_system, prompt=safe_prompt
+            )
+        except Exception as exc:
+            # Phase 11.4 run 9 (F-10): a provider failure raised before any
+            # span was built, so "Always a span" held only for calls that
+            # answered -- an unavailable model left no durable trace of the
+            # attempt or its cause. The span records the scrubbed cause and
+            # no output; the error still propagates, so a failed call can
+            # never become a proposal.
+            failure_span = build_model_span(
+                mission_id=mission_id,
+                iteration=iteration,
+                step_id=step_id,
+                harness_version=self._version.identity,
+                correlation_id=correlation_id,
+                trace_id=trace_id,
+                trace_span_id=trace_span_id,
+                started_at=started_at,
+                model_provider=str(getattr(self._port, "_provider", "") or "unavailable"),
+                model_id=str(getattr(self._port, "_model", "") or ""),
+                model_config=None,
+                prompt=f"[system]\n{safe_system}\n[user]\n{safe_prompt}",
+                context_recipe=context_recipe,
+                context_reconstructable=False,
+                output=None,
+                token_usage=None,
+                latency_ms=None,
+                context_id=context_id,
+                schema_id=schema_identity(schema),
+                tools_available=tuple(tools_available) if tools_available is not None else None,
+                stop_or_failure_reason=scrub_text(
+                    f"provider call failed: {type(exc).__name__}: {exc}", max_length=400),
+            )
+            try:
+                self._recorder.record(failure_span)
+            except Exception:  # noqa: BLE001 - the provider error is the one to surface
+                _log.error("recording a failed model-call span failed", exc_info=False)
+            raise
 
         failure: Optional[str] = None
         proposal: Optional[ProposalT] = None

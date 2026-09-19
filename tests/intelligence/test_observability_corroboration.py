@@ -319,6 +319,25 @@ class TestDeclaredPolicies:
         assert stale.state is FreshnessState.STALE
         assert ungoverned.state is FreshnessState.UNKNOWN
 
+    def test_a_remediation_outcome_reconfirmed_after_the_cluster_horizon_is_still_fresh(self):
+        """Phase 11.4 (F-7): the independent verifier always records a fresh
+        observation before adjudicating, so a remediation-outcome fact older than
+        the cluster horizon -- which happens when a workload is remediated back to
+        a value it was recently observed in and the identical fact deduplicates --
+        must not read STALE, or a genuinely successful, freshly re-confirmed
+        rollback is lost. The horizon is long but finite: truly ancient evidence
+        is still refused."""
+        from backend.world.application.freshness import FreshnessState
+        policy = observability_freshness_policy()
+        now = datetime.now(timezone.utc)
+        for predicate in ("remediation_outcome", "remediation_target"):
+            reconfirmed = policy.evaluate(observed_at=now - timedelta(minutes=30), now=now,
+                                          source_kind="connector", predicate=predicate)
+            ancient = policy.evaluate(observed_at=now - timedelta(days=14), now=now,
+                                      source_kind="connector", predicate=predicate)
+            assert reconfirmed.state is FreshnessState.FRESH, predicate
+            assert ancient.state is FreshnessState.STALE, predicate
+
 
 # ---------------------------------------------------------------------------
 # The shared proposition

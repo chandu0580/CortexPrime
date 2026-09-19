@@ -59,7 +59,11 @@ from backend.contexts.execution.infrastructure.adapters.channel import (
     ProviderRequestPlan,
 )
 
-__all__ = ["ContainedWorkerAdapter", "CONTAINED_WORKER_ENVELOPE_FIELDS"]
+__all__ = [
+    "ContainedWorkerAdapter", "CONTAINED_WORKER_ENVELOPE_FIELDS",
+    "ContainedRollbackWorkerAdapter", "CONTAINED_ROLLBACK_ENVELOPE_FIELDS",
+    "ROLLBACK_ARGUMENTS",
+]
 
 
 #: The envelope's exact shape. The worker refuses anything else, and this tuple
@@ -290,10 +294,98 @@ class ContainedWorkerAdapter(AdapterSeam):
             ambiguous=False,
             delivery=exchange.delivery,
             status_code=body.get("status"),
-            provider_failure=None if succeeded else ProviderFailure.PROVIDER_ERROR,
+            provider_failure=None if succeeded else _failure_for_status(body.get("status")),
             error_message=(
                 None if succeeded else str(body.get("provider_message") or "")[:240]
             ),
             evidence=dict(evidence),
             output={"worker_response_bytes": len(json.dumps(dict(body)))},
         )
+
+
+def _failure_for_status(status: Any) -> ProviderFailure:
+    """The provider-neutral class of a DEFINITE failure the worker reported.
+
+    Phase 11.4 run 8: this used a ``PROVIDER_ERROR`` member the
+    enum never had (since Phase 9.9C). Every honest provider-side failure -- a
+    401 for a bad credential, a 403 from RBAC, a 422 from a lost
+    ``test resourceVersion`` race -- raised AttributeError here and was recorded
+    as an UNKNOWN outcome instead of the failure the worker established.
+
+    The worker marks a failure definite only when the API server answered with
+    an error status, or when its own pre-write check refused (no status). A
+    status this mapping does not know stays UNKNOWN_OUTCOME: never claim more
+    certainty about a write than the answer carries.
+    """
+    if status is None:
+        return ProviderFailure.PRECONDITION_FAILED
+    return {
+        400: ProviderFailure.VALIDATION_FAILURE,
+        401: ProviderFailure.AUTHENTICATION_FAILURE,
+        403: ProviderFailure.AUTHORIZATION_FAILURE,
+        404: ProviderFailure.NOT_FOUND,
+        409: ProviderFailure.CONFLICT,
+        412: ProviderFailure.PRECONDITION_FAILED,
+        422: ProviderFailure.PRECONDITION_FAILED,
+        429: ProviderFailure.RATE_LIMITED,
+        503: ProviderFailure.UNAVAILABLE,
+    }.get(status if isinstance(status, int) else -1, ProviderFailure.UNKNOWN_OUTCOME)
+
+
+#: Phase 11.4 (ADR-124): the rollback envelope is the restart envelope plus the
+#: one fact a rollback worker needs that a restart worker never did -- when the
+#: authority it was admitted under stops being valid, so a worker holding a
+#: lapsed lease refuses to write.
+CONTAINED_ROLLBACK_ENVELOPE_FIELDS = CONTAINED_WORKER_ENVELOPE_FIELDS + ("authority_expires_at",)
+
+#: Exactly the arguments the rollback operation takes. Every one is a typed
+#: scalar the platform reconstructed; none is a template, a patch, a path or a
+#: selector. The worker reads the template itself from the Deployment's own
+#: ReplicaSet and writes it only if its digest is the approved one.
+ROLLBACK_ARGUMENTS = (
+    "namespace", "name", "uid", "expected_generation", "expected_revision",
+    "expected_template_digest", "target_revision", "target_template_digest",
+    "plan_id", "policy_version",
+)
+
+
+class ContainedRollbackWorkerAdapter(ContainedWorkerAdapter):
+    """Dispatches one authorized Deployment rollback to the rollback worker.
+
+    The same seam, the same channel, the same refusal and ambiguity mapping as
+    the restart adapter; only the operation, the argument set and the authority
+    window differ. A sibling rather than a generalisation: an adapter that could
+    carry either operation would be one binding away from carrying both.
+    """
+
+    OPERATION = "kubernetes.deployment.rollback"
+
+    def _envelope(self, authority: ProviderAuthority) -> Mapping[str, Any]:
+        envelope = dict(super()._envelope(authority))
+        payload = dict(authority.payload)
+        envelope["arguments"] = {name: payload.get(name) for name in ROLLBACK_ARGUMENTS}
+        expires = authority.authority_expires_at
+        envelope["authority_expires_at"] = expires.isoformat() if expires is not None else ""
+        return envelope
+
+    def _perform(
+        self,
+        context: Any,
+        request: Any,
+        authority: ProviderAuthority,
+    ) -> ProviderOutcome:
+        if authority.operation == self.OPERATION:
+            payload = dict(authority.payload)
+            missing = [name for name in ROLLBACK_ARGUMENTS
+                       if payload.get(name) is None or payload.get(name) == ""]
+            if missing:
+                return ProviderOutcome.refused(
+                    ProviderFailure.VALIDATION_FAILURE,
+                    f"the authorized payload does not bind the rollback completely: missing {missing}",
+                )
+            if authority.authority_expires_at is None:
+                return ProviderOutcome.refused(
+                    ProviderFailure.VALIDATION_FAILURE,
+                    "an execution with no authority window is one no worker could fence",
+                )
+        return super()._perform(context, request, authority)

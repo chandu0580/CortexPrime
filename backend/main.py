@@ -115,9 +115,16 @@ async def lifespan(_app: FastAPI):
     import asyncio as _asyncio
 
     from backend.api.application_runtime import build_governed_runtime
+    from backend.contexts.connectivity.infrastructure.sql_approval import SqlApprovalRepository
 
+    # Phase 11.4 record run 2 (F-4): this runtime was built with no approval
+    # lookup, so every approval presented in THIS process failed closed and an
+    # approval-requiring write could never run here, however validly approved.
+    # The product app already composes the one approval authority this way; the
+    # remediation runtime embedded below dispatches through this runtime.
     governed_runtime = build_governed_runtime(
-        event_bus=event_bus, loop=_asyncio.get_running_loop()
+        event_bus=event_bus, loop=_asyncio.get_running_loop(),
+        approvals_factory=SqlApprovalRepository,
     )
     if governed_runtime is not None:
         governed_runtime.start()
@@ -139,7 +146,18 @@ async def lifespan(_app: FastAPI):
         # it to an evidence-backed conclusion. It composes no write capability.
         from backend.api.investigation_runtime import start_embedded_investigator
 
-        _app.state.investigator = start_embedded_investigator(governed_runtime)
+        # Phase 11.4 (ADR-124): the governed remediation runtime, in this same
+        # process for the same reason (it dispatches through this runtime's
+        # scheduler and gateway). Off unless CORTEX_REMEDIATION_ENABLED=1 and the
+        # rollback capability is commissioned. It receives each concluded
+        # investigation and turns it into a plan the platform governs; it never
+        # executes without an approval the approval authority granted.
+        from backend.api.remediation_runtime import start_embedded_remediator
+
+        _app.state.remediator = start_embedded_remediator(governed_runtime)
+        _app.state.investigator = start_embedded_investigator(
+            governed_runtime,
+            on_outcome=_app.state.remediator.offer if _app.state.remediator else None)
         _app.state.signal_worker = start_embedded(
             governed_runtime,
             handoff=_app.state.investigator.handoff if _app.state.investigator else None)

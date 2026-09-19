@@ -692,6 +692,17 @@ def execute_approval(
         getattr(engine, "execution_context_factory", None), "the execution context")
     record = _load_approval(ctx, approval_id)
 
+    # Phase 11.4 (ADR-124). An approval the PLATFORM requested belongs to a
+    # governed remediation plan, and that plan's runtime executes it -- after a
+    # fresh stale-plan check, behind its idempotency and target fence, followed
+    # by independent verification. Running it from here would be a second
+    # execution path for the same approval that skips all of that.
+    if str(record.requested_by or "").startswith("platform:"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="this approval belongs to a platform remediation plan; the remediation "
+                   "runtime executes it after approval")
+
     if record.outcome != "granted":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

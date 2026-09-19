@@ -132,6 +132,7 @@ class SqlApprovalRepository:
                         T.c.approval_id, T.c.outcome, T.c.capability_digest,
                         T.c.tenant_id, T.c.approval_digest,
                         T.c.authorization_operation, T.c.expires_at,
+                        T.c.decided_by, T.c.consumed_by_execution,
                     ).where(T.c.approval_id == artifact_id)
                 ).fetchone()
         except Exception:  # noqa: BLE001 - an unreadable store must not authorize
@@ -155,6 +156,12 @@ class SqlApprovalRepository:
             # operation here made every legitimate approval invalid.
             operation=row[5],
             expires_at=_aware(row[6]),
+            # Phase 11.4 (ADR-124): who concluded it. Authorization uses this to
+            # accept a delegated (policy-decided) approval only for a
+            # compensable capability; the store still decides nothing.
+            decided_by=row[7],
+            # Phase 11.4 run 10: single use is now enforced by is_valid_for.
+            consumed_by_execution=row[8],
         )
 
     # -- the workflow ------------------------------------------------------

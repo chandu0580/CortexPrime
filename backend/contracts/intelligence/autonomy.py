@@ -63,17 +63,31 @@ class Capability(Contract):
     resource_class: str            # e.g. "deployment", "database"
     side_effect_class: SideEffectClass
     reversible: bool               # a declared, verified inverse exists
+    compensable: bool = False
+    """Phase 11.4 (ADR-124): L10's middle class. True only when the capability
+    DECLARES a compensation (another governed action that restores the declared
+    state, leaving history behind) AND the platform VERIFIED, for this action,
+    that the compensation is available. A compensable action is not reversible:
+    it stays ``reversible=False``. Default False, so every existing capability
+    keeps exactly the autonomy behaviour it had."""
 
     def __post_init__(self) -> None:
         for name in ("capability_ref", "operation", "resource_class"):
             _req_str(getattr(self, name), name)
         if not isinstance(self.side_effect_class, SideEffectClass):
             raise ContractViolation("side_effect_class must be a SideEffectClass")
+        if not isinstance(self.compensable, bool):
+            raise ContractViolation("compensable must be a bool")
+        if self.compensable and self.side_effect_class is SideEffectClass.DESTRUCTIVE:
+            raise ContractViolation(
+                "a DESTRUCTIVE capability is never compensable: removing state or capacity "
+                "is the class no compensation restores")
 
     def to_dict(self) -> dict:
         return {"capability_ref": self.capability_ref, "operation": self.operation,
                 "resource_class": self.resource_class,
-                "side_effect_class": self.side_effect_class.value, "reversible": self.reversible}
+                "side_effect_class": self.side_effect_class.value, "reversible": self.reversible,
+                "compensable": self.compensable}
 
 
 @dataclass(frozen=True)
@@ -168,6 +182,14 @@ class AutonomyPolicyConfig(Contract):
     deny_on_world_conflict: bool = True
     # Reversibility: at or above this level an autonomous WRITE must be reversible (Part H).
     require_reversible_at_or_above: AutonomyLevel = AutonomyLevel.A3_APPROVED_ACTION
+    # Phase 11.4 (ADR-124): whether a COMPENSABLE capability (declared compensation,
+    # verified available for the action) may earn delegated autonomy instead of
+    # being forced to a human by the reversibility gate. L10 names the fresh-human
+    # rule for IRREVERSIBLE actions; compensable is its own class. OFF by default:
+    # a deployment turns it on only in an explicit, versioned policy, and every
+    # other gate (risk cap, calibration, assurance, drift, world, breaker, stop)
+    # still applies. A DESTRUCTIVE capability is never compensable.
+    compensable_autonomy: bool = False
     # Deterministic blast-radius caps: the maximum autonomy per RiskLevel (Part F/G).
     max_level_low: AutonomyLevel = AutonomyLevel.A4_AUTONOMOUS
     max_level_medium: AutonomyLevel = AutonomyLevel.A3_APPROVED_ACTION
@@ -180,6 +202,8 @@ class AutonomyPolicyConfig(Contract):
             raise ContractViolation("min_support_rate must be in [0,1]")
         if not 0.0 <= self.min_assurance_coverage <= 1.0:
             raise ContractViolation("min_assurance_coverage must be in [0,1]")
+        if not isinstance(self.compensable_autonomy, bool):
+            raise ContractViolation("compensable_autonomy must be a bool")
         for name in ("require_reversible_at_or_above", "max_level_low", "max_level_medium",
                      "max_level_high", "max_level_critical"):
             if not isinstance(getattr(self, name), AutonomyLevel):

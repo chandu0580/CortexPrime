@@ -119,6 +119,31 @@ class ApprovalFacts:
 
     operation: Optional[str] = None
     expires_at: Optional[datetime] = None
+    decided_by: Optional[str] = None
+    """Who concluded the approval, as the namespaced reference the store holds.
+
+    Phase 11.4 (ADR-124). A ``human:`` decider is a person holding scoped
+    approver authority. Any other decider (``policy:autonomy/...``) is delegated
+    authority recorded in the same approval authority, and authorization accepts
+    it only for a capability whose contract declares a compensation -- L10's
+    compensable class. ``None`` (an approval from a store that predates the
+    field) is treated as a human decision, which is what every such approval was.
+    """
+
+    consumed_by_execution: Optional[str] = None
+    """The execution that used this approval, once it has been used.
+
+    Phase 11.4 run 10: the store recorded consumption (``mark_consumed``) but
+    nothing enforced it, so a single-use approval stayed valid for every replay
+    until it expired -- harmless only because layers above (the action-key
+    claim) and below (the worker's re-read) happened to catch each replay seen.
+    Both writers mark an approval consumed only AFTER its governed write
+    returns, so every re-check of the execution it authorized precedes this.
+    """
+
+    @property
+    def is_delegated(self) -> bool:
+        return bool(self.decided_by) and not str(self.decided_by).startswith("human:")
 
     def is_valid_for(
         self,
@@ -133,9 +158,12 @@ class ApprovalFacts:
         Every clause matters. An approval for version 1 must not authorize
         version 2 (digest); an approval to READ must not authorize DELETE
         (operation); an approval for tenant A must not authorize tenant B
-        (scope); and an expired approval authorizes nothing.
+        (scope); an expired approval authorizes nothing; and an approval that
+        has already been used authorizes nothing again (single use).
         """
         if self.outcome is not ApprovalOutcome.GRANTED:
+            return False
+        if self.consumed_by_execution:
             return False
         if self.expires_at is not None and moment >= self.expires_at:
             return False
@@ -172,6 +200,18 @@ class CapabilityAuthorizationService:
         self._policy = GuardedPolicy(policy) if policy is not None else default_policy()
         self._approvals = approvals or NoApprovals()
         self._audit = audit
+
+    @property
+    def has_approval_authority(self) -> bool:
+        """Whether approvals presented to this service can ever be found.
+
+        ``False`` means every approval lookup fails closed (``NoApprovals``):
+        correct for a process that performs no approval-requiring work, and a
+        composition error for one that does. Phase 11.4 (F-4) found the API
+        process in the second state; the remediation runtime now refuses to
+        start rather than plan actions this service could never authorize.
+        """
+        return not isinstance(self._approvals, NoApprovals)
 
     @property
     def policy_version(self) -> str:
@@ -485,6 +525,26 @@ class CapabilityAuthorizationService:
                 moment=moment,
             )
         )
+
+        # Phase 11.4 (ADR-124). A DELEGATED approval -- one concluded by a policy
+        # decider rather than a human -- is recorded in the same approval
+        # authority and bound by the same digest, and it is valid ONLY for a
+        # capability whose contract declares a compensation (L10's compensable
+        # class) and that is not DESTRUCTIVE. For every other capability,
+        # including the rollout restart, an approval nobody human decided
+        # authorizes nothing; L10's fresh-human rule for irreversible actions is
+        # enforced here, below every caller, rather than trusted to them.
+        if approval_valid and getattr(approval_facts, "is_delegated", False):
+            contract = definition.contract
+            compensable = bool(getattr(contract, "compensation_capability", None))
+            destructive = getattr(getattr(contract, "side_effect_class", None), "value", None) == "destructive"
+            if not compensable or destructive:
+                import logging as _logging
+
+                _logging.getLogger(__name__).warning(
+                    "a delegated approval (%s) was presented for %s, which is not compensable; "
+                    "it authorizes nothing", approval_facts.decided_by, definition.reference)
+                approval_valid = False
 
         identity = getattr(context, "identity", None)
         grants = tuple(getattr(identity, "capabilities", ()) or ())
