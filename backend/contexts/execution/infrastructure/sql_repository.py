@@ -306,6 +306,7 @@ class SqlExecutionRepository:
         states: Sequence[str],
         *,
         limit: int = 100,
+        newest_first: bool = False,
         unit: Optional[UnitOfWork] = None,
     ) -> Sequence[Execution]:
         """Runs in given lifecycle states, for recovery to reconcile after a restart.
@@ -313,6 +314,16 @@ class SqlExecutionRepository:
         The query recovery needs and the in-memory store could not answer without
         loading everything: after a crash, which runs were mid-flight? Bounded,
         tenant-narrowed, and read-only.
+
+        ``newest_first`` exists because the two callers want opposite ends of the
+        same list. Recovery wants the oldest, which is where a run abandoned by a
+        dead process will be. **Dispatch discovery wants the newest**, and must:
+        a governed read's node succeeds while its run stays ``RUNNING`` forever,
+        so the old end of this list fills with executions that have nothing left
+        to dispatch. Measured on a live database: 1784 runs in ``RUNNING``, of
+        which 191 of the oldest 200 had every node terminal. Oldest-first with a
+        limit would hand dispatch a window of dead rows and never reach the work
+        somebody is waiting on (Phase 11.4 F-10).
         """
         access = self._guard.authorize(StorageOperation.READ, context)
         with self._scope(unit) as work:
@@ -322,7 +333,11 @@ class SqlExecutionRepository:
                     execution_table.c.state.in_(list(states)),
                     *self._tenant_predicate(access),
                 )
-                .order_by(execution_table.c.updated_at)
+                .order_by(
+                    execution_table.c.updated_at.desc()
+                    if newest_first
+                    else execution_table.c.updated_at
+                )
                 .limit(limit)
             ).all()
         return tuple(from_record(row[0]) for row in rows)

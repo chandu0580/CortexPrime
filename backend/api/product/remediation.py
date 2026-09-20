@@ -296,6 +296,25 @@ class RemediationService:
             approval_artifact_id=approval_record.approval_id,
         )
 
+    def submit(
+        self, *, runtime: Any, context: Any, approval_record: Any,
+        principal: Any,
+    ) -> Any:
+        """``execute``, returning once the execution is durable.
+
+        The same door, the same payload from the same stored row, the same
+        governance. The only difference is that the caller is not required to
+        stay for the provider call -- which was never something governance
+        depended on.
+        """
+        writer = self._writer_factory(runtime, self._definitions, principal)
+        return writer.submit(
+            context,
+            operation=approval_record.operation,
+            payload=dict(approval_record.payload or {}),
+            approval_artifact_id=approval_record.approval_id,
+        )
+
 
 def _version_of(definition: Any) -> int:
     """The capability's contract version as an integer.

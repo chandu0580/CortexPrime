@@ -174,10 +174,29 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels: {{- include "cg.labels" . | nindent 4 }}
 spec:
-  # One dispatching process per store (the scheduler and audit-writer roles
-  # are leader-elected singletons; ADR-122).
-  replicas: 1
+  # More than one replica is safe, and was not before Phase 11.3.
+  #
+  # The old comment here read "one dispatching process per store", citing
+  # ADR-122 D-4. That was true for the reason ADR-127 removed: dispatch lived in
+  # one process's memory, so a second replica's executions were dispatched by
+  # nobody. Dispatch is now durable, and every loop that must be a singleton
+  # already elects a leader through the SQL leadership store -- SCHEDULER,
+  # AUDIT_WRITER, OUTBOX_PUBLISHER and the signal worker's WORLD_WATCH. The
+  # remediator, which is not leader-elected, is fenced instead by the
+  # idempotency store's primary key, so two of them cannot execute one plan.
+  #
+  # Default stays 1: a deployment gets more only when its operator asks, and
+  # RollingUpdate replaces Recreate only then, because a single-replica rolling
+  # update would otherwise briefly run two processes on a store whose operator
+  # never opted into that.
+  replicas: {{ .Values.replicas | default 1 }}
+  {{- if gt (int (.Values.replicas | default 1)) 1 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  {{- else }}
   strategy: {type: Recreate}
+  {{- end }}
   selector: {matchLabels: {app: cortexprime-governed}}
   template:
     metadata:

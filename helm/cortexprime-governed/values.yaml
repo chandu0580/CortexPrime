@@ -1,3 +1,11 @@
+# How many governed runtime processes to run.
+#
+# Safe above 1 since Phase 11.3 (ADR-127): dispatch is durable, so a replica
+# that accepts an API request need not be the one that runs the work, and every
+# singleton loop elects a leader through the database. See the deployment
+# template for which loop is protected by which mechanism.
+replicas: 1
+
 # CortexPrime governed runtime -- Kubernetes reference connector (Phase 11.1-K).
 #
 # The whole setup is: point it at a database, a Vault, and the namespace to

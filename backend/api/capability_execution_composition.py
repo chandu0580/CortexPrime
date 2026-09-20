@@ -1538,8 +1538,23 @@ class GovernedCapabilityReader:
         node_id: Optional[str] = None,
         workflow_id: Optional[str] = None,
         approval_artifact_id: Optional[str] = None,
+        dispatch: bool = True,
     ) -> GovernedReadOutcome:
-        """The one governed chain. Both doors above lead here and nowhere else."""
+        """The one governed chain. Every door above leads here and nowhere else.
+
+        ``dispatch=False`` stops after the execution is durable and bound, and
+        returns without driving it. **This is the whole of the asynchronous
+        contract** (Phase 11.4): nothing about the governance chain changes —
+        identity, tenant, capability, arguments, authorization, policy, approval
+        and the action digest have all already happened by the time this
+        returns, and the binding is sealed. What it drops is the caller standing
+        there watching, which was never part of the decision.
+
+        Who dispatches it afterwards is the durable scheduler sweep introduced
+        in Phase 11.3 (ADR-127). That is why this is a parameter and not a
+        second method: before that sweep existed, an execution nobody drove was
+        an execution nobody would ever run.
+        """
         from backend.contexts.connectivity.domain.authorization import (
             AuthorizationRequest, CapabilityOperation,
         )
@@ -1624,6 +1639,15 @@ class GovernedCapabilityReader:
                 operation=operation, execution_id=execution_id, node_state=None,
                 succeeded=False, evidence={},
                 failure_reason=f"resolution refused: {outcome.result}",
+                duration_seconds=time.monotonic() - started_at,
+            )
+
+        if not dispatch:
+            # Durable, authorized and bound. The caller may leave.
+            return GovernedReadOutcome(
+                operation=operation, execution_id=execution_id,
+                node_state="dispatchable", succeeded=False, evidence={},
+                failure_reason=None,
                 duration_seconds=time.monotonic() - started_at,
             )
 
@@ -1719,6 +1743,60 @@ class GovernedCapabilityReader:
 
 GovernedCapabilityReader.READ_LOCK = _FairReentrantLock()
 
+#: How a node's durable state reads to somebody outside the platform.
+#:
+#: **A translation, not a second state machine** (Phase 11.4). The authority is
+#: still ``domain/state.py``; this only gives its terms names a caller can act
+#: on. Nothing here is invented: there is deliberately no ``VERIFIED`` or
+#: ``VERIFYING``, because verification is a separate record with its own verdict
+#: (``cw_verification``) and reporting it as an execution state would claim the
+#: execution knows something it does not.
+PUBLIC_NODE_STATE = {
+    "waiting": "PENDING",
+    "ready": "DISPATCHABLE",
+    "leased": "EXECUTING",
+    "succeeded": "SUCCEEDED",
+    "failed": "FAILED",
+    # Not "failed". The aggregate says UNKNOWN when it cannot tell whether the
+    # provider acted, and flattening that into failure is how an ambiguous
+    # mutation gets attempted twice.
+    "unknown": "INSUFFICIENT_EVIDENCE",
+    "skipped": "SKIPPED",
+    "compensated": "COMPENSATED",
+}
+
+
+def execution_status(runtime: Any, context: Any, execution_id: str) -> dict:
+    """What a caller who went away can come back and read.
+
+    Reads the durable aggregate, never a cache and never a reconstruction: the
+    answer is what the platform recorded, so a caller that disappeared mid-flight
+    and a caller that never left get the same facts.
+
+    Raises whatever the repository raises for a run this tenant cannot see --
+    which is how it stays tenant-scoped without this function knowing anything
+    about tenancy.
+    """
+    stream = runtime.executions.stream_state(context, execution_id)
+    nodes = list(stream.get("nodes", ()) or ())
+    node = nodes[0] if len(nodes) == 1 else None
+    raw = str((node or {}).get("state") or "")
+    return {
+        "execution_id": stream.get("execution_id"),
+        "status": PUBLIC_NODE_STATE.get(raw, raw.upper() or "PENDING"),
+        "execution_state": stream.get("state"),
+        "progress": stream.get("progress"),
+        "nodes": [
+            {
+                "node_id": n.get("node_id"),
+                "status": PUBLIC_NODE_STATE.get(str(n.get("state")), str(n.get("state"))),
+                "attempts": n.get("attempts"),
+            }
+            for n in nodes
+        ],
+    }
+
+
 class GovernedCapabilityWriter(GovernedCapabilityReader):
     """The typed door for a governed MUTATION — Phase 9.6 (ADR-086).
 
@@ -1736,6 +1814,42 @@ class GovernedCapabilityWriter(GovernedCapabilityReader):
       operation and this exact input digest. This class does not decide that and
       holds no approval state.
     """
+
+    def submit(
+        self,
+        context: Any,
+        *,
+        operation: str,
+        payload: Mapping[str, Any],
+        approval_artifact_id: Optional[str] = None,
+        node_id: Optional[str] = None,
+        workflow_id: Optional[str] = None,
+    ) -> Any:
+        """``write``, without waiting for it. Returns as soon as it is durable.
+
+        Every governance step ``write`` performs has happened before this
+        returns: the capability was named from the registry, the arguments were
+        validated, authorization ran, the approval was checked against the
+        action digest, and the binding is sealed. What has *not* happened is the
+        provider call -- and the caller is not required to be alive for it.
+
+        This is the asynchronous half of the same door, not a second door. A
+        refusal is returned here exactly as ``write`` would return it, because a
+        request that governance refuses must not become a durable execution
+        somebody later discovers and runs.
+        """
+        definition = self._definitions.get(operation)
+        if definition is None:
+            raise ContractViolation(
+                f"{operation!r} is not a capability this writer was given")
+        if not definition.contract.side_effect_class.mutates:
+            raise ContractViolation(
+                f"{operation!r} is a read; performing it through the write path "
+                "would attach an approval to an action that changes nothing")
+        return self._perform(
+            context, operation=operation, payload=payload, node_id=node_id,
+            workflow_id=workflow_id or f"remediate-{operation}",
+            approval_artifact_id=approval_artifact_id, dispatch=False)
 
     def write(
         self,

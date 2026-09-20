@@ -256,14 +256,32 @@ class ExecutionScheduler:
         )
         # Only the automatic decisions become dispatch targets. Everything else
         # stays out of the loop until somebody decides.
+        resumable = [
+            plan.execution_id
+            for plan in report.plans
+            if plan.is_automatic
+            and plan.action
+            in (RecoveryAction.RESUME_FROM_CHECKPOINT, RecoveryAction.RETRY_ATTEMPT)
+        ]
+        # **Bounded.** Every tick walks the whole tracked set, so seeding it
+        # from an unbounded recovery scan makes the loop slower the longer the
+        # deployment has been alive. Measured: a store holding 2213 runs in
+        # RUNNING -- governed reads never finalise their aggregate -- seeded
+        # hundreds of targets, and the loop then crawled so badly that a freshly
+        # leased node waited out its whole budget before the dispatcher came
+        # back to record its result (ADR-128 F-14).
+        #
+        # Dropping the tail is safe and is not dropping the work: everything
+        # here is in the durable store, so whatever does not fit this window is
+        # found by the next sweep. What must not happen is the newest work
+        # starving behind the oldest.
         with self._lock:
-            self._targets = [
-                plan.execution_id
-                for plan in report.plans
-                if plan.is_automatic
-                and plan.action
-                in (RecoveryAction.RESUME_FROM_CHECKPOINT, RecoveryAction.RETRY_ATTEMPT)
-            ]
+            self._targets = resumable[: self._discovery_limit]
+        if len(resumable) > self._discovery_limit:
+            log.warning(
+                "startup recovery found %d resumable runs; tracking the first %d "
+                "and leaving the rest to the durable sweep",
+                len(resumable), self._discovery_limit)
         return report
 
     def start(self, context: Optional[Any] = None) -> StartupReport:

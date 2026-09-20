@@ -612,13 +612,10 @@ class ExecutionService:
             completed_at=moment,
             detail=command.detail or {},
         )
-        return self._saved_checked(
-            context,
-            execution.record_result(
-                command.node_id, command.worker_id, result, now=moment
-            ),
-            revision,
+        recorded = execution.record_result(
+            command.node_id, command.worker_id, result, now=moment
         )
+        return self._saved_checked(context, self._sealed_if_done(recorded), revision)
 
     def record_failure(self, context: Any, command: RecordFailure) -> CommandResult:
         execution, revision = self._load_with_revision(context, command.execution_id)
@@ -953,6 +950,34 @@ class ExecutionService:
             found = tuple(e for e in found if e.state.is_live)
         return tuple(found)
 
+    @staticmethod
+    def _sealed_if_done(execution: Execution) -> Execution:
+        """Close a run whose work is finished. **The root of three findings.**
+
+        A governed read's node succeeds and its run stays ``RUNNING`` forever,
+        because nothing ever completed it. That is not cosmetic: ``RUNNING`` is
+        the state dispatch discovery, startup recovery and the scheduler's
+        target set all key on, so every finished read stayed in the set of
+        things they had to consider. A live store reached 2213 of them, and the
+        consequences were a discovery window full of dead rows (F-10), a
+        recovery scan seeding hundreds of targets (F-14), and a dispatch loop
+        too slow to come back and record a result it had just leased.
+
+        Conservative on purpose: it seals only when every node **succeeded or
+        was skipped**. A run with a failed or ambiguous node is not finished
+        being decided about, and sealing it COMPLETED would be asserting an
+        outcome nobody established.
+        """
+        if execution.state is not ExecutionState.RUNNING:
+            return execution
+        states = {run.state for run in execution.runs}
+        if not states or not states <= {NodeState.SUCCEEDED, NodeState.SKIPPED}:
+            return execution
+        try:
+            return execution.complete()
+        except Exception:  # noqa: BLE001 - the aggregate's refusal is the answer
+            return execution
+
     def dispatchable(self, context: Any, *, limit: int = 100) -> tuple:
         """Execution ids the **durable store** says may be dispatched right now.
 
@@ -975,8 +1000,25 @@ class ExecutionService:
         finder = getattr(self._repository, "find_by_state", None)
         if finder is None:
             return ()
-        found = finder(context, (ExecutionState.RUNNING.value,), limit=limit)
-        return tuple(str(execution.execution_id) for execution in found)
+        try:
+            found = finder(
+                context, (ExecutionState.RUNNING.value,),
+                limit=limit, newest_first=True,
+            )
+        except TypeError:
+            # A repository that predates the ordering argument. Correct, just
+            # more likely to hand back a window of finished work.
+            found = finder(context, (ExecutionState.RUNNING.value,), limit=limit)
+        # **Only runs with something to dispatch.** ``RUNNING`` is not the same
+        # question: a governed read's node succeeds while its run stays RUNNING,
+        # so most of this table is work that is already over. Returning those
+        # would spend every sweep re-loading executions nobody can act on, and
+        # crowd out the ones somebody is waiting for (F-10).
+        return tuple(
+            str(execution.execution_id)
+            for execution in found
+            if tuple(execution.ready_nodes())
+        )
 
     def reclaimable(self, context: Any, execution_id: str, *, now: Optional[datetime] = None) -> tuple:
         """Nodes whose leases have lapsed. What a sweeper asks for."""

@@ -1,0 +1,159 @@
+{
+  "phase": "11.4",
+  "adr": "ADR-128",
+  "checks": [
+    {
+      "name": "more than one governed replica is running and ready",
+      "ok": true,
+      "detail": "2 replicas"
+    },
+    {
+      "name": "every replica runs the same image",
+      "ok": true,
+      "detail": "[\"1.0.0-b21\"]"
+    },
+    {
+      "name": "each singleton role names exactly one holder",
+      "ok": true,
+      "detail": "{\"audit_writer\": 1, \"outbox_publisher\": 1, \"scheduler\": 1, \"world_watch\": 1}"
+    },
+    {
+      "name": "the roles that must be singletons all exist",
+      "ok": true,
+      "detail": "[\"audit_writer\", \"outbox_publisher\", \"scheduler\", \"world_watch\"]"
+    },
+    {
+      "name": "no lease was left behind by a terminated replica",
+      "ok": true,
+      "detail": "nothing to take over"
+    },
+    {
+      "name": "the API answers through the service across replicas",
+      "ok": true,
+      "detail": "{\"codes\": [200], \"answers\": [\"UNKNOWN\"]}"
+    },
+    {
+      "name": "an approval exists for this exact action, requested by a person",
+      "ok": true,
+      "detail": "{\"approval_id\": \"appr-p114-1789920505\", \"digest\": \"fd28d27bc435303d\"}"
+    },
+    {
+      "name": "the scoped approver granted it through the product API",
+      "ok": true,
+      "detail": "200"
+    },
+    {
+      "name": "the API returned a durable execution id without waiting for the provider",
+      "ok": true,
+      "detail": "{\"execution_id\": \"01M2ZS6ZZNFX50D1QSQ4SJGXKX\", \"status\": \"DISPATCHABLE\", \"approval_id\": \"appr-p114-1789920505\"}"
+    },
+    {
+      "name": "the calling process has exited",
+      "ok": true,
+      "detail": "returncode=0"
+    },
+    {
+      "name": "a different process can read the execution's durable status",
+      "ok": true,
+      "detail": "EXECUTING"
+    },
+    {
+      "name": "the execution reached SUCCEEDED with no caller present",
+      "ok": false,
+      "detail": "{\"status\": \"EXECUTING\", \"waited\": 420.0}"
+    },
+    {
+      "name": "INDEPENDENT VERIFICATION: Kubernetes itself shows the rollout happened",
+      "ok": false,
+      "detail": "{\"generation\": \"3 -> 3\"}"
+    },
+    {
+      "name": "exactly one provider-side write happened",
+      "ok": false,
+      "detail": "{\"generation_delta\": 0}"
+    }
+  ],
+  "measurements": {
+    "provisioned": [
+      "p114-operator",
+      "p114-requester",
+      "p114-approver",
+      "p114-intruder"
+    ],
+    "replicas": [
+      {
+        "pod": "cortexprime-governed-58d8f8c69d-7rd68",
+        "ready": true,
+        "image": "1.0.0-b21"
+      },
+      {
+        "pod": "cortexprime-governed-58d8f8c69d-xm9c8",
+        "ready": true,
+        "image": "1.0.0-b21"
+      }
+    ],
+    "leadership": [
+      {
+        "role": "audit_writer",
+        "holder": "instance-01M2ZS561W7K0WN",
+        "fence": 75,
+        "live": true
+      },
+      {
+        "role": "outbox_publisher",
+        "holder": "instance-01M2ZS561W7K0WN",
+        "fence": 74,
+        "live": true
+      },
+      {
+        "role": "scheduler",
+        "holder": "instance-01M2ZS561W7K0WN",
+        "fence": 76,
+        "live": true
+      },
+      {
+        "role": "world_watch",
+        "holder": "instance-01M2ZS5JW4Y20JR",
+        "fence": 52,
+        "live": true
+      }
+    ],
+    "lapsed_leases_at_start": [],
+    "target_before": {
+      "deployment": "cortex-conn-a/p111k-shop",
+      "generation": 3
+    },
+    "receipt": {
+      "execution_id": "01M2ZS6ZZNFX50D1QSQ4SJGXKX",
+      "status": "DISPATCHABLE",
+      "approval_id": "appr-p114-1789920505"
+    },
+    "async_final_status": {
+      "status": "EXECUTING",
+      "waited_seconds": 420.0
+    },
+    "target_after": {
+      "generation": 3,
+      "restartedAt_changed": false
+    },
+    "wall_clock_seconds": 438.4
+  },
+  "stages": [
+    "REPLICAS: two processes, one holder per singleton role",
+    "ASYNC: a caller that goes away does not take its execution with it"
+  ],
+  "negative_matrix": [],
+  "latency": {
+    "request_to_durable_seconds": 0.59,
+    "durable_to_terminal_seconds": 420.0
+  },
+  "passed": 11,
+  "failed": 3,
+  "total": 14,
+  "failed_checks": [
+    "the execution reached SUCCEEDED with no caller present",
+    "INDEPENDENT VERIFICATION: Kubernetes itself shows the rollout happened",
+    "exactly one provider-side write happened"
+  ],
+  "verdict": "NOT VERIFIED"
+}

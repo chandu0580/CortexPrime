@@ -260,6 +260,33 @@ class GovernedApplicationRuntime:
         """
         while not self._pump_stop.wait(self._publish_interval):
             try:
+                # Phase 11.4 (F-11). The audit writer renews its lease through
+                # ``is_writer`` on every append, so a quiet spell longer than the
+                # lease lets it lapse -- and then any process may take the role.
+                # When that happens the incumbent's next heartbeat returns None
+                # and it drops its handle, and until now nothing ever called
+                # ``acquire`` again outside startup: the runtime stopped writing
+                # audit, permanently and without an error, because refused
+                # appends are contained rather than raised (ADR-054/056).
+                #
+                # Reclaiming here costs one conditional UPDATE per pump cycle and
+                # gives audit the same survivability the publisher already has.
+                # Proven live: a second process seized the role (fence 51 -> 52)
+                # while the deployment was idle.
+                if getattr(self.audit_writer, "handle", None) is None:
+                    if self.audit_writer.acquire() is not None:
+                        log.info("audit-writer role (re)acquired by this instance")
+                else:
+                    # **Renew while we hold it.** The first version of this fix
+                    # only re-acquired, which made two replicas thrash: the
+                    # holder's lease lapsed in a quiet moment, the other
+                    # reclaimed it, the first lost its next append and
+                    # reclaimed it back, and the chain tail went stale under
+                    # both. ``is_writer`` heartbeats, so calling it on the pump
+                    # keeps the lease alive between appends instead of leaving
+                    # it to expire whenever nothing is being audited.
+                    self.audit_writer.is_writer()
+
                 if self._publisher_handle is None:
                     self._publisher_handle = self._publisher_leadership.acquire()
                 else:

@@ -107,9 +107,38 @@ class DecisionBody(BaseModel):
 
 
 class ExecuteBody(BaseModel):
-    """Empty on purpose. Everything needed is already stored."""
+    """Everything needed to run is already stored; the only choice is waiting.
+
+    ``wait=False`` returns as soon as the execution is durable and bound. It is
+    opt-in rather than the default because changing what an existing caller gets
+    back from "the outcome" to "a receipt" would break every one of them.
+    """
 
     model_config = ConfigDict(extra="forbid")
+
+    wait: bool = True
+
+
+class ExecutionSubmittedView(BaseModel):
+    """The receipt for an execution the caller does not intend to wait for."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    execution_id: str
+    status: str
+    approval_id: str
+
+
+class ExecutionStatusView(BaseModel):
+    """What the durable store says about one execution, right now."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    execution_id: str
+    status: str
+    execution_state: Optional[str] = None
+    progress: Optional[dict] = None
+    nodes: list = Field(default_factory=list)
 
 
 # ----------------------------------------------------------------------
@@ -669,14 +698,47 @@ def decide_approval(
     return _approval_view(_load_approval(ctx, approval_id))
 
 
-@router.post("/approvals/{approval_id}/execute",
-             response_model=RemediationOutcomeView, responses=_ERRORS,
+@router.get("/executions/{execution_id}", response_model=ExecutionStatusView,
+            responses=_ERRORS,
+            summary="What the durable store says about one execution")
+def execution_status_route(
+    execution_id: str = Path(min_length=1, max_length=200),
+    ctx: ProductContext = Depends(product_context),
+) -> ExecutionStatusView:
+    """Where a caller who did not wait comes back.
+
+    **The tenant boundary here is authorization, not obscurity.** The execution
+    repository narrows every read by the caller's tenant in SQL through the
+    storage guard, so another tenant's execution is not merely hidden behind an
+    unguessable id -- the query cannot return it even when the id is known
+    exactly. What the caller *sees* is still 404 rather than 403, deliberately
+    and per ADR-094: telling an outsider "that exists but is not yours" is the
+    disclosure the 404 exists to prevent. The enforcement is a deny; only the
+    wording is discreet.
+    """
+    from backend.api.capability_execution_composition import execution_status
+
+    engine = _engine()
+    runtime = _require(getattr(engine, "runtime", None), "the governed runtime")
+    context_factory = _require(
+        getattr(engine, "execution_context_factory", None), "the execution context")
+    try:
+        found = execution_status(
+            runtime, context_factory(ctx.tenant_id, ctx.principal.principal_id),
+            execution_id)
+    except Exception:  # noqa: BLE001 - absent, or not this tenant's
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="no such execution for this tenant") from None
+    return ExecutionStatusView(**found)
+
+
+@router.post("/approvals/{approval_id}/execute", responses=_ERRORS,
              summary="Run the approved action through the existing governed chain")
 def execute_approval(
     body: ExecuteBody,
     approval_id: str = Path(min_length=1, max_length=200),
     ctx: ProductContext = Depends(product_context),
-) -> RemediationOutcomeView:
+) -> Any:
     """No new execution path.
 
     This calls ``GovernedCapabilityWriter.write`` with the payload from the
@@ -731,6 +793,36 @@ def execute_approval(
 
     principal = PrincipalRef(principal_id=record.principal_id,
                              kind=PrincipalKind.HUMAN)
+
+    if not body.wait:
+        # Phase 11.4. Everything above this line has already happened: the
+        # approval was loaded, the platform-plan case refused, the grant
+        # checked, and the executor's scoped authority proved. Below it,
+        # ``submit`` runs the identical governed chain as far as a durable,
+        # bound execution and stops. What the caller gives up is the answer,
+        # not a check -- and they can come back for the answer.
+        try:
+            submitted = service.submit(
+                runtime=runtime,
+                context=context_factory(ctx.tenant_id, record.principal_id),
+                approval_record=record, principal=principal)
+        except Exception as exc:  # noqa: BLE001 - a refusal is an answer
+            log.warning("governed submission refused", exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"the governed chain refused this action: {type(exc).__name__}"
+            ) from None
+        reason = str(getattr(submitted, "failure_reason", "") or "").strip()
+        if reason:
+            # Governance refused before the execution became durable. It must
+            # not read as "accepted, ask later": there is nothing to ask about.
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"the governed chain refused this action: {reason[:200]}")
+        return ExecutionSubmittedView(
+            execution_id=str(getattr(submitted, "execution_id", "") or ""),
+            status="DISPATCHABLE", approval_id=approval_id)
+
     try:
         outcome = service.execute(
             runtime=runtime,
