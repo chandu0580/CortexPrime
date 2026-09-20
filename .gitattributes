@@ -1,3 +1,8 @@
 # Shell scripts run inside Linux containers and pods (e.g. piped to `sh -s`);
 # a CRLF checkout turns `set -eu` into "set -eu<CR>" and the script refuses to run.
 *.sh text eol=lf
+
+# A contained worker's bytes ARE its identity: the platform checks the sha256
+# of the shipped file on every execution, so a CRLF checkout would change the
+# digest and every governed write would be refused (Phase 11.2).
+workers/**/worker.py text eol=lf

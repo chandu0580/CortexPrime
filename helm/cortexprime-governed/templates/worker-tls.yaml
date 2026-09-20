@@ -3,19 +3,37 @@
 {{- $caSecret := lookup "v1" "Secret" .Release.Namespace "cortexprime-worker-ca" -}}
 {{- $rbSecret := lookup "v1" "Secret" $ns "contained-rollback-worker-tls" -}}
 {{- $rsSecret := lookup "v1" "Secret" $ns "contained-restart-worker-tls" -}}
+{{- $ghSecret := lookup "v1" "Secret" $ns "contained-github-worker-tls" -}}
 {{- $caCrt := "" -}}{{- $caKey := "" -}}
 {{- $rbCrt := "" -}}{{- $rbKey := "" -}}{{- $rsCrt := "" -}}{{- $rsKey := "" -}}
+{{- $ghCrt := "" -}}{{- $ghKey := "" -}}
+{{- $github := .Values.github.enabled | and .Values.github.worker.enabled -}}
 {{- if and $caSecret $rbSecret $rsSecret -}}
-{{- /* Upgrade: keep the CA and certificates the running workers already serve. */ -}}
+{{- /* Upgrade: keep the CA and certificates the running workers already serve.
+       A regenerated CA would invalidate every certificate in flight, so an
+       added worker (Phase 11.2's GitHub one) is signed by the SAME CA. */ -}}
 {{- $caCrt = index $caSecret.data "ca.crt" | b64dec -}}{{- $caKey = index $caSecret.data "ca.key" | b64dec -}}
 {{- $rbCrt = index $rbSecret.data "tls.crt" | b64dec -}}{{- $rbKey = index $rbSecret.data "tls.key" | b64dec -}}
 {{- $rsCrt = index $rsSecret.data "tls.crt" | b64dec -}}{{- $rsKey = index $rsSecret.data "tls.key" | b64dec -}}
+{{- if $github -}}
+{{- if $ghSecret -}}
+{{- $ghCrt = index $ghSecret.data "tls.crt" | b64dec -}}{{- $ghKey = index $ghSecret.data "tls.key" | b64dec -}}
+{{- else -}}
+{{- $existing := buildCustomCert ($caCrt | b64enc) ($caKey | b64enc) -}}
+{{- $gh := genSignedCert "contained-github-worker" nil (list "contained-github-worker" (printf "contained-github-worker.%s" $ns) (printf "contained-github-worker.%s.svc" $ns)) 825 $existing -}}
+{{- $ghCrt = $gh.Cert -}}{{- $ghKey = $gh.Key -}}
+{{- end -}}
+{{- end -}}
 {{- else -}}
 {{- $ca := genCA "cortexprime-contained-workers" 825 -}}
 {{- $rb := genSignedCert "contained-rollback-worker" nil (list "contained-rollback-worker" (printf "contained-rollback-worker.%s" $ns) (printf "contained-rollback-worker.%s.svc" $ns)) 825 $ca -}}
 {{- $rs := genSignedCert "contained-restart-worker" nil (list "contained-restart-worker" (printf "contained-restart-worker.%s" $ns) (printf "contained-restart-worker.%s.svc" $ns)) 825 $ca -}}
 {{- $caCrt = $ca.Cert -}}{{- $caKey = $ca.Key -}}
 {{- $rbCrt = $rb.Cert -}}{{- $rbKey = $rb.Key -}}{{- $rsCrt = $rs.Cert -}}{{- $rsKey = $rs.Key -}}
+{{- if $github -}}
+{{- $gh := genSignedCert "contained-github-worker" nil (list "contained-github-worker" (printf "contained-github-worker.%s" $ns) (printf "contained-github-worker.%s.svc" $ns)) 825 $ca -}}
+{{- $ghCrt = $gh.Cert -}}{{- $ghKey = $gh.Key -}}
+{{- end -}}
 {{- end }}
 # The runtime trusts exactly this CA for the contained workers (verified TLS).
 apiVersion: v1
@@ -50,3 +68,16 @@ type: kubernetes.io/tls
 data:
   tls.crt: {{ $rsCrt | b64enc }}
   tls.key: {{ $rsKey | b64enc }}
+{{- if and .Values.github.enabled .Values.github.worker.enabled }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: contained-github-worker-tls
+  namespace: {{ $ns }}
+  labels: {{- include "cg.labels" . | nindent 4 }}
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ $ghCrt | b64enc }}
+  tls.key: {{ $ghKey | b64enc }}
+{{- end }}

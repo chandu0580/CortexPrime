@@ -1,7 +1,9 @@
 # The CortexPrime connector architecture (governed plane)
 
-Status: established by Phase 11.1-K (ADR-125). Kubernetes is the reference
-implementation. **This is the only connector architecture.** The V1 connectors
+Status: established by Phase 11.1-K (ADR-125), and carried unchanged to a second
+provider by Phase 11.2 (ADR-126, GitHub). Kubernetes is the reference
+implementation for infrastructure operations; GitHub is the reference for
+software-development operations. **This is the only connector architecture.** The V1 connectors
 under `backend/connectors/` are frozen legacy: their writes are gated
 (`guard_raw_request`, `guard_legacy_execution`) and none of them is a model for
 new work.
@@ -20,7 +22,7 @@ entry (a function `extension(environment) -> dict | None`):
 |---|---|---|
 | `connectors` | builders of the provider adapters (catalog + transport) | `build_kubernetes_connector`, the two contained worker connectors |
 | `manifests` | one `ConnectorManifest`: every capability the connector ships | `kubernetes_manifest()` — 8 reads, 2 writes |
-| `connection_scopes` | which tenant may reach which provider targets | tenant A → `{namespace}` for 3 providers |
+| `connection_scopes` | which tenant may reach which provider targets | K8s: tenant A → `{namespace}`; GitHub: tenant A → `{owner/repo, …}` (a **composite** target, `("owner", "repo")`) |
 | `credential_provider_builders` | credential adapters built once the transport broker exists | Vault Kubernetes secrets engine, one role per provider |
 | `health_probes` | `connector_id -> (runtime) -> probe()` | `kubernetes_health_probe` |
 
@@ -37,7 +39,10 @@ Each `CapabilityManifest` declares:
 - **profile** (from the adapter's `CapabilityProfile`): risk, reversibility,
   compensation, autonomy ceiling, verification requirement, timeout, side-effect class
 - **required_permissions**: provider permission strings (`kubernetes:<resource>:<verb>`)
-- **target_parameter**: which input names the tenant-scoped target (`namespace`)
+- **target_parameter** / **target_parameters**: which input(s) name the
+  tenant-scoped target (`namespace`; GitHub needs two, `owner` and `repo`). A
+  target that is only partly supplied is refused, never ignored, and the
+  comparison is case-insensitive where the provider's own is.
 - derived: `mutates`, `retry` (`SAFE` for reads, `NEVER` for writes)
 
 Input and output schemas are derived from the adapter's operation spec
@@ -96,14 +101,24 @@ enforced twice, independently:
 ## 7. Errors (`backend/contracts/connector_errors.py`)
 
 Every failure maps to one of: AUTHENTICATION_FAILED, AUTHORIZATION_DENIED,
-NOT_FOUND, INVALID_REQUEST, RATE_LIMITED, TIMEOUT, NETWORK_FAILURE,
-PROVIDER_UNAVAILABLE, CONFLICT, VERIFICATION_FAILED, INSUFFICIENT_EVIDENCE,
-INTERNAL_ERROR.
+NOT_FOUND, INVALID_REQUEST, VALIDATION_FAILED, RATE_LIMITED,
+SECONDARY_RATE_LIMITED, TIMEOUT, NETWORK_FAILURE, PROVIDER_UNAVAILABLE,
+CONFLICT, VERIFICATION_FAILED, INSUFFICIENT_EVIDENCE, INTERNAL_ERROR.
+
+A provider's dialect is translated in the provider's own module: GitHub answers
+a rate limit with 403 rather than 429, throttles bursts separately
+(SECONDARY_RATE_LIMITED), refuses content with 422 (VALIDATION_FAILED), and
+answers 404 for a resource the credential may not see — which is reported as
+NOT_FOUND, because that is what the provider said and guessing otherwise would
+invent a fact.
 
 ## 8. Health (`backend/api/connector_health.py`)
 
-States: CONNECTED, DEGRADED, AUTHENTICATION_REQUIRED, RATE_LIMITED, UNAVAILABLE,
-MISCONFIGURED, DISABLED. A probe returns named checks; the connector's state is
+States: CONNECTED, DEGRADED, RATE_LIMITED, UNAVAILABLE, PERMISSION_DENIED,
+AUTHENTICATION_REQUIRED, MISCONFIGURED, DISABLED. (PERMISSION_DENIED is
+separate from AUTHENTICATION_REQUIRED because "the credential is valid and
+lacks a scope" and "the credential was rejected" are different operator
+actions.) A probe returns named checks; the connector's state is
 the worst failing check. Health is produced **through the governed path** (the
 Kubernetes probe issues governed `access.review` reads with the connection's own
 credential), so it tests what production actually uses. Each capability is
@@ -129,3 +144,19 @@ Label names that could carry a credential are dropped; values are capped.
    a real-provider harness with the stages in
    `scripts/phase111k_kubernetes_connector_harness.py`.
 6. LOCK only when every gate in ADR-125's checklist is proven against the real provider.
+
+## 11. What a second connector cost (Phase 11.2, measured)
+
+GitHub reused the architecture without changing it. What it *added* was four
+provider-neutral extensions — composite connection targets, a
+`PERMISSION_DENIED` health state, two error classes, and one shared
+JSON-over-broker call — plus its own adapter, manifest, credential adapter,
+contained worker and chart values. No second connector model, no second
+governance path, no second execution path, no second verification path.
+
+One platform limit the second connector made visible: **a governed execution is
+dispatched only by the process holding the scheduler role**, and that process
+drives only executions it started itself. Every governed caller today lives
+inside that process (the loops, connector health), so nothing is broken; but a
+product API route, an MCP server or a second replica cannot invoke a capability
+until that is addressed (ADR-126 F-3).

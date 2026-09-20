@@ -1,0 +1,104 @@
+{{- if and .Values.github.enabled .Values.github.worker.enabled }}
+{{- include "cg.required" . -}}
+{{- $ns := .Values.connection.namespace -}}
+{{- $tenant := .Values.github.tenant | default .Values.connection.tenant -}}
+{{- if not .Values.github.worker.digest }}
+{{- fail "github.worker.digest is required: the platform checks the worker's implementation digest on every execution, and an unpinned worker is one nobody can attribute an action to" }}
+{{- end }}
+{{- if not .Values.github.repositories }}
+{{- fail "github.repositories is required: a connection to 'whatever the token can see' is not a connection" }}
+{{- end }}
+# The CONTAINED GitHub worker (ADR-126). It holds no standing credential: the
+# platform presents an installation token per action as the request's
+# authorization header. Its repository binding is compiled in, so a call for a
+# repository outside the connection is refused by the worker as well as by the
+# gateway.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: contained-github-worker
+  namespace: {{ $ns }}
+  labels: {{- include "cg.labels" . | nindent 4 }}
+# It needs no Kubernetes permission whatsoever: it talks to GitHub, not to the
+# cluster. No Role, no RoleBinding, and no token mounted.
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: contained-github-worker
+  namespace: {{ $ns }}
+  labels: {{- include "cg.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: contained-github-worker}}
+  template:
+    metadata:
+      labels: {app: contained-github-worker}
+    spec:
+      serviceAccountName: contained-github-worker
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: worker
+          image: {{ .Values.github.worker.image | quote }}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          env:
+            - {name: CORTEX_BIND_TENANT, value: {{ $tenant | quote }}}
+            - {name: CORTEX_BIND_CAPABILITY_ID, value: "platform.github.repository.create_issue_comment"}
+            - {name: CORTEX_BIND_CAPABILITY_VERSION, value: "1"}
+            - {name: CORTEX_BIND_PROVIDER, value: "github-contained"}
+            - {name: CORTEX_BIND_OPERATION, value: "repository.create_issue_comment"}
+            - {name: CORTEX_BIND_REPOSITORIES, value: {{ .Values.github.repositories | quote }}}
+            - {name: CORTEX_IMPLEMENTATION_DIGEST, value: {{ .Values.github.worker.digest | quote }}}
+            - {name: CORTEX_IMPLEMENTATION_VERSION, value: "1.0.0"}
+            - {name: CORTEX_GITHUB_API_HOST, value: {{ trimPrefix "https://" .Values.github.apiUrl | quote }}}
+          ports: [{containerPort: 8080}]
+          volumeMounts:
+            - {name: tls, mountPath: /tls, readOnly: true}
+          readinessProbe:
+            httpGet: {path: /healthz, port: 8080, scheme: HTTPS}
+            periodSeconds: 10
+          resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {cpu: 200m, memory: 128Mi}}
+      volumes:
+        - name: tls
+          secret: {secretName: contained-github-worker-tls}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: contained-github-worker
+  namespace: {{ $ns }}
+  labels: {{- include "cg.labels" . | nindent 4 }}
+spec:
+  selector: {app: contained-github-worker}
+  ports:
+    - {port: 8080, targetPort: 8080}
+---
+# Egress: HTTPS to the public internet (GitHub), DNS, and NOTHING inside the
+# cluster. A worker that could reach cluster services would be a route from a
+# GitHub-facing process into the platform's own network.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: contained-github-worker-egress
+  namespace: {{ $ns }}
+  labels: {{- include "cg.labels" . | nindent 4 }}
+spec:
+  podSelector: {matchLabels: {app: contained-github-worker}}
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        {{- range .Values.github.worker.egressCidrs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+            except: {{ toJson $.Values.github.worker.egressExcept }}
+        {{- end }}
+      ports: [{protocol: TCP, port: 443}]
+    - to: [{namespaceSelector: {}, podSelector: {matchLabels: {k8s-app: kube-dns}}}]
+      ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
+{{- end }}

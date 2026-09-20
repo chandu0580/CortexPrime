@@ -72,6 +72,7 @@ from backend.contexts.execution.domain.provider_operation import (
     ParameterLocation,
     ParameterSpec,
     ProviderOperationSpec,
+    RecordEvidenceSpec,
 )
 from backend.contexts.execution.infrastructure.adapters.channel import ProviderChannel
 from backend.contexts.execution.infrastructure.adapters.connector import (
@@ -86,7 +87,13 @@ __all__ = [
     "GITHUB_PROVIDER",
     "GITHUB_API_BASE",
     "GITHUB_SCOPES",
+    "GITHUB_PERMISSIONS",
     "GitHubResponseTranslator",
+    "GitHubResponseNormalizer",
+    "GITHUB_READ_OPERATIONS",
+    "GITHUB_WRITE_OPERATIONS",
+    "github_read_profiles",
+    "github_write_profiles",
     "github_catalog",
     "build_github_channel",
 ]
@@ -106,6 +113,32 @@ GITHUB_SCOPES: Mapping[str, Tuple[str, ...]] = {
     "repository.create_issue": ("repo",),
     "repository.create_issue_comment": ("repo",),
     "repository.get_pull_request": ("repo",),
+    # Phase 11.2: the reads an incident investigation discriminates on --
+    # what changed, when, by whom, in which pull request, which workflow run
+    # and which deployment.
+    "repository.list_commits": ("repo",),
+    "repository.get_commit": ("repo",),
+    "repository.list_pull_requests": ("repo",),
+    "repository.list_workflow_runs": ("repo",),
+    "repository.get_workflow_run": ("repo",),
+    "repository.list_deployments": ("repo",),
+}
+
+#: The fine-grained GitHub App permission each operation needs, as GitHub names
+#: it (docs: REST endpoints "Fine-grained access tokens for this endpoint").
+#: Connector health asks for exactly these, and the manifest publishes them.
+GITHUB_PERMISSIONS: Mapping[str, Tuple[str, ...]] = {
+    "repository.get_repository": ("github:metadata:read",),
+    "repository.list_commits": ("github:contents:read",),
+    "repository.get_commit": ("github:contents:read",),
+    "repository.list_pull_requests": ("github:pull_requests:read",),
+    "repository.get_pull_request": ("github:pull_requests:read",),
+    "repository.list_workflow_runs": ("github:actions:read",),
+    "repository.get_workflow_run": ("github:actions:read",),
+    "repository.list_deployments": ("github:deployments:read",),
+    "repository.get_issue": ("github:issues:read",),
+    "repository.create_issue": ("github:issues:write",),
+    "repository.create_issue_comment": ("github:issues:write",),
 }
 
 #: Sent on every request. Non-secret, declared, and validated by the transport's
@@ -257,7 +290,10 @@ def github_catalog() -> OperationCatalog:
                 ),
                 success_statuses=(200,),
                 response_required_fields=("number", "state"),
-                response_evidence_fields=("number", "state", "html_url", "title"),
+                response_evidence_fields=(
+                    "number", "state", "title", "author_login", "comments",
+                    "created_at", "updated_at", "html_url",
+                ),
                 static_headers=_GITHUB_HEADERS,
                 provider_timeout_seconds=30.0,
                 max_response_bytes=1 * 1024 * 1024,
@@ -280,7 +316,11 @@ def github_catalog() -> OperationCatalog:
                 ),
                 success_statuses=(200,),
                 response_required_fields=("number", "state"),
-                response_evidence_fields=("number", "state", "html_url", "merged"),
+                response_evidence_fields=(
+                    "number", "title", "state", "merged", "author_login", "base_ref", "head_ref",
+                    "head_sha", "changed_files", "additions", "deletions", "commits",
+                    "created_at", "updated_at", "merged_at", "draft", "html_url",
+                ),
                 static_headers=_GITHUB_HEADERS,
                 provider_timeout_seconds=30.0,
                 max_response_bytes=4 * 1024 * 1024,
@@ -331,7 +371,9 @@ def github_catalog() -> OperationCatalog:
                 ),
                 success_statuses=(201,),
                 response_required_fields=("number", "html_url"),
-                response_evidence_fields=("number", "html_url", "state", "id"),
+                response_evidence_fields=(
+                    "number", "html_url", "state", "id", "title", "author_login", "created_at",
+                ),
                 static_headers=_GITHUB_HEADERS,
                 provider_timeout_seconds=30.0,
                 max_response_bytes=1 * 1024 * 1024,
@@ -360,13 +402,553 @@ def github_catalog() -> OperationCatalog:
                 ),
                 success_statuses=(201,),
                 response_required_fields=("id", "html_url"),
-                response_evidence_fields=("id", "html_url"),
+                response_evidence_fields=(
+                    "id", "html_url", "author_login", "created_at", "issue_url",
+                ),
                 static_headers=_GITHUB_HEADERS,
                 provider_timeout_seconds=30.0,
                 max_response_bytes=1 * 1024 * 1024,
             ),
+            # -- Phase 11.2: what changed, when, who, and what ran ---------
+            ProviderOperationSpec(
+                operation="repository.list_commits",
+                method="GET",
+                path_template="/repos/{owner}/{repo}/commits",
+                side_effect_class=SideEffectClass.READ,
+                effect_semantics=EffectSemantics.READ_ONLY,
+                parameters=(
+                    _OWNER,
+                    _REPO,
+                    ParameterSpec(
+                        name="sha",
+                        kind=ParameterKind.STRING,
+                        location=ParameterLocation.QUERY,
+                        required=False,
+                        max_length=255,
+                    ),
+                    ParameterSpec(
+                        name="path",
+                        kind=ParameterKind.STRING,
+                        location=ParameterLocation.QUERY,
+                        required=False,
+                        max_length=255,
+                    ),
+                    ParameterSpec(
+                        name="since",
+                        kind=ParameterKind.STRING,
+                        location=ParameterLocation.QUERY,
+                        required=False,
+                        max_length=32,
+                    ),
+                    ParameterSpec(
+                        name="until",
+                        kind=ParameterKind.STRING,
+                        location=ParameterLocation.QUERY,
+                        required=False,
+                        max_length=32,
+                    ),
+                    ParameterSpec(
+                        name="per_page",
+                        kind=ParameterKind.INTEGER,
+                        location=ParameterLocation.QUERY,
+                        required=False,
+                        min_value=1,
+                        max_value=100,
+                    ),
+                ),
+                success_statuses=(200,),
+                response_required_fields=("count",),
+                response_evidence_fields=("count",),
+                response_evidence_records=RecordEvidenceSpec(
+                    field_name="commits",
+                    fields=("sha", "authored_at", "author_login", "message_line", "html_url"),
+                    max_records=30,
+                ),
+                static_headers=_GITHUB_HEADERS,
+                provider_timeout_seconds=30.0,
+                max_response_bytes=4 * 1024 * 1024,
+            ),
+            ProviderOperationSpec(
+                operation="repository.get_commit",
+                method="GET",
+                path_template="/repos/{owner}/{repo}/commits/{commit_sha}",
+                side_effect_class=SideEffectClass.READ,
+                effect_semantics=EffectSemantics.READ_ONLY,
+                parameters=(
+                    _OWNER,
+                    _REPO,
+                    ParameterSpec(
+                        name="commit_sha",
+                        kind=ParameterKind.RESOURCE_SEGMENT,
+                        location=ParameterLocation.PATH,
+                        max_length=255,
+                    ),
+                ),
+                success_statuses=(200,),
+                response_required_fields=("sha",),
+                response_evidence_fields=(
+                    "sha", "authored_at", "author_login", "committed_at", "message_line",
+                    "files_changed", "additions", "deletions", "parent_count", "html_url",
+                ),
+                response_evidence_records=RecordEvidenceSpec(
+                    field_name="files",
+                    fields=("filename", "status", "additions", "deletions"),
+                    max_records=50,
+                ),
+                static_headers=_GITHUB_HEADERS,
+                provider_timeout_seconds=30.0,
+                max_response_bytes=4 * 1024 * 1024,
+            ),
+            ProviderOperationSpec(
+                operation="repository.list_pull_requests",
+                method="GET",
+                path_template="/repos/{owner}/{repo}/pulls",
+                side_effect_class=SideEffectClass.READ,
+                effect_semantics=EffectSemantics.READ_ONLY,
+                parameters=(
+                    _OWNER,
+                    _REPO,
+                    ParameterSpec(
+                        name="state",
+                        kind=ParameterKind.ENUM,
+                        location=ParameterLocation.QUERY,
+                        required=False,
+                        allowed_values=("open", "closed", "all"),
+                    ),
+                    ParameterSpec(
+                        name="base",
+                        kind=ParameterKind.STRING,
+                        location=ParameterLocation.QUERY,
+                        required=False,
+                        max_length=255,
+                    ),
+                    ParameterSpec(
+                        name="sort",
+                        kind=ParameterKind.ENUM,
+                        location=ParameterLocation.QUERY,
+                        required=False,
+                        allowed_values=("created", "updated", "popularity"),
+                    ),
+                    ParameterSpec(
+                        name="direction",
+                        kind=ParameterKind.ENUM,
+                        location=ParameterLocation.QUERY,
+                        required=False,
+                        allowed_values=("asc", "desc"),
+                    ),
+                    ParameterSpec(
+                        name="per_page",
+                        kind=ParameterKind.INTEGER,
+                        location=ParameterLocation.QUERY,
+                        required=False,
+                        min_value=1,
+                        max_value=100,
+                    ),
+                ),
+                success_statuses=(200,),
+                response_required_fields=("count",),
+                response_evidence_fields=("count",),
+                response_evidence_records=RecordEvidenceSpec(
+                    field_name="pull_requests",
+                    fields=("number", "title", "state", "author_login", "base_ref",
+                            "head_ref", "head_sha", "created_at", "merged_at", "html_url"),
+                    max_records=30,
+                ),
+                static_headers=_GITHUB_HEADERS,
+                provider_timeout_seconds=30.0,
+                max_response_bytes=4 * 1024 * 1024,
+            ),
+            ProviderOperationSpec(
+                operation="repository.list_workflow_runs",
+                method="GET",
+                path_template="/repos/{owner}/{repo}/actions/runs",
+                side_effect_class=SideEffectClass.READ,
+                effect_semantics=EffectSemantics.READ_ONLY,
+                parameters=(
+                    _OWNER,
+                    _REPO,
+                    ParameterSpec(
+                        name="branch",
+                        kind=ParameterKind.STRING,
+                        location=ParameterLocation.QUERY,
+                        required=False,
+                        max_length=255,
+                    ),
+                    ParameterSpec(
+                        name="status",
+                        kind=ParameterKind.ENUM,
+                        location=ParameterLocation.QUERY,
+                        required=False,
+                        allowed_values=("completed", "in_progress", "queued", "success",
+                                        "failure", "cancelled", "timed_out", "action_required"),
+                    ),
+                    ParameterSpec(
+                        name="event",
+                        kind=ParameterKind.STRING,
+                        location=ParameterLocation.QUERY,
+                        required=False,
+                        max_length=64,
+                    ),
+                    ParameterSpec(
+                        name="created",
+                        kind=ParameterKind.STRING,
+                        location=ParameterLocation.QUERY,
+                        required=False,
+                        max_length=64,
+                    ),
+                    ParameterSpec(
+                        name="per_page",
+                        kind=ParameterKind.INTEGER,
+                        location=ParameterLocation.QUERY,
+                        required=False,
+                        min_value=1,
+                        max_value=100,
+                    ),
+                ),
+                success_statuses=(200,),
+                response_required_fields=("count",),
+                response_evidence_fields=("count", "total_count"),
+                response_evidence_records=RecordEvidenceSpec(
+                    field_name="workflow_runs",
+                    fields=("id", "name", "status", "conclusion", "head_branch", "head_sha",
+                            "event", "run_number", "created_at", "updated_at", "html_url"),
+                    max_records=30,
+                ),
+                static_headers=_GITHUB_HEADERS,
+                provider_timeout_seconds=30.0,
+                max_response_bytes=4 * 1024 * 1024,
+            ),
+            ProviderOperationSpec(
+                operation="repository.get_workflow_run",
+                method="GET",
+                path_template="/repos/{owner}/{repo}/actions/runs/{workflow_run_id}",
+                side_effect_class=SideEffectClass.READ,
+                effect_semantics=EffectSemantics.READ_ONLY,
+                parameters=(
+                    _OWNER,
+                    _REPO,
+                    ParameterSpec(
+                        name="workflow_run_id",
+                        kind=ParameterKind.RESOURCE_SEGMENT,
+                        location=ParameterLocation.PATH,
+                        max_length=20,
+                    ),
+                ),
+                success_statuses=(200,),
+                response_required_fields=("id", "status"),
+                response_evidence_fields=(
+                    "id", "name", "status", "conclusion", "head_branch", "head_sha",
+                    "event", "run_number", "run_attempt", "created_at", "updated_at", "html_url",
+                ),
+                static_headers=_GITHUB_HEADERS,
+                provider_timeout_seconds=30.0,
+                max_response_bytes=4 * 1024 * 1024,
+            ),
+            ProviderOperationSpec(
+                operation="repository.list_deployments",
+                method="GET",
+                path_template="/repos/{owner}/{repo}/deployments",
+                side_effect_class=SideEffectClass.READ,
+                effect_semantics=EffectSemantics.READ_ONLY,
+                parameters=(
+                    _OWNER,
+                    _REPO,
+                    ParameterSpec(
+                        name="environment",
+                        kind=ParameterKind.STRING,
+                        location=ParameterLocation.QUERY,
+                        required=False,
+                        max_length=255,
+                    ),
+                    ParameterSpec(
+                        name="ref",
+                        kind=ParameterKind.STRING,
+                        location=ParameterLocation.QUERY,
+                        required=False,
+                        max_length=255,
+                    ),
+                    ParameterSpec(
+                        name="per_page",
+                        kind=ParameterKind.INTEGER,
+                        location=ParameterLocation.QUERY,
+                        required=False,
+                        min_value=1,
+                        max_value=100,
+                    ),
+                ),
+                success_statuses=(200,),
+                response_required_fields=("count",),
+                response_evidence_fields=("count",),
+                response_evidence_records=RecordEvidenceSpec(
+                    field_name="deployments",
+                    fields=("id", "sha", "ref", "environment", "task", "created_at", "updated_at"),
+                    max_records=30,
+                ),
+                static_headers=_GITHUB_HEADERS,
+                provider_timeout_seconds=30.0,
+                max_response_bytes=4 * 1024 * 1024,
+            ),
         ),
     )
+
+
+class GitHubResponseNormalizer:
+    """Lifts GitHub's nested answer into the flat, bounded shape each operation
+    declares as its evidence (the ``ProviderBodyNormalizer`` port).
+
+    Why a normalizer rather than wider evidence
+    ---------------------------------------------
+    Governed evidence is top-level scalars plus one declared record list, on
+    purpose: a raw provider payload is unbounded and can carry the caller's own
+    data back. GitHub, however, nests exactly the facts an investigation needs
+    -- who wrote a commit (``author.login``), what it said
+    (``commit.message``), how much it changed (``stats``) -- and answers some
+    reads with a bare JSON array. This lifts those declared fields, and only
+    those, in GitHub's own module.
+
+    What it may not do (the port's contract): it cannot authorize, cannot change
+    the operation or destination, and cannot fabricate provider state. A field
+    GitHub did not send stays missing, and the operation's shape check then
+    refuses the answer rather than inventing one. The first line of a commit
+    message is a *truncation* of what GitHub sent, never a paraphrase.
+    """
+
+    #: Operations whose answer is a bare JSON array, and the record field each
+    #: one is lifted into.
+    _LISTS: Mapping[str, str] = {
+        "repository.list_commits": "commits",
+        "repository.list_pull_requests": "pull_requests",
+        "repository.list_deployments": "deployments",
+    }
+
+    def normalize(self, spec: ProviderOperationSpec, body: Any) -> Any:
+        operation = spec.operation
+        if operation in self._LISTS:
+            if not isinstance(body, list):
+                raise ValueError(f"{operation}: expected a JSON array, got {type(body).__name__}")
+            field = self._LISTS[operation]
+            records = [self._record(operation, entry) for entry in body if isinstance(entry, Mapping)]
+            return {"count": len(records), field: records}
+        if not isinstance(body, Mapping):
+            raise ValueError(f"{operation}: expected a JSON object, got {type(body).__name__}")
+        if operation == "repository.list_workflow_runs":
+            runs = body.get("workflow_runs")
+            entries = [self._run(r) for r in runs if isinstance(r, Mapping)] if isinstance(runs, list) else []
+            out = {"count": len(entries), "workflow_runs": entries}
+            if isinstance(body.get("total_count"), int):
+                out["total_count"] = body["total_count"]
+            return out
+        if operation == "repository.get_commit":
+            return self._commit_detail(body)
+        if operation == "repository.get_workflow_run":
+            return self._run(body)
+        if operation == "repository.get_pull_request":
+            return {**body, **self._pull_request(body)}
+        if operation in ("repository.get_issue", "repository.create_issue"):
+            return {**body, **self._actor(body, "user", "author_login")}
+        if operation == "repository.create_issue_comment":
+            return {**body, **self._actor(body, "user", "author_login")}
+        return body
+
+    # -- per-shape lifting ---------------------------------------------------
+
+    def _record(self, operation: str, entry: Mapping) -> dict:
+        if operation == "repository.list_commits":
+            return self._commit_summary(entry)
+        if operation == "repository.list_pull_requests":
+            return self._pull_request(entry)
+        return dict(self._scalars(entry))
+
+    def _commit_summary(self, entry: Mapping) -> dict:
+        commit = entry.get("commit") if isinstance(entry.get("commit"), Mapping) else {}
+        author = commit.get("author") if isinstance(commit.get("author"), Mapping) else {}
+        out = {"sha": entry.get("sha"), "html_url": entry.get("html_url")}
+        if isinstance(author.get("date"), str):
+            out["authored_at"] = author["date"]
+        login = self._login(entry.get("author")) or author.get("name")
+        if isinstance(login, str):
+            out["author_login"] = login
+        message = commit.get("message")
+        if isinstance(message, str):
+            out["message_line"] = message.splitlines()[0] if message.splitlines() else ""
+        return {k: v for k, v in out.items() if v is not None}
+
+    def _commit_detail(self, body: Mapping) -> dict:
+        out = self._commit_summary(body)
+        commit = body.get("commit") if isinstance(body.get("commit"), Mapping) else {}
+        committer = commit.get("committer") if isinstance(commit.get("committer"), Mapping) else {}
+        if isinstance(committer.get("date"), str):
+            out["committed_at"] = committer["date"]
+        stats = body.get("stats") if isinstance(body.get("stats"), Mapping) else {}
+        for key in ("additions", "deletions"):
+            if isinstance(stats.get(key), int):
+                out[key] = stats[key]
+        files = body.get("files")
+        if isinstance(files, list):
+            out["files_changed"] = len(files)
+            out["files"] = [
+                {k: f.get(k) for k in ("filename", "status", "additions", "deletions") if k in f}
+                for f in files if isinstance(f, Mapping)
+            ]
+        parents = body.get("parents")
+        if isinstance(parents, list):
+            out["parent_count"] = len(parents)
+        return out
+
+    def _pull_request(self, entry: Mapping) -> dict:
+        base = entry.get("base") if isinstance(entry.get("base"), Mapping) else {}
+        head = entry.get("head") if isinstance(entry.get("head"), Mapping) else {}
+        out = {
+            "number": entry.get("number"), "title": entry.get("title"),
+            "state": entry.get("state"), "created_at": entry.get("created_at"),
+            "updated_at": entry.get("updated_at"), "merged_at": entry.get("merged_at"),
+            "html_url": entry.get("html_url"), "draft": entry.get("draft"),
+            "base_ref": base.get("ref"), "head_ref": head.get("ref"), "head_sha": head.get("sha"),
+        }
+        for key in ("merged", "changed_files", "additions", "deletions", "commits"):
+            if key in entry:
+                out[key] = entry[key]
+        login = self._login(entry.get("user"))
+        if login:
+            out["author_login"] = login
+        return {k: v for k, v in out.items() if v is not None}
+
+    def _run(self, entry: Mapping) -> dict:
+        keep = ("id", "name", "status", "conclusion", "head_branch", "head_sha", "event",
+                "run_number", "run_attempt", "created_at", "updated_at", "html_url")
+        return {k: entry[k] for k in keep if k in entry and entry[k] is not None}
+
+    def _actor(self, body: Mapping, source: str, target: str) -> dict:
+        login = self._login(body.get(source))
+        return {target: login} if login else {}
+
+    @staticmethod
+    def _login(value: Any) -> Optional[str]:
+        if isinstance(value, Mapping) and isinstance(value.get("login"), str):
+            return value["login"]
+        return None
+
+    @staticmethod
+    def _scalars(entry: Mapping) -> dict:
+        return {k: v for k, v in entry.items() if isinstance(v, (int, float, bool, str))}
+
+
+# ---------------------------------------------------------------------------
+# Capability-bridge profiles (Phase 11.2)
+# ---------------------------------------------------------------------------
+
+GITHUB_READ_OPERATIONS: Tuple[str, ...] = (
+    "repository.get_repository",
+    "repository.list_commits",
+    "repository.get_commit",
+    "repository.list_pull_requests",
+    "repository.get_pull_request",
+    "repository.list_workflow_runs",
+    "repository.get_workflow_run",
+    "repository.list_deployments",
+    "repository.get_issue",
+)
+
+GITHUB_WRITE_OPERATIONS: Tuple[str, ...] = (
+    "repository.create_issue_comment",
+    "repository.create_issue",
+)
+
+#: What each operation is scoped to, in the provider's own vocabulary.
+_RESOURCE_SCOPE: Mapping[str, str] = {
+    "repository.get_repository": "repository",
+    "repository.list_commits": "repository",
+    "repository.get_commit": "commit",
+    "repository.list_pull_requests": "repository",
+    "repository.get_pull_request": "pull_request",
+    "repository.list_workflow_runs": "repository",
+    "repository.get_workflow_run": "workflow_run",
+    "repository.list_deployments": "repository",
+    "repository.get_issue": "issue",
+    "repository.create_issue_comment": "issue",
+    "repository.create_issue": "repository",
+}
+
+_TIMEOUT = 30.0
+_POLICY_VERSION = "github-connector/1"
+
+
+def github_read_profiles() -> dict:
+    """READ profiles: LOW risk, ceiling A1 (observe/investigate, never an
+    action), no verification (nothing was changed), reversible by nature."""
+    from backend.contracts.intelligence.capability_profile import (
+        CapabilityProfile, VerificationRequirement)
+    from backend.contracts.intelligence.investigation import AutonomyLevel
+    from backend.contracts.policy import RiskClassification, RiskFactors, RiskLevel
+
+    profiles = {}
+    for operation in GITHUB_READ_OPERATIONS:
+        factors = RiskFactors(side_effect_class=SideEffectClass.READ, environment="development",
+                              resource_count=1, reversible=True)
+        profiles[operation] = CapabilityProfile(
+            capability_ref=f"platform.github.{operation}",
+            provider=GITHUB_PROVIDER_ID, operation=operation,
+            side_effect_class=SideEffectClass.READ, effect_semantics=EffectSemantics.READ_ONLY,
+            risk=RiskClassification(level=RiskLevel.LOW, factors=factors,
+                                    rationale=f"{operation}: read-only repository observation"),
+            autonomy_ceiling=AutonomyLevel.A1_INVESTIGATE,
+            verification_requirement=VerificationRequirement.NONE,
+            resource_scope=_RESOURCE_SCOPE[operation], reversible=True,
+            timeout_seconds=_TIMEOUT, policy_version=_POLICY_VERSION)
+    return profiles
+
+
+def github_write_profiles() -> dict:
+    """WRITE profiles. Every field is a claim the platform has to live with.
+
+    * ``reversible=False`` — GitHub has no inverse for either write. Deleting a
+      comment is a second act that leaves its own trace, and an issue cannot be
+      deleted at all through the REST API; Constitution P2 says an action with
+      no complete inverse is classified irreversible rather than optimistically.
+    * ``compensation=None`` — and stated rather than invented. The Kubernetes
+      rollback could name a real compensating action; neither of these can, so
+      neither may earn the compensable-autonomy path (ADR-124 D-4/D-5). Every
+      GitHub write faces a human.
+    * ``verification_requirement=INDEPENDENT_READBACK`` — the created comment or
+      issue is read back by identity and content. "GitHub returned 201" is not
+      the same claim as "the comment exists and says what we intended".
+    * ``autonomy_ceiling=A3`` — approved action, never A4.
+    * ``RiskLevel.MEDIUM`` for a comment, ``HIGH`` for opening an issue: a
+      comment adds a message to a conversation somebody already started; an
+      issue creates a new record that notifies subscribers and enters a backlog.
+      Both route through approval, and the difference is honest rather than
+      decorative.
+    """
+    from backend.contracts.intelligence.capability_profile import (
+        CapabilityProfile, VerificationRequirement)
+    from backend.contracts.intelligence.investigation import AutonomyLevel
+    from backend.contracts.policy import RiskClassification, RiskFactors, RiskLevel
+
+    levels = {"repository.create_issue_comment": RiskLevel.MEDIUM,
+              "repository.create_issue": RiskLevel.HIGH}
+    rationale = {
+        "repository.create_issue_comment":
+            "posts a visible comment, attributable to CortexPrime, on an existing thread",
+        "repository.create_issue":
+            "opens a new tracked record that notifies subscribers and cannot be deleted",
+    }
+    profiles = {}
+    for operation in GITHUB_WRITE_OPERATIONS:
+        factors = RiskFactors(side_effect_class=SideEffectClass.IRREVERSIBLE_WRITE,
+                              environment="development", resource_count=1, reversible=False)
+        profiles[operation] = CapabilityProfile(
+            capability_ref=f"platform.github.{operation}",
+            provider=GITHUB_PROVIDER_ID, operation=operation,
+            side_effect_class=SideEffectClass.IRREVERSIBLE_WRITE,
+            effect_semantics=EffectSemantics.NON_IDEMPOTENT_WRITE,
+            risk=RiskClassification(level=levels[operation], factors=factors,
+                                    rationale=f"{operation}: {rationale[operation]}"),
+            autonomy_ceiling=AutonomyLevel.A3_APPROVED_ACTION,
+            verification_requirement=VerificationRequirement.INDEPENDENT_READBACK,
+            resource_scope=_RESOURCE_SCOPE[operation], reversible=False,
+            timeout_seconds=_TIMEOUT, policy_version=_POLICY_VERSION,
+            compensation=None)
+    return profiles
 
 
 def build_github_channel(

@@ -114,6 +114,9 @@ __all__ = [
     "build_adapter_preflight",
     "build_operation_input_validator",
     "build_github_connector",
+    "build_contained_github_worker_connector",
+    "contained_github_worker_catalog",
+    "CONTAINED_GITHUB_PROVIDER_ID",
     "DirectoryAdapterPreflight",
     "build_worker_runtime",
     "build_invocation_gateway",
@@ -469,6 +472,7 @@ def build_github_connector(
         GITHUB_PROVIDER,
         GITHUB_PROVIDER_ID,
         GITHUB_API_BASE,
+        GitHubResponseNormalizer,
         GitHubResponseTranslator,
         build_github_channel,
         github_catalog,
@@ -524,6 +528,9 @@ def build_github_connector(
         catalog=catalog,
         channel=channel,
         translator=GitHubResponseTranslator(),
+        # Phase 11.2: GitHub nests the declared evidence and answers some reads
+        # with a bare array; the normalizer lifts exactly the declared fields.
+        normalizer=GitHubResponseNormalizer(),
         preflight=preflight,
         metrics=metrics,
     )
@@ -1661,7 +1668,11 @@ class GovernedCapabilityReader:
                         for result in getattr(cycle, "results", ()) or ():
                             code = getattr(result, "invocation_refusal", None)
                             if code and getattr(result, "node_id", None) == node_id:
-                                refusals.append(str(code))
+                                # The code AND the gateway's sentence: "input_invalid"
+                                # alone does not tell a caller what was invalid.
+                                detail = dict(getattr(result, "detail", {}) or {})
+                                because = str(detail.get("invocation_reason") or "").strip()
+                                refusals.append(f"{code}: {because}" if because else str(code))
                 stream = self._runtime.executions.stream_state(context, execution_id)
                 states = {n["node_id"]: n["state"] for n in stream.get("nodes", ())}
                 if states.get(node_id) in terminal:
@@ -1924,6 +1935,150 @@ def build_contained_worker_connector(
     )
     return WorkerEntry(implementation=implementation), adapter, catalog
 
+
+
+#: Phase 11.2 (ADR-126). The provider id of the CONTAINED GitHub write path.
+#:
+#: Its own id, for the reason each Kubernetes worker has one: a different
+#: address, a different identity (a GitHub App installation token minted for
+#: named repositories) and a different credential. One id for two workers would
+#: put two credentials behind one name.
+CONTAINED_GITHUB_PROVIDER_ID = "github-contained"
+GITHUB_COMMENT_OPERATION = "repository.create_issue_comment"
+
+
+def contained_github_worker_catalog():
+    """The one operation the GitHub worker performs, as the PLATFORM sees it.
+
+    The method and path are the worker's (``POST /execute``), not GitHub's:
+    this catalog is the truth about the dial that leaves this process, and the
+    GitHub POST is a request this side never makes. The effect classification is
+    GitHub's, because that is the effect on the world -- an irreversible,
+    non-idempotent write (GitHub has no idempotency key, so a repeat posts a
+    second comment).
+    """
+    from backend.contexts.execution.domain.provider_operation import (
+        OperationCatalog, ParameterKind, ParameterLocation, ParameterSpec,
+        ProviderOperationSpec,
+    )
+    from backend.contracts.execution import EffectSemantics, SideEffectClass
+
+    return OperationCatalog(
+        CONTAINED_GITHUB_PROVIDER_ID,
+        (
+            ProviderOperationSpec(
+                operation=GITHUB_COMMENT_OPERATION,
+                method="POST",
+                path_template="/execute",
+                side_effect_class=SideEffectClass.IRREVERSIBLE_WRITE,
+                effect_semantics=EffectSemantics.NON_IDEMPOTENT_WRITE,
+                # Four, and each is typed: there is no field here in which a
+                # host, a path, a method or a second target could be expressed.
+                parameters=(
+                    ParameterSpec(name="owner", kind=ParameterKind.RESOURCE_SEGMENT,
+                                  location=ParameterLocation.BODY, max_length=39),
+                    ParameterSpec(name="repo", kind=ParameterKind.RESOURCE_SEGMENT,
+                                  location=ParameterLocation.BODY, max_length=100),
+                    ParameterSpec(name="issue_number", kind=ParameterKind.INTEGER,
+                                  location=ParameterLocation.BODY, min_value=1,
+                                  max_value=999999999),
+                    ParameterSpec(name="body", kind=ParameterKind.TEXT,
+                                  location=ParameterLocation.BODY, max_length=65280),
+                ),
+                success_statuses=(200,),
+                response_required_fields=(),
+                response_evidence_fields=(
+                    "comment_id", "html_url", "issue_url", "created_at",
+                    "author_login", "body_sha256", "action_marker",
+                ),
+                static_headers={"content-type": "application/json"},
+                provider_timeout_seconds=45,
+                # Not smaller than the transport's single-frame budget, or the
+                # connection policy refuses to construct (Phase 11.1-K F-7).
+                max_response_bytes=1024 * 1024,
+            ),
+        ),
+    )
+
+
+def build_contained_github_worker_connector(
+    *,
+    transport_broker: Any,
+    connection_policy: Any,
+    environment: ExecutionEnvironment,
+    worker_url: str,
+    capability_id: str,
+    capability_version: int,
+    implementation_digest: str,
+    worker_id: str = "github-contained-worker",
+    preflight: Optional[Any] = None,
+    metrics: Optional[Any] = None,
+) -> tuple:
+    """The GitHub write path: ``(entry, adapter, catalog)``.
+
+    Declares ``IsolationTier.CONTAINED``, and the declaration is true: the thing
+    it dispatches to is a separate process in a separate container, holding no
+    CortexPrime credential, with a read-only filesystem and a non-root user,
+    reachable only over verified TLS at an address fixed at composition.
+    """
+    from backend.contracts.connector import IsolationTier
+    from backend.contexts.execution import WorkerEntry, WorkerInterface, WorkerScope
+    from backend.contexts.execution.domain.worker import WorkerKind
+    from backend.contexts.execution.domain.worker_directory import WorkerImplementation
+    from backend.contexts.execution.infrastructure.adapters.channel import (
+        ProviderChannel, TransportEndpoint, TransportKind,
+    )
+    from backend.contexts.execution.infrastructure.adapters.contained_worker import (
+        ContainedGitHubCommentWorkerAdapter,
+    )
+    from backend.contracts.execution import EffectSemantics
+    from backend.contracts.provider import ProviderRef
+
+    provider = ProviderRef(provider_id=CONTAINED_GITHUB_PROVIDER_ID)
+    catalog = contained_github_worker_catalog()
+    endpoint = TransportEndpoint.parse(
+        worker_url, transport=TransportKind.HTTPS, environment=environment
+    )
+    if endpoint.is_plaintext:
+        raise ValueError(
+            "the contained worker endpoint must be HTTPS; the execution credential "
+            "is exposed on every plaintext request"
+        )
+    channel = ProviderChannel(
+        provider=provider, broker=transport_broker, base_endpoint=endpoint,
+        policy=connection_policy, transport=TransportKind.HTTPS,
+    )
+    implementation = WorkerImplementation(
+        worker_id=worker_id,
+        worker_kind=WorkerKind.CONNECTOR,
+        interface=WorkerInterface.CONNECTOR,
+        implementation=(
+            "backend.contexts.execution.infrastructure.adapters.contained_worker."
+            "ContainedGitHubCommentWorkerAdapter"
+        ),
+        implementation_version=ContainedGitHubCommentWorkerAdapter.IMPLEMENTATION_VERSION,
+        isolation=IsolationTier.CONTAINED,
+        scope=WorkerScope.PLATFORM,
+        supported_environments=frozenset({environment}),
+        supported_effects=frozenset({EffectSemantics.NON_IDEMPOTENT_WRITE}),
+        supported_providers=frozenset({CONTAINED_GITHUB_PROVIDER_ID}),
+        supported_operations=frozenset({ContainedGitHubCommentWorkerAdapter.OPERATION}),
+        # FALSE, and honestly so: GitHub offers no idempotency mechanism for
+        # comment creation, so no key would make a retry safe. Attribution comes
+        # from the action digest, which the worker writes into the comment.
+        supports_provider_idempotency=False,
+    )
+    adapter = ContainedGitHubCommentWorkerAdapter(
+        implementation=implementation,
+        provider=provider,
+        channel=channel,
+        capability_id=capability_id,
+        capability_version=capability_version,
+        implementation_digest=implementation_digest,
+        preflight=preflight,
+        metrics=metrics,
+    )
+    return WorkerEntry(implementation=implementation), adapter, catalog
 
 #: Phase 11.4 (ADR-124). The provider id of the CONTAINED rollback path.
 #:

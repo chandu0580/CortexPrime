@@ -1116,8 +1116,12 @@ class SecureCapabilityInvocationGateway:
             raise self._refuse(
                 request,
                 _WORKER_REFUSALS.get(exc.reason_code, InvocationRefusal.WORKER_UNAVAILABLE),
-                exc.reason_code,
+                # The refusal's own words, not just its code: "input_invalid"
+                # alone cannot tell an operator which input was invalid or that
+                # a connection scope refused it (Phase 11.2 F-4).
+                getattr(exc, "safe_message", "") or exc.reason_code,
                 stage="worker",
+                reasons=(exc.reason_code,),
             ) from exc
 
         if admission.selection.worker_id != request.worker_id:
@@ -1531,8 +1535,9 @@ class SecureCapabilityInvocationGateway:
                 _WORKER_REFUSALS.get(
                     exc.reason_code, InvocationRefusal.WORKER_UNAVAILABLE
                 ),
-                exc.reason_code,
+                getattr(exc, "safe_message", "") or exc.reason_code,
                 stage="worker",
+                reasons=(exc.reason_code,),
             )
             self._emit_refusal(context, request, refused)
             raise refused from exc

@@ -13,17 +13,23 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[2]
-VALUES = (REPO / "helm" / "cortexprime-governed" / "values.yaml").read_text(encoding="utf-8")
+VALUES = (REPO / "helm" / "cortexprime-governed" / "values.yaml").read_text(
+    encoding="utf-8").replace("\r\n", "\n")
 
 
 def _digest_in_values(worker: str) -> str:
-    block = VALUES.split(f"\n  {worker}:\n", 1)[1]
+    # The GitHub worker is the `github:` connection's only worker, so the chart
+    # names it `worker:` rather than repeating the connector's name.
+    key = "worker" if worker == "github" else worker
+    block = VALUES.split(f"\n  {key}:\n", 1)[1]
     return re.search(r"digest:\s*([0-9a-f]{64})", block).group(1)
 
 
 @pytest.mark.parametrize("worker,source", [
     ("rollback", "workers/contained_k8s_rollback/worker.py"),
     ("restart", "workers/contained_k8s_restart/worker.py"),
+    # Phase 11.2: the GitHub comment worker is pinned the same way.
+    ("github", "workers/contained_github_comment/worker.py"),
 ])
 def test_chart_pins_the_shipped_worker_code(worker, source):
     """The digest the platform checks on every execution is the shipped code's."""

@@ -101,7 +101,7 @@ data:
   ENVIRONMENT: {{ .Values.environment | quote }}
   CORTEX_DURABLE_ENV: {{ .Values.environment | quote }}
   CORTEX_RUN_GOVERNED_PLANE: "1"
-  CORTEX_CONNECTOR_FACTORIES: "backend.api.kubernetes_connector:kubernetes_connector_extension"
+  CORTEX_CONNECTOR_FACTORIES: {{ if .Values.github.enabled }}"backend.api.kubernetes_connector:kubernetes_connector_extension,backend.api.github_connector:github_connector_extension"{{ else }}"backend.api.kubernetes_connector:kubernetes_connector_extension"{{ end }}
   CORTEX_KUBERNETES_TENANT: {{ .Values.connection.tenant | quote }}
   CORTEX_KUBERNETES_NAMESPACE: {{ $ns | quote }}
   CORTEX_SIGNAL_CLUSTER_REF: {{ .Values.connection.clusterRef | quote }}
@@ -140,6 +140,20 @@ data:
   CORTEX_INVESTIGATION_MODEL_MAX_OUTPUT_TOKENS: {{ .Values.model.investigationMaxOutputTokens | quote }}
   CORTEX_INVESTIGATION_MODEL_TIMEOUT_SECONDS: {{ .Values.model.timeoutSeconds | quote }}
   CORTEX_REMEDIATION_MODEL_TIMEOUT_SECONDS: {{ .Values.model.timeoutSeconds | quote }}
+  {{- end }}
+  {{- if .Values.github.enabled }}
+  CORTEX_GITHUB_TENANT: {{ .Values.github.tenant | default .Values.connection.tenant | quote }}
+  CORTEX_GITHUB_REPOSITORIES: {{ .Values.github.repositories | quote }}
+  CORTEX_GITHUB_API_URL: {{ .Values.github.apiUrl | quote }}
+  CORTEX_GITHUB_CREDENTIALS: {{ .Values.github.credentials | quote }}
+  {{- if eq .Values.github.credentials "app" }}
+  CORTEX_GITHUB_APP_INSTALLATION_ID: {{ .Values.github.app.installationId | quote }}
+  CORTEX_GITHUB_APP_SECRET_PATH: {{ .Values.github.app.secretPath | quote }}
+  {{- end }}
+  {{- if .Values.github.worker.enabled }}
+  CORTEX_GITHUB_WORKER_URL: {{ printf "https://contained-github-worker.%s.svc:8080" $ns | quote }}
+  CORTEX_GITHUB_IMPL_DIGEST: {{ .Values.github.worker.digest | quote }}
+  {{- end }}
   {{- end }}
   CORTEX_METRICS_PORT: {{ .Values.metrics.port | quote }}
   CORTEX_CONNECTOR_HEALTH_INTERVAL: {{ .Values.health.intervalSeconds | quote }}

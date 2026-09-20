@@ -14,9 +14,9 @@ The rules are the ones a real install taught, not a style guide:
 ``EVAL-DESCRIBED``   the description tells a model and an operator what it does and when
 ``EVAL-COMPOSED``    the operation exists in the catalog of the provider that serves it
 ``EVAL-EFFECT``      manifest and catalog agree on read vs write
-``EVAL-TARGET``      the tenant-scoped target parameter is an input of the operation
+``EVAL-TARGET``      every tenant-scoped target parameter is an input of the operation
 ``EVAL-PERMISSION``  a provider read declares the provider permission it needs
-``EVAL-FORBIDDEN``   no raw request, exec, shell, apply or delete capability
+``EVAL-FORBIDDEN``   no arbitrary-request, exec, shell, apply or delete capability
 ``EVAL-BUDGET``      the response budget admits a transport policy (>= the frame budget)
 ``EVAL-TIMEOUT``     a bounded timeout (<= 120 s)
 ``EVAL-WRITE-*``     a write: never retried, independently verified, not low risk,
@@ -31,7 +31,13 @@ from typing import Any, Mapping, Optional, Tuple
 __all__ = ["EVALUATION_QUESTIONS", "EvaluationFinding", "EvaluationReport", "evaluate_connector",
            "evaluate_evidence"]
 
-FORBIDDEN_FRAGMENTS = ("raw", "exec", "shell", "apply", "delete", "request", "proxy", "command")
+#: Verbs a governed capability may not perform: an arbitrary provider request,
+#: code execution, or a deletion. Matched against the operation's VERB -- the
+#: first word of its last segment -- and not as a substring: GitHub's
+#: ``get_pull_request`` is a typed read whose noun merely contains "request",
+#: while ``raw_request`` is the thing this rule exists to catch (Phase 11.2).
+FORBIDDEN_VERBS = frozenset({"raw", "exec", "shell", "apply", "delete", "request",
+                             "proxy", "command", "eval", "run"})
 MAX_TIMEOUT_SECONDS = 120.0
 MIN_DESCRIPTION = 60
 
@@ -88,8 +94,11 @@ def evaluate_connector(manifest: Any, catalogs: Mapping[str, Any], *,
             add("EVAL-DESCRIBED", cid, f"describe what it does and when to use it (>= {MIN_DESCRIPTION} chars, "
                                        "with 'Use ...' guidance or its governance)")
 
-        lowered = cap.operation.lower()
-        hit = [f for f in FORBIDDEN_FRAGMENTS if f in lowered.split(".")[-1] or f in lowered.split(".")]
+        segments = cap.operation.lower().split(".")
+        last = segments[-1]
+        verb = last.split("_")[0]
+        hit = sorted({v for v in (verb, last) if v in FORBIDDEN_VERBS}
+                     | (set(segments) & FORBIDDEN_VERBS))
         if hit:
             add("EVAL-FORBIDDEN", cid, f"operation names a forbidden kind of capability: {hit}")
 
@@ -105,9 +114,15 @@ def evaluate_connector(manifest: Any, catalogs: Mapping[str, Any], *,
             if bool(spec.side_effect_class.mutates) != bool(cap.mutates):
                 add("EVAL-EFFECT", cid, "manifest and catalog disagree on whether this mutates")
             names = {p.name for p in spec.parameters}
-            if names and cap.target_parameter and cap.target_parameter not in names:
-                add("EVAL-TARGET", cid, f"target parameter {cap.target_parameter!r} is not an input; the "
-                                        "connection scope could not confine it to the tenant's target")
+            # A composite target (GitHub's owner/repo) is scoped only if EVERY
+            # part of it is an input the platform validated.
+            targets = tuple(getattr(cap, "target_parameters", ()) or ()) or (
+                (cap.target_parameter,) if cap.target_parameter else ())
+            absent = [t for t in targets if t not in names]
+            if names and absent:
+                add("EVAL-TARGET", cid, f"target parameter(s) {absent} are not inputs of "
+                                        f"{cap.operation!r}; the connection scope could not "
+                                        "confine it to the tenant's target")
             budget = getattr(spec, "max_response_bytes", None)
             if budget is not None and budget < frame:
                 add("EVAL-BUDGET", cid, f"response budget {budget} < frame budget {frame}: the connection "

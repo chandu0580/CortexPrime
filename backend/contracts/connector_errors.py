@@ -29,6 +29,16 @@ class ConnectorErrorClass(str, Enum):
     NOT_FOUND = "not_found"
     INVALID_REQUEST = "invalid_request"
     RATE_LIMITED = "rate_limited"
+    #: Phase 11.2. A provider that throttles *bursts* separately from its hourly
+    #: budget (GitHub's "secondary rate limit") needs its own class: the primary
+    #: one is waited out against a known reset, while this one means back off
+    #: now and slow down, and an operator seeing them conflated cannot tell
+    #: "we are out of budget" from "we are being too aggressive".
+    SECONDARY_RATE_LIMITED = "secondary_rate_limited"
+    #: The provider understood the request and refused its CONTENT (GitHub's
+    #: 422). Distinct from INVALID_REQUEST, which is a request the platform
+    #: should not have sent at all.
+    VALIDATION_FAILED = "validation_failed"
     TIMEOUT = "timeout"
     NETWORK_FAILURE = "network_failure"
     PROVIDER_UNAVAILABLE = "provider_unavailable"

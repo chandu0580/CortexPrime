@@ -109,6 +109,42 @@ model:
 
 rateLimit: {}           # CORTEX_RATE_LIMIT_* overrides, e.g. {TENANT_PER_MINUTE: "600"}
 
+# OPTIONAL: a GitHub connection (Phase 11.2). Left empty, no GitHub connector is
+# composed at all. A connection binds this tenant to NAMED repositories; a
+# GitHub organization is not a tenant and an installation is not one either.
+github:
+  enabled: false
+  # The CortexPrime tenant that owns this connection (defaults to the
+  # Kubernetes connection's tenant when empty, since one deployment serves one).
+  tenant: ""
+  # Repositories, "owner/repo", comma-separated. Every capability targets one of
+  # these and nothing else.
+  repositories: ""
+  apiUrl: https://api.github.com
+  # app (production: a GitHub App installation token minted per action for these
+  # repositories) or vault-token (a token held in Vault KV; refused in production).
+  credentials: app
+  app:
+    installationId: ""
+    # Vault KV v2 path holding {app_id, private_key}. The key never appears in
+    # an environment variable, a ConfigMap or an image.
+    secretPath: cortexprime/github/app
+  # The contained worker that performs the one governed write (a comment).
+  worker:
+    enabled: true
+    image: cortexprime/contained-github-comment:1.0.0
+    digest: f2a74c4e0c75415405ab452cd7f3668ca5163f0a07c51642000ecd008f186144
+    # Egress for the worker: HTTPS to the public internet, and never into the
+    # cluster. Narrow it to GitHub's published API ranges (api.github.com is in
+    # https://api.github.com/meta) when your environment can pin them.
+    egressCidrs: ["0.0.0.0/0"]
+    egressExcept:
+      - 10.0.0.0/8
+      - 172.16.0.0/12
+      - 192.168.0.0/16
+      - 169.254.0.0/16
+      - 100.64.0.0/10
+
 metrics:
   port: 9102
 

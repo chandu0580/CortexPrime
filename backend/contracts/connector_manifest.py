@@ -64,6 +64,11 @@ class CapabilityManifest:
     profile: Any
     required_permissions: tuple = ()
     target_parameter: Optional[str] = "namespace"
+    #: Phase 11.2: several parameters that together identify one target
+    #: (GitHub: ``("owner", "repo")``). Empty means the single parameter above.
+    #: A provider whose resource needs two names to be unambiguous cannot be
+    #: scoped by one of them, so the connection scope reads this.
+    target_parameters: Tuple[str, ...] = ()
     """The payload field naming the target the connection scope constrains
     (``namespace`` for Kubernetes). ``None`` for a capability with no target."""
 

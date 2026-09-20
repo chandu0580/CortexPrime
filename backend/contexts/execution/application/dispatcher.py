@@ -424,6 +424,14 @@ class ExecutionDispatcher:
                     detail={
                         "retryable": refused.retryable,
                         "security_relevant": refused.refusal.is_security_relevant,
+                        # The gateway's own sentence, which says WHICH stage
+                        # refused and why ("namespace 'x' is outside this
+                        # tenant's connection"). Without it a caller sees only
+                        # a code and cannot act (Phase 11.2 F-4; the same
+                        # lesson as 11.1-K F-8 for connector health). It is the
+                        # message the gateway already considered safe to show a
+                        # caller: no credential, no URL, no traceback.
+                        "invocation_reason": str(getattr(refused, "safe_message", "") or "")[:400],
                     },
                 ),
                 events,

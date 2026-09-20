@@ -222,6 +222,17 @@ class VaultCredentialAdapter:
 
         path = self._secret_path(request)
         payload, refusal = self._read(path, request, moment)
+        if refusal is not None and refusal.refusal is CredentialRefusal.PROVIDER_REFUSED:
+            # Vault rejected the platform's own token. A cached login is the
+            # usual reason: Vault restarted, the token was revoked, or a policy
+            # was added after this process logged in -- and in every one of
+            # those a fresh login succeeds immediately, while the cached one
+            # keeps failing for the rest of its lifetime (11.1-K F-9, found
+            # again here for the KV path). One fresh login, one retry, then the
+            # refusal stands.
+            invalidate = getattr(self._token, "invalidate", None)
+            if callable(invalidate) and invalidate():
+                payload, refusal = self._read(path, request, moment)
         if refusal is not None:
             raise refusal
 

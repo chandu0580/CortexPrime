@@ -43,6 +43,7 @@ from backend.contracts.credential import CredentialRef, CredentialState, Credent
 from backend.contracts.errors import ContractViolation
 from backend.contracts.identity import PrincipalKind, PrincipalRef
 from backend.platform.credentials.broker import IssuedCredential
+from backend.platform.credentials.http_json import json_call
 from backend.platform.credentials.material import CredentialMaterial
 from backend.platform.credentials.redaction import safe_exception_text
 from backend.platform.credentials.request import (
@@ -81,46 +82,17 @@ def _vault_call(broker: Any, endpoint: Any, policy: Any, *, method: str, path: s
                 body: Optional[dict], credential: Optional[CredentialMaterial],
                 tenant_id: str, correlation_id: Optional[str], seconds: float) -> tuple:
     """One Vault request through the transport broker. Returns ``(status, document)``;
-    raises ``CredentialRefused`` for anything that is not a readable answer."""
-    from dataclasses import replace
+    raises ``CredentialRefused`` for anything that is not a readable answer.
 
-    from backend.platform.transport.request import (
-        DeliveryState,
-        TransportRefused,
-        TransportRequest,
-    )
-
-    try:
-        request = TransportRequest(
-            endpoint=replace(endpoint, path=path, query=""), policy=policy,
-            tenant_id=tenant_id, principal=_PLATFORM_PRINCIPAL, method=method,
-            headers={"x-vault-request": "true", "content-type": "application/json"},
-            body=json.dumps(body).encode("utf-8") if body is not None else None,
-            correlation_id=correlation_id, authority_seconds_remaining=max(1.0, seconds),
-            credential=credential)
-        outcome = broker.dial(request)
-    except TransportRefused as refused:
-        raise CredentialRefused(CredentialRefusal.PROVIDER_UNAVAILABLE,
-                                f"Vault could not be reached ({refused.reason_code})",
-                                correlation_id=correlation_id) from refused
-    except CredentialRefused:
-        raise
-    except Exception as exc:  # noqa: BLE001
-        log.warning("vault call failed: %s", safe_exception_text(exc))
-        raise CredentialRefused(CredentialRefusal.PROVIDER_UNAVAILABLE,
-                                f"Vault could not be reached ({type(exc).__name__})",
-                                correlation_id=correlation_id) from exc
-    if outcome.delivery is not DeliveryState.DELIVERED:
-        raise CredentialRefused(CredentialRefusal.PROVIDER_UNAVAILABLE,
-                                "the Vault request did not complete",
-                                correlation_id=correlation_id)
-    document: dict = {}
-    if outcome.body and not outcome.truncated:
-        try:
-            document = json.loads(outcome.body.decode("utf-8"))
-        except Exception:  # noqa: BLE001 - judged by status below
-            document = {}
-    return outcome.status_code, document
+    Phase 11.2: the dial itself is now ``platform.credentials.http_json``, which
+    the GitHub App adapter makes the same way against a different provider. What
+    stays here is what is Vault's: its request header and its name in refusals.
+    """
+    return json_call(
+        broker, endpoint, policy, method=method, path=path, body=body,
+        credential=credential, tenant_id=tenant_id, principal=_PLATFORM_PRINCIPAL,
+        correlation_id=correlation_id, seconds=seconds,
+        headers={"x-vault-request": "true"}, provider_label="Vault")
 
 
 class VaultKubernetesAuth:

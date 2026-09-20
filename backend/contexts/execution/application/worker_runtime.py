@@ -107,6 +107,11 @@ class WorkerInvocationRefused(ContractViolation):
     def __init__(self, reason_code: str, message: str) -> None:
         super().__init__(f"{reason_code}: {message}")
         self.reason_code = reason_code
+        #: The refusal's own sentence, kept so a caller can be told WHY and not
+        #: only that something was invalid (Phase 11.2 F-4). Safe by
+        #: construction: these messages are the platform's own vocabulary plus
+        #: the offending value, never a credential or a provider response.
+        self.safe_message = message
 
 
 # ----------------------------------------------------------------------

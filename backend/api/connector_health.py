@@ -9,6 +9,10 @@ what an operator actually needs to know, derived from evidence each time:
                                permission is missing on every capability, the
                                composition failed)
     AUTHENTICATION_REQUIRED -- the credential could not be obtained or was rejected
+    PERMISSION_DENIED       -- the credential is valid, and the provider refused
+                               the permission it needs (Phase 11.2: a GitHub
+                               token that authenticates but lacks a scope is a
+                               different operator action from one that expired)
     RATE_LIMITED            -- the platform or the provider is throttling it
     UNAVAILABLE             -- the provider could not be reached
     DEGRADED                -- reachable and authenticated, but some capabilities
@@ -41,6 +45,7 @@ class ConnectorHealthState(str, Enum):
     RATE_LIMITED = "RATE_LIMITED"
     UNAVAILABLE = "UNAVAILABLE"
     AUTHENTICATION_REQUIRED = "AUTHENTICATION_REQUIRED"
+    PERMISSION_DENIED = "PERMISSION_DENIED"
     MISCONFIGURED = "MISCONFIGURED"
     DISABLED = "DISABLED"
 
@@ -48,8 +53,9 @@ class ConnectorHealthState(str, Enum):
 _SEVERITY = {
     ConnectorHealthState.CONNECTED: 0, ConnectorHealthState.DEGRADED: 1,
     ConnectorHealthState.RATE_LIMITED: 2, ConnectorHealthState.UNAVAILABLE: 3,
-    ConnectorHealthState.AUTHENTICATION_REQUIRED: 4, ConnectorHealthState.MISCONFIGURED: 5,
-    ConnectorHealthState.DISABLED: 6,
+    ConnectorHealthState.PERMISSION_DENIED: 4,
+    ConnectorHealthState.AUTHENTICATION_REQUIRED: 5, ConnectorHealthState.MISCONFIGURED: 6,
+    ConnectorHealthState.DISABLED: 7,
 }
 
 

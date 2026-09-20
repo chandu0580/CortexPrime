@@ -111,6 +111,11 @@ class ContainedWorkerAdapter(AdapterSeam):
     #: payload, and not something a caller can influence.
     PATH = "/execute"
 
+    #: The arguments this adapter's operation must carry. Declared per adapter
+    #: (Phase 11.2): the check belongs to the operation, not to Kubernetes, and
+    #: a GitHub comment names a repository where a restart names a workload.
+    REQUIRED_ARGUMENTS = ("namespace", "name")
+
     def __init__(
         self,
         *,
@@ -212,7 +217,7 @@ class ContainedWorkerAdapter(AdapterSeam):
 
         envelope = self._envelope(authority)
         missing = [
-            field for field in ("namespace", "name")
+            field for field in self.REQUIRED_ARGUMENTS
             if not envelope["arguments"].get(field)
         ]
         if missing:
@@ -359,6 +364,7 @@ class ContainedRollbackWorkerAdapter(ContainedWorkerAdapter):
     """
 
     OPERATION = "kubernetes.deployment.rollback"
+    REQUIRED_ARGUMENTS = ROLLBACK_ARGUMENTS
 
     def _envelope(self, authority: ProviderAuthority) -> Mapping[str, Any]:
         envelope = dict(super()._envelope(authority))
@@ -389,3 +395,37 @@ class ContainedRollbackWorkerAdapter(ContainedWorkerAdapter):
                     "an execution with no authority window is one no worker could fence",
                 )
         return super()._perform(context, request, authority)
+
+
+#: Exactly the arguments the GitHub comment operation takes. Every one is a
+#: typed value the platform validated against the catalog before it became an
+#: authority; none of them is a path, a host or a method.
+GITHUB_COMMENT_ARGUMENTS = ("owner", "repo", "issue_number", "body")
+
+
+class ContainedGitHubCommentWorkerAdapter(ContainedWorkerAdapter):
+    """Dispatches one authorized GitHub issue/PR comment to the GitHub worker.
+
+    The same seam, channel and refusal mapping as the Kubernetes workers; only
+    the operation and the argument set differ. A sibling rather than a
+    generalisation, for the reason the rollback adapter is one: an adapter that
+    could carry either operation would be one binding away from carrying both.
+
+    Phase 11.2 (ADR-126). Note what is *not* here: no repository allow-list.
+    Scope is enforced by the gateway's input stage (the connection scope), by
+    the credential minted for named repositories, and by the worker's own
+    compiled binding. Three independent checks; adding a fourth in the adapter
+    would not add a boundary, only a place for them to disagree.
+    """
+
+    OPERATION = "repository.create_issue_comment"
+    REQUIRED_ARGUMENTS = GITHUB_COMMENT_ARGUMENTS
+
+    def _envelope(self, authority: ProviderAuthority) -> Mapping[str, Any]:
+        envelope = dict(super()._envelope(authority))
+        payload = dict(authority.payload)
+        envelope["arguments"] = {name: payload.get(name) for name in GITHUB_COMMENT_ARGUMENTS}
+        return envelope
+
+    # No _perform override: the base checks REQUIRED_ARGUMENTS, which this
+    # adapter declares, and everything else about the dispatch is identical.
