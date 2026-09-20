@@ -250,6 +250,55 @@ class ExecutionService:
             raise ExecutionNotFound(execution_id)
         return found
 
+    def _load_with_revision(self, context: Any, execution_id: str) -> tuple:
+        """The run and the revision it was read at, read together.
+
+        Two statements would be a race: a writer landing between them leaves a
+        stale aggregate beside a fresh revision, and the compare-and-swap that
+        follows then matches on a decision it never saw. A repository too old to
+        answer both at once falls back to the pair, which is no worse than the
+        behaviour it replaces and no better -- it is not silently treated as
+        safe.
+        """
+        together = getattr(self._repository, "find_with_revision", None)
+        if together is None:
+            execution = self._load(context, execution_id)
+            return execution, self._repository.revision_of(
+                context, execution.execution_id
+            )
+        found, revision = together(context, ExecutionId(execution_id))
+        if found is None:
+            raise ExecutionNotFound(execution_id)
+        return found, revision
+
+    def _saved_checked(
+        self, context: Any, execution: Execution, expected_revision, events: tuple = ()
+    ) -> CommandResult:
+        """``_saved``, but only if nothing has written since the caller read.
+
+        **Which outcomes this protects, and why it is not every write.** Once the
+        claim is fenced, exactly one worker holds a node -- but it is not the
+        only writer. A reclaimer deciding at T-e that the lease had lapsed, and
+        the holder recording success at T, both write. Unguarded, whichever
+        lands last wins: a reclaim landing after a success erases it, the node
+        reads UNKNOWN, and recovery is entitled to try again. That is a
+        *duplicate provider action* produced by a lost update rather than by a
+        lost race, and it is exactly the harm this phase exists to remove
+        (ADR-127 F-8).
+
+        A conflict raises ``ConcurrentExecutionUpdate`` rather than overwriting.
+        Losing this race must mean "somebody else already recorded what happened
+        to this node", which is information, not an error to paper over.
+        """
+        if expected_revision is None:
+            return self._saved(context, execution, events)
+        self._repository.compare_and_swap(
+            context, execution, expected_revision=expected_revision
+        )
+        if self._outbox is not None and events:
+            self._outbox.record(context, str(execution.execution_id), events)
+        return CommandResult(execution=execution, events=events)
+
     def _saved(self, context: Any, execution: Execution, events: tuple = ()) -> CommandResult:
         self._repository.replace(context, execution)
         # Recorded next to the state change, not published here. Publication is
@@ -489,11 +538,32 @@ class ExecutionService:
     # ------------------------------------------------------------------
 
     def assign(self, context: Any, command: AssignNode) -> CommandResult:
-        """Lease one node to one worker."""
-        execution = self._load(context, command.execution_id)
+        """Lease one node to one worker. **The write is revision-checked.**
+
+        The aggregate refuses a second holder, but it refuses it against the copy
+        *this* caller loaded, and an unguarded ``replace`` would let two callers
+        who both loaded an unleased node both write — the second silently erasing
+        the first's lease while both believed they owned the node. That is not
+        hypothetical: it was reproduced against PostgreSQL with two services on
+        separate connections, and both won (Phase 11.3).
+
+        It did not matter while exactly one process dispatched, which is the only
+        reason the unguarded write survived this long. It matters the moment a
+        second dispatcher exists, so the fence goes in *before* the callers do.
+        ``compare_and_swap`` makes the compare and the swap one statement, so the
+        loser is refused rather than overwritten, and the dispatcher already
+        classifies that refusal as ``NODE_LEASED``.
+        """
+        execution, revision = self._load_with_revision(context, command.execution_id)
         registration = self._pool.get(command.worker_id)
         assigned = execution.assign(command.node_id, registration)
-        self._repository.replace(context, assigned)
+        if revision is None:
+            from backend.contexts.execution.domain.errors import ExecutionNotFound
+
+            raise ExecutionNotFound(str(execution.execution_id))
+        self._repository.compare_and_swap(
+            context, assigned, expected_revision=revision
+        )
 
         run = assigned.run_for(command.node_id)
         return CommandResult(
@@ -533,7 +603,7 @@ class ExecutionService:
 
     def record_success(self, context: Any, command: RecordSuccess) -> CommandResult:
         """Record a result from the worker holding the lease."""
-        execution = self._load(context, command.execution_id)
+        execution, revision = self._load_with_revision(context, command.execution_id)
         moment = datetime.now(timezone.utc)
         result = ExecutionResult(
             execution_key=command.execution_key,
@@ -542,15 +612,16 @@ class ExecutionService:
             completed_at=moment,
             detail=command.detail or {},
         )
-        return self._saved(
+        return self._saved_checked(
             context,
             execution.record_result(
                 command.node_id, command.worker_id, result, now=moment
             ),
+            revision,
         )
 
     def record_failure(self, context: Any, command: RecordFailure) -> CommandResult:
-        execution = self._load(context, command.execution_id)
+        execution, revision = self._load_with_revision(context, command.execution_id)
         moment = datetime.now(timezone.utc)
         result = None
         if command.execution_key:
@@ -584,12 +655,16 @@ class ExecutionService:
             self._observer.outcome_unknown(
                 str(updated.execution_id), command.node_id, failure.to_dict()
             )
-        return self._saved(context, updated)
+        return self._saved_checked(context, updated, revision)
 
     def reclaim(self, context: Any, command: ReclaimNode) -> CommandResult:
-        """Take back a node whose lease lapsed. Records ``UNKNOWN``."""
-        execution = self._load(context, command.execution_id)
-        return self._saved(context, execution.reclaim(command.node_id))
+        """Take back a node whose lease lapsed. Records ``UNKNOWN``.
+
+        Revision-checked: a reclaim that lands after the holder recorded its
+        outcome must lose, not overwrite (ADR-127 F-8).
+        """
+        execution, revision = self._load_with_revision(context, command.execution_id)
+        return self._saved_checked(context, execution.reclaim(command.node_id), revision)
 
     def heartbeat(self, context: Any, command: Heartbeat) -> dict:
         """A worker reporting it is still alive. Does not extend the lease.
@@ -877,6 +952,31 @@ class ExecutionService:
         if query.live_only:
             found = tuple(e for e in found if e.state.is_live)
         return tuple(found)
+
+    def dispatchable(self, context: Any, *, limit: int = 100) -> tuple:
+        """Execution ids the **durable store** says may be dispatched right now.
+
+        The query a scheduler needs and did not have. Dispatch targets lived in
+        a process-local list, so a run started by any other process was never
+        dispatched by anybody — the limitation ADR-126 called F-3 (and the
+        signal-fabric report called F-1). Asking the store instead is what makes
+        dispatch survive the process that started it.
+
+        Bounded and tenant-narrowed by the repository, exactly as
+        ``find_by_state`` already was: under a tenant's context it returns that
+        tenant's runs, and under the platform's it returns every tenant's — which
+        is discovery, not authority. Being *found* here permits nothing; the
+        dispatcher still rebuilds the tenant context from each node's sealed
+        binding and the gateway still re-decides every stage.
+
+        ``RUNNING`` alone, because ``accepts_dispatch`` is ``RUNNING`` alone. A
+        repository without the query answers nothing rather than everything.
+        """
+        finder = getattr(self._repository, "find_by_state", None)
+        if finder is None:
+            return ()
+        found = finder(context, (ExecutionState.RUNNING.value,), limit=limit)
+        return tuple(str(execution.execution_id) for execution in found)
 
     def reclaimable(self, context: Any, execution_id: str, *, now: Optional[datetime] = None) -> tuple:
         """Nodes whose leases have lapsed. What a sweeper asks for."""

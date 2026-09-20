@@ -22,14 +22,27 @@ stopped is a dispatcher that keeps starting production work through a shutdown.
 the failure class, the effect semantics and the attempt budget. ``attempts += 1``
 is how an ambiguous mutation gets applied twice.
 
-Ownership is the queue's, then the lease's
---------------------------------------------
-Two dispatchers reaching for one node must produce exactly one owner. That is
-established twice: the queue's ``claim`` is atomic under its lock and hands the
-node to one caller, and ``NodeRun.leased_to`` refuses a second holder inside the
-aggregate. The queue prevents the wasted work; the aggregate prevents the wrong
-outcome. Neither alone is enough — the queue is a hint that can be lost, and the
-aggregate check happens after work has already been prepared.
+Ownership is the lease's, and the queue is only a hint
+--------------------------------------------------------
+Two dispatchers reaching for one node must produce exactly one owner, and the
+thing that establishes it is the **revision-checked lease**: ``assign`` writes
+through ``compare_and_swap``, so the compare and the swap are one statement and
+the loser is refused rather than overwritten (ADR-127 D-1).
+
+This used to claim ownership was established twice, by the queue and then by the
+aggregate. It was not. The queue claim was called with a signature no
+implementation of the port accepts, so every call raised ``TypeError`` into a
+handler that returned "proceed" — a claim reported as obtained and never made,
+on every dispatch (ADR-127 F-2). Nothing enqueues either, so the queue is empty
+in any case. It is kept as what it honestly is: a hint about *where* work is,
+which saves wasted preparation when present and is safe to lose, because the
+lease is what decides.
+
+The aggregate's own "refuses a second holder" check is still there and still
+useful, but note what it is: a check against the copy *this* caller loaded. On
+its own it does not fence two processes — which is why the write is
+revision-checked, and why the revision must be read in the same statement as the
+aggregate (ADR-127 F-7).
 
 Late answers are classified, never applied
 --------------------------------------------
@@ -87,6 +100,70 @@ __all__ = [
 ]
 
 log = logging.getLogger(__name__)
+
+
+def _context_from_binding(context: Any, binding: BoundCapability) -> Optional[Any]:
+    """The tenant context this node's sealed binding was written for.
+
+    **Read this as: carrying a decision, not making one** (ADR-127 D-2, ratified
+    2026-09-20). ``cp_binding`` is written at resolve time, *after* identity,
+    tenancy and authorization have already been decided, and it is
+    content-addressed — so the tenant and principal in it are the ones the work
+    was authorized for, not ones this process chose.
+
+    Nothing here grants anything. The gateway re-runs every stage against
+    durable records, and because both the request and this context derive from
+    the same binding, a dispatcher cannot name a tenant, a principal or a
+    capability other than the one already admitted. What it *can* now do is
+    dispatch work some other process started, which is the whole point.
+
+    Returns ``None`` — and the caller refuses — when the binding does not name
+    both a tenant and a principal. A half-identified dispatch is not dispatched.
+    """
+    tenant_id = getattr(binding, "tenant_id", None)
+    principal_id = getattr(binding, "principal_id", None)
+    if not tenant_id or not principal_id:
+        return None
+    try:
+        from backend.contracts.identity import PrincipalKind, PrincipalRef
+        from backend.platform.context import ExecutionContext, IdentityContext
+
+        return ExecutionContext.for_tenant(
+            tenant_id=str(tenant_id),
+            identity=IdentityContext(
+                principal=PrincipalRef(
+                    principal_id=str(principal_id), kind=PrincipalKind.PLATFORM
+                ),
+                capabilities=("capability:invoke",),
+            ),
+            # Named so an auditor reading the trail can tell a resumed dispatch
+            # from a caller standing at the other end of a socket.
+            source="execution.dispatcher",
+            correlation=getattr(context, "correlation", None),
+        )
+    except Exception:  # noqa: BLE001 - an unbuildable context is a refusal
+        log.error(
+            "could not rebuild a dispatch context for %s/%s",
+            getattr(binding, "execution_id", "?"),
+            getattr(binding, "node_id", "?"),
+            exc_info=True,
+        )
+        return None
+
+
+def _worker_kind_of(candidate: DispatchCandidate) -> Optional[Any]:
+    """The candidate's worker kind as the queue's enum, or ``None``.
+
+    The candidate carries the kind as text because it came out of the stored
+    aggregate. ``None`` for an unrecognised kind rather than a guess: claiming
+    for the wrong kind would take work this dispatcher cannot run.
+    """
+    from backend.contexts.execution.domain.worker import WorkerKind
+
+    try:
+        return WorkerKind(str(candidate.worker_kind))
+    except (ValueError, TypeError):
+        return None
 
 
 @runtime_checkable
@@ -207,6 +284,7 @@ class ExecutionDispatcher:
         metrics: Optional[Any] = None,
         clock: Optional[Clock] = None,
         retry_policy: Any = DEFAULT_RETRY_POLICY,
+        claim_seconds: int = 60,
     ) -> None:
         if not isinstance(gateway, SecureCapabilityInvocationGateway):
             raise ContractViolation(
@@ -224,6 +302,9 @@ class ExecutionDispatcher:
         self._metrics = SafeMetrics(metrics or NullMetrics())
         self._clock = clock or SystemClock()
         self._retry_policy = retry_policy
+        if not isinstance(claim_seconds, int) or claim_seconds < 1:
+            raise ContractViolation("a queue claim must last at least a second")
+        self._claim_seconds = claim_seconds
 
     # ------------------------------------------------------------------
     # One cycle
@@ -352,23 +433,43 @@ class ExecutionDispatcher:
         # here takes no lease, records the same refusal, and leaves the node for
         # the context that can invoke it.
         if getattr(context, "is_platform_internal", False):
-            self._release(context, candidate)
-            self._metrics.increment("execution.invocation.refused", labels=tenant)
-            return (
-                DispatchResult(
-                    node_id=candidate.node_id,
-                    dispatched=False,
-                    invocation_refusal=InvocationRefusal.TENANT_UNKNOWN.value,
-                    detail={
-                        "reason": "a platform-internal context cannot invoke a "
-                                  "tenant capability; nothing was leased",
-                        "retryable": False,
-                        "security_relevant": False,
-                    },
-                ),
-                events,
-            )
-
+            # Phase 11.3 (ADR-127 D-2, ratified): before refusing, try to become
+            # a context that *can* invoke -- rebuilt from this node's own sealed
+            # binding, which was written at resolve time carrying the tenant and
+            # principal the request was authorized for.
+            #
+            # This does not relax F-9's rule. F-9's rule is "never lease under a
+            # context the gateway will certainly refuse", and it is kept exactly:
+            # the reconstructed context matches the binding by construction, so
+            # it is the one context the gateway will not refuse on tenancy. The
+            # refusal below still stands for every case where no such context can
+            # be built.
+            #
+            # It confers nothing. The binding is a record of a decision already
+            # made -- identity, tenancy and authorization were all decided before
+            # it was written -- and every gateway stage re-runs against durable
+            # records, both sides deriving from this same binding. A dispatcher
+            # carrying a decision cannot widen it.
+            rebuilt = _context_from_binding(context, binding)
+            if rebuilt is not None:
+                context = rebuilt
+                self._metrics.increment("execution.dispatch.rebound", labels=tenant)
+            else:
+                self._release(context, candidate)
+                self._metrics.increment("execution.invocation.refused", labels=tenant)
+                return (
+                    DispatchResult(
+                        node_id=candidate.node_id,
+                        dispatched=False,
+                        invocation_refusal=InvocationRefusal.TENANT_UNKNOWN.value,
+                        detail={
+                            "reason": "a platform-internal context cannot invoke a "
+                            "tenant capability, and this node's binding did not "
+                            "name a tenant and principal to dispatch as",
+                        },
+                    ),
+                    events,
+                )
         # 2. The lease. Execution owns it; the aggregate refuses a second holder.
         try:
             self._assign(context, candidate)
@@ -540,20 +641,47 @@ class ExecutionDispatcher:
         )
 
     def _claim(self, context: Any, candidate: DispatchCandidate) -> bool:
+        """Take this node from the queue, if the queue knows about it.
+
+        **This layer was dead.** It called ``claim(context, worker_id=…,
+        limit=1)``, which no implementation of the port accepts -- the port is
+        ``(context, worker_id, kinds, seconds)``. Every call raised ``TypeError``
+        into an ``except TypeError: return True``, so the claim reported success
+        it had never obtained, on every dispatch, silently. Nothing enqueues
+        either, so even the correct call would have found an empty queue. The
+        module docstring's "ownership is the queue's, then the lease's" described
+        a layer that did not run (Phase 11.3 F-2).
+
+        The signature is now the port's, and the ``TypeError`` branch is gone
+        rather than kept as a safety net: with the right call it can only mask a
+        future signature regression, which is the defect it just caused.
+
+        An *absent* item still means proceed. The queue is a hint about where
+        work is, not the authority on who owns it -- the docstring is right that
+        it "can be lost" -- and the revision-checked lease (D-1) is what actually
+        refuses a second holder. What must never happen again is reporting a
+        claim that was never made.
+        """
+        kind = _worker_kind_of(candidate)
         try:
             claimed = self._queue.claim(
-                context, worker_id=f"dispatcher:{candidate.execution_id}", limit=1
+                context,
+                f"dispatcher:{candidate.execution_id}",
+                (kind,) if kind is not None else (),
+                self._claim_seconds,
             )
-        except TypeError:
-            # An older queue signature. Treated as unclaimable rather than
-            # assumed free -- the aggregate's lease check still decides.
-            return True
-        except Exception:  # noqa: BLE001
-            log.debug("queue claim failed", exc_info=True)
+        except Exception:  # noqa: BLE001 - a queue outage is not a decision
+            # Loud, not debug: this is the line whose silence hid F-2.
+            log.error("queue claim failed for %s/%s", candidate.execution_id,
+                      candidate.node_id, exc_info=True)
+            self._metrics.increment(
+                "execution.queue.unavailable", labels={"tenant": candidate.tenant_id}
+            )
             return True
         if not claimed:
             return True
-        return any(item.node_id == candidate.node_id for item in claimed)
+        items = claimed if isinstance(claimed, (list, tuple)) else (claimed,)
+        return any(item.node_id == candidate.node_id for item in items)
 
     def _release(self, context: Any, candidate: DispatchCandidate) -> None:
         if self._queue is None:
@@ -579,14 +707,56 @@ class ExecutionDispatcher:
     def _assign(self, context: Any, candidate: DispatchCandidate) -> Any:
         from backend.contexts.execution.application.commands import AssignNode
 
+        holder = self._lease_holder(candidate)
+        self._ensure_capacity(holder, candidate)
         return self._executions.assign(
             context,
             AssignNode(
                 execution_id=candidate.execution_id,
                 node_id=candidate.node_id,
-                worker_id=self._lease_holder(candidate),
+                worker_id=holder,
             ),
         )
+
+    def _ensure_capacity(self, holder: str, candidate: DispatchCandidate) -> None:
+        """Make sure *this* process's pool knows the holder it is about to use.
+
+        The lease holder is ``dispatcher:<execution id>`` and the pool that
+        answers "how much can it take?" is process-local. Until now only the
+        process that *started* the execution registered that entry, so a second
+        dispatcher failed at ``UnknownWorker`` before it ever reached the lease
+        — which is the capacity half of ADR-127 F-4.
+
+        Registering it here is not a grant. The pool answers capacity, never
+        authority: whether this worker may be *selected* is the durable
+        directory's answer, and whether the invocation is permitted at all is
+        re-decided by the gateway against the stored binding, authorization and
+        approval. What this removes is an accident of which process happened to
+        create the run.
+        """
+        kind = _worker_kind_of(candidate)
+        if kind is None:
+            return  # an unknown kind registers nothing; selection refuses it
+        pool = getattr(self._executions, "pool", None)
+        if pool is None:
+            return
+        try:
+            pool.get(holder)
+            return
+        except Exception:  # noqa: BLE001 - absent is the ordinary case
+            pass
+        from backend.contexts.execution.application.commands import RegisterWorker
+
+        try:
+            self._executions.register_worker(
+                RegisterWorker(
+                    worker_id=holder,
+                    kinds=(kind.value,),
+                    lease_seconds=self._claim_seconds,
+                )
+            )
+        except Exception:  # noqa: BLE001 - a lost registration race is harmless
+            log.debug("lease-holder registration failed", exc_info=True)
 
     def _reclaim_quietly(self, context: Any, candidate: DispatchCandidate) -> None:
         """Return a node whose invocation was refused before anything ran.

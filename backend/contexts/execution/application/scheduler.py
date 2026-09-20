@@ -55,7 +55,7 @@ import threading
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Any, Callable, Optional, Protocol, runtime_checkable
+from typing import Any, Callable, Optional, Protocol, Sequence, runtime_checkable
 
 from backend.contracts.errors import ContractViolation
 from backend.contexts.execution.application.dispatcher import ExecutionDispatcher
@@ -182,6 +182,9 @@ class ExecutionScheduler:
         clock: Optional[Clock] = None,
         leadership: Optional[LeadershipPort] = None,
         readiness: Optional[ReadinessPort] = None,
+        discovery: Optional[Callable[[Any], Sequence[str]]] = None,
+        discovery_limit: int = 100,
+        discovery_interval_seconds: float = 5.0,
     ) -> None:
         if interval_seconds <= 0:
             raise ContractViolation(
@@ -196,6 +199,10 @@ class ExecutionScheduler:
         self._clock = clock or SystemClock()
         self._leadership = leadership
         self._readiness = readiness
+        self._discovery = discovery
+        self._discovery_limit = discovery_limit
+        self._discovery_interval = max(0.0, float(discovery_interval_seconds))
+        self._discovered_at: Optional[float] = None
 
         self._state = SchedulerState.STOPPED
         self._lock = threading.RLock()
@@ -381,6 +388,7 @@ class ExecutionScheduler:
         ctx = context or self._context_factory()
         with self._lock:
             targets = list(self._targets)
+        targets = self._with_discovered(ctx, targets, caller_driven=context is not None)
 
         cycles: list = []
         dispatched = 0
@@ -397,6 +405,65 @@ class ExecutionScheduler:
             dispatched += report.dispatched
 
         return TickReport(at=now, cycles=tuple(cycles), dispatched=dispatched)
+
+    def _with_discovered(
+        self, context: Any, targets: list, *, caller_driven: bool = False
+    ) -> list:
+        """The tracked set, plus whatever the durable store says is dispatchable.
+
+        **This is the fix for F-3** (ADR-127; the signal-fabric report's F-1).
+        ``_targets`` is process-local, so a run started anywhere else was
+        dispatched by nobody, forever. Asking the store each tick makes dispatch
+        a property of the run rather than of the process that created it.
+
+        The tracked set is kept rather than replaced: a caller driving its own
+        execution through ``tick`` still gets it dispatched on the tick it asked
+        for, without waiting to be rediscovered.
+
+        Discovery grants nothing -- it is a bounded, tenant-narrowed read, and
+        every candidate is still authorized in full downstream. A discovery
+        failure degrades to the tracked set rather than stopping dispatch:
+        losing the query should cost the executions nobody is holding, not the
+        ones somebody is waiting on.
+        """
+        if self._discovery is None:
+            return targets
+
+        # **Discovery is a background sweep, not something to do on every tick.**
+        # Two guards, both learned the same way -- by breaking a real run.
+        #
+        # 1. A caller-driven tick does the caller's work, not the store's. A
+        #    governed read drives ``tick`` in a tight loop waiting for its own
+        #    node; sweeping there makes every caller pay for every orphan.
+        # 2. Even the background loop sweeps on an interval rather than at its
+        #    tick rate.
+        #
+        # Measured: governed reads never finalise their aggregate, so a live
+        # database held 1382 runs in RUNNING. Discovering per tick meant one
+        # governed read cycled up to 100 unrelated runs on each of up to 450
+        # ticks -- tens of thousands of dispatch cycles for a single read, and
+        # the run wedged (ADR-127 F-9).
+        if caller_driven:
+            return targets
+        now = self._clock.now().timestamp()
+        if (
+            self._discovered_at is not None
+            and (now - self._discovered_at) < self._discovery_interval
+        ):
+            return targets
+        self._discovered_at = now
+        try:
+            discovered = self._discovery(context) or ()
+        except Exception:  # noqa: BLE001 - a failed query is not a decision
+            log.error("durable dispatch discovery failed", exc_info=True)
+            self._metrics.increment("scheduler.discovery.failed")
+            return targets
+        known = set(targets)
+        for execution_id in discovered:
+            if execution_id not in known:
+                known.add(execution_id)
+                targets.append(execution_id)
+        return targets
 
     def track(self, execution_id: str) -> None:
         """Add an execution to the dispatch set."""

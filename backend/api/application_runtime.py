@@ -507,6 +507,11 @@ def build_governed_runtime(
         interval_seconds=float(os.getenv("CORTEX_SCHEDULER_INTERVAL", "0.5")),
         leadership=SchedulerLeadership(persistence.leadership),
         readiness=persistence.readiness_port,
+        # Phase 11.3 (ADR-127): dispatch targets come from the durable store, not
+        # only from what this process happened to start. Without this the
+        # scheduler dispatches an execution nobody else can see and no other
+        # process can rescue -- F-3.
+        discovery=lambda ctx: executions.dispatchable(ctx),
     )
     sink = extensions["event_sink"]
     if sink is None:

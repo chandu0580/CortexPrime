@@ -88,6 +88,8 @@ class ExecutionRepository(Protocol):
 
     def revision_of(self, context: Any, execution_id: ExecutionId) -> Optional[int]: ...
 
+    def find_with_revision(self, context: Any, execution_id: ExecutionId) -> tuple: ...
+
     def compare_and_swap(
         self, context: Any, execution: Execution, *, expected_revision: int
     ) -> int: ...
@@ -168,6 +170,25 @@ class InMemoryExecutionRepository:
         self._guard.authorize(StorageOperation.READ, context)
         with self._lock:
             return self._revisions.get(str(execution_id))
+
+    def find_with_revision(self, context: Any, execution_id: ExecutionId) -> tuple:
+        """The run and the revision it was read at, under one lock.
+
+        Reading the two separately lets a writer land between them, leaving a
+        caller with a stale aggregate and a fresh revision -- which makes
+        ``compare_and_swap`` match and overwrite the very lease it exists to
+        protect. Measured across processes in Phase 11.3; the same shape of race
+        is possible between threads here.
+        """
+        access = self._guard.authorize(StorageOperation.READ, context)
+        with self._lock:
+            key = str(execution_id)
+            for stored in self._visible(access):
+                if stored["execution_id"] != key:
+                    continue
+                self._guard.assert_in_scope(_Row(stored), access)
+                return (from_record(stored), self._revisions.get(key))
+        return (None, None)
 
     def compare_and_swap(
         self, context: Any, execution: Execution, *, expected_revision: int

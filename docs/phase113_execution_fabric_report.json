@@ -1,0 +1,120 @@
+{
+  "phase": "11.3",
+  "adr": "ADR-127",
+  "checks": [
+    {
+      "name": "the parent started the runs and then takes no further part",
+      "ok": true,
+      "detail": "12 executions"
+    },
+    {
+      "name": "4 real processes, 12 nodes: no node is held by two of them",
+      "ok": true,
+      "detail": "0 duplicates"
+    },
+    {
+      "name": "every node was taken by somebody",
+      "ok": true,
+      "detail": "0 orphans"
+    },
+    {
+      "name": "every loser was refused with a named conflict, not a crash",
+      "ok": true,
+      "detail": "[\"ConcurrentExecutionUpdate\", \"NodeAlreadyLeased\"]"
+    },
+    {
+      "name": "a process that never saw the run finds it dispatchable",
+      "ok": true,
+      "detail": "01M2ZD099V292S88RS6VER39CG"
+    },
+    {
+      "name": "its scheduler cycles that run with an empty tracked set",
+      "ok": true,
+      "detail": "{\"tracked\": [], \"cycled\": 83}"
+    },
+    {
+      "name": "another tenant's discovery does not return this tenant's run",
+      "ok": true,
+      "detail": "0 rows visible to the other tenant"
+    },
+    {
+      "name": "another tenant cannot lease this tenant's node",
+      "ok": true,
+      "detail": "ExecutionNotFound"
+    },
+    {
+      "name": "a binding that names no tenant produces no dispatch context",
+      "ok": true,
+      "detail": "refused rather than defaulted"
+    },
+    {
+      "name": "the rebuilt context carries the binding's own tenant and principal",
+      "ok": true,
+      "detail": "{\"tenant\": \"tenant-p113\", \"principal\": \"the-original-caller\", \"platform_internal\": false}"
+    },
+    {
+      "name": "a dispatcher cannot choose the tenant: it is read, never supplied",
+      "ok": true,
+      "detail": "tenant-p113"
+    },
+    {
+      "name": "a dispatcher leased the node, then its process is gone",
+      "ok": true,
+      "detail": "lease held"
+    },
+    {
+      "name": "the run is still in the durable store after the holder disappeared",
+      "ok": true,
+      "detail": "01M2ZD0EM9KAXC0FKP2R22YGDQ"
+    },
+    {
+      "name": "once the lease lapses the node is reported reclaimable",
+      "ok": true,
+      "detail": "{\"before\": [], \"after\": [\"node-a\"]}"
+    },
+    {
+      "name": "a live lease is NOT reclaimable (a slow worker is not a dead one)",
+      "ok": true,
+      "detail": "[]"
+    }
+  ],
+  "measurements": {
+    "fence_seconds": 4.7,
+    "fence": {
+      "processes": 4,
+      "nodes": 12,
+      "duplicates": 0,
+      "orphans": 0
+    },
+    "reclaimable_immediately": [],
+    "wall_clock_seconds": 21.7
+  },
+  "stages": [
+    "FENCE: real processes race one node; exactly one may hold it",
+    "DURABLE: a process dispatches an execution it never started",
+    "SECURITY: the fabric change moved who carries a decision, not what was decided",
+    "RECOVERY: a dispatcher that dies does not take the run with it"
+  ],
+  "negative_matrix": [
+    {
+      "case": "cross-tenant discovery",
+      "stopped_by": "repository tenant narrowing",
+      "detail": "the run is absent from the other tenant's dispatchable set"
+    },
+    {
+      "case": "cross-tenant lease",
+      "stopped_by": "repository tenant narrowing",
+      "detail": "ExecutionNotFound"
+    },
+    {
+      "case": "dispatch under a binding with no tenant",
+      "stopped_by": "dispatcher context reconstruction",
+      "detail": "returns None; the caller refuses before any lease"
+    }
+  ],
+  "passed": 15,
+  "failed": 0,
+  "total": 15,
+  "failed_checks": [],
+  "verdict": "VERIFIED"
+}

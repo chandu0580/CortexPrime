@@ -1,0 +1,1155 @@
+{
+ "phase": "11.2",
+ "adr": "ADR-126",
+ "checks": [
+  {
+   "name": "this phase's database and its secret exist",
+   "ok": true,
+   "detail": "cortexprime_p112"
+  },
+  {
+   "name": "the GitHub token is held in Vault, under the tenant's path, for both providers",
+   "ok": true,
+   "detail": "secret/cortexprime/providers/tenant-p112000a/staging/(github|github-contained)"
+  },
+  {
+   "name": "the operator's Vault configuration for this GitHub connection applied (idempotent)",
+   "ok": true,
+   "detail": "e policies it already has\n    policies now: cortexprime-kubernetes-cortex-conn-a,cortexprime-github-tenant-p112000a-staging\nVault is configured for the GitHub connection of tenant-p112000a (staging).\n"
+  },
+  {
+   "name": "helm upgrade --install --wait succeeded (runtime, GitHub worker, Redis)",
+   "ok": true,
+   "detail": "horization: Bearer $TOKEN\" http://127.0.0.1:8110/api/v1/connectors/kubernetes\n\n   CONNECTED means every shipped capability's requirements hold. Anything else\n   names the check that failed: the missing permission, the credential Vault\n   refused, or the endpoint it could not reach.\n\n3. Metrics: svc/cortexprime-governed port 9102 (Prometheus format).\n\nVault must be configured once for this connection:\n     scripts/connector/configure_vault_kubernetes.sh (see docs/KUBERNETES_CONNECTOR_RUNBOOK.md)\n"
+  },
+  {
+   "name": "the GitHub worker, its service and its egress policy are deployed",
+   "ok": true,
+   "detail": "['deployment.apps/contained-github-worker', 'service/contained-github-worker', 'serviceaccount/contained-github-worker', 'networkpolicy.networking.k8s.io/contained-github-worker-egress']"
+  },
+  {
+   "name": "tenants and the approver's scoped authority are provisioned",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "no credential -> the connector API refuses (401)",
+   "ok": true,
+   "detail": "401"
+  },
+  {
+   "name": "health CONNECTED, read through the product API as the connection's tenant",
+   "ok": true,
+   "detail": "{\"connector\": \"github\", \"tenant_id\": \"tenant-p112000a\", \"state\": \"CONNECTED\", \"summary\": \"connected; 10 capabilities available\", \"checked_at\": \"2026-09-20T12:45:53.755349+00:00\", \"duration_seconds\": 1.927, \"available_capabilities\": [\"platform.github.repository.get_repository\", \"platform.github.repository.list_commits\", \"platform.github.repository.get_commit\", \"platform.github.repository.list_pull_requests\", \"platform.github.repository.get_pull_request\", \"platform.github.repository.list_workflow_"
+  },
+  {
+   "name": "all 10 shipped capabilities commissioned at boot, zero conflicts or failures",
+   "ok": true,
+   "detail": "{'available': ['platform.github.repository.get_repository', 'platform.github.repository.list_commits', 'platform.github.repository.get_commit', 'platform.github.repository.list_pull_requests', 'platform.github.repository.get_pull_request', 'platform.github.repository.list_workflow_runs', 'platform.github.repository.get_workflow_run', 'platform.github.repository.list_deployments', 'platform.github.repository.get_issue', 'platform.github.repository.create_issue_comment'], 'conflicts': {}, 'failed': {}, 'skipped': {}}"
+  },
+  {
+   "name": "every capability publishes its contract (description, schema, permission, risk, retry, timeout, verification)",
+   "ok": true,
+   "detail": "['platform.github.repository.create_issue_comment', 'platform.github.repository.get_commit', 'platform.github.repository.get_issue', 'platform.github.repository.get_pull_request', 'platform.github.repository.get_repository', 'platform.github.repository.get_workflow_run', 'platform.github.repository.list_commits', 'platform.github.repository.list_deployments', 'platform.github.repository.list_pull_requests', 'platform.github.repository.list_workflow_runs']"
+  },
+  {
+   "name": "the one write is NEVER-retry, independently verified and not reversible",
+   "ok": true,
+   "detail": "{'effect': 'write', 'retry': 'never', 'verification': 'independent_readback', 'reversible': False, 'risk': 'medium'}"
+  },
+  {
+   "name": "no arbitrary request / exec / shell capability is published",
+   "ok": true,
+   "detail": "['platform.github.repository.create_issue_comment', 'platform.github.repository.get_commit', 'platform.github.repository.get_issue', 'platform.github.repository.get_pull_request', 'platform.github.repository.get_repository', 'platform.github.repository.get_workflow_run', 'platform.github.repository.list_commits', 'platform.github.repository.list_deployments', 'platform.github.repository.list_pull_requests', 'platform.github.repository.list_workflow_runs']"
+  },
+  {
+   "name": "the connector list shows GitHub beside Kubernetes, each with its own state",
+   "ok": true,
+   "detail": "{'kubernetes': 'MISCONFIGURED', 'github': 'CONNECTED'}"
+  },
+  {
+   "name": "the runtime holds no GitHub token in its environment or ConfigMap",
+   "ok": true,
+   "detail": "[]"
+  },
+  {
+   "name": "the contained worker holds no credential at all: only its bindings",
+   "ok": true,
+   "detail": "['CORTEX_BIND_CAPABILITY_ID', 'CORTEX_BIND_CAPABILITY_VERSION', 'CORTEX_BIND_OPERATION', 'CORTEX_BIND_PROVIDER', 'CORTEX_BIND_REPOSITORIES', 'CORTEX_BIND_TENANT', 'CORTEX_GITHUB_API_HOST', 'CORTEX_IMPLEMENTATION_DIGEST', 'CORTEX_IMPLEMENTATION_VERSION']"
+  },
+  {
+   "name": "the worker is bound to exactly the connected repository",
+   "ok": true,
+   "detail": "chandu0580/CortexPrime"
+  },
+  {
+   "name": "the worker mounts no service-account token and holds no Kubernetes permission",
+   "ok": true,
+   "detail": "False"
+  },
+  {
+   "name": "no GitHub token value appears in the runtime's log",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "Vault holds the token for this tenant, this environment and this provider",
+   "ok": true,
+   "detail": "secret/cortexprime/providers/<tenant>/<env>/github"
+  },
+  {
+   "name": "tenant B: the GitHub connector reports DISABLED (it has no connection)",
+   "ok": true,
+   "detail": "{'state': 'DISABLED', 'summary': 'your tenant has no connection for this connector'}"
+  },
+  {
+   "name": "tenant B learns nothing about A's connection (no repository, no owner, no tenant id)",
+   "ok": true,
+   "detail": "[]"
+  },
+  {
+   "name": "a tenant-B member presenting A's tenant claim is refused",
+   "ok": true,
+   "detail": "403"
+  },
+  {
+   "name": "the connected repository is readable through the governed path",
+   "ok": true,
+   "detail": "{'id': 1304831979, 'private': False, 'full_name': 'chandu0580/CortexPrime', 'default_branch': 'main'}"
+  },
+  {
+   "name": "a repository outside the connection (same credential can see it) -> refused by gateway input stage (connection scope) (0 GitHub writes)",
+   "ok": true,
+   "detail": "invocation refused at dispatch: input_invalid: owner/repo 'chandu0580/Student-Expense-Tracking-System' is outside this tenant's github connection"
+  },
+  {
+   "name": "half a repository identifier (repo without owner) -> refused by gateway input stage (connection scope) (0 GitHub writes)",
+   "ok": true,
+   "detail": "invocation refused at dispatch: input_invalid: owner: required; owner must be given: part of a owner/repo does not identify a target, and an unscoped github call cannot be authorized"
+  },
+  {
+   "name": "the refusal names the connection rather than the provider's answer",
+   "ok": true,
+   "detail": "invocation refused at dispatch: input_invalid: owner/repo 'chandu0580/Student-Expense-Tracking-System' is outside this tenant's github connection"
+  },
+  {
+   "name": "the refusal was the platform's, not GitHub's: the same token CAN read that repository",
+   "ok": true,
+   "detail": "direct GET /repos/<other> = 200"
+  },
+  {
+   "name": "real read: repository.get_repository",
+   "ok": true,
+   "detail": "{\"id\": 1304831979, \"private\": false, \"full_name\": \"chandu0580/CortexPrime\", \"default_branch\": \"main\"}"
+  },
+  {
+   "name": "real read: repository.list_commits",
+   "ok": true,
+   "detail": "{\"count\": 5, \"commits\": [{\"sha\": \"cea434539915e4d926bdfdd39f5c0eac209c7843\", \"html_url\": \"https://github.com/chandu0580/CortexPrime/commit/cea434539915e4d926bdfdd39f5c0eac209c7843\", \"authored_at\": \"20"
+  },
+  {
+   "name": "real read: repository.get_commit",
+   "ok": true,
+   "detail": "{\"sha\": \"cea434539915e4d926bdfdd39f5c0eac209c7843\", \"files\": [{\"status\": \"modified\", \"filename\": \"backend/main.py\", \"additions\": 10, \"deletions\": 0}, {\"status\": \"added\", \"filename\": \"backend/services/"
+  },
+  {
+   "name": "real read: repository.list_pull_requests",
+   "ok": true,
+   "detail": "{\"count\": 5, \"pull_requests\": [{\"state\": \"open\", \"title\": \"Bump js-yaml from 4.1.1 to 4.3.2 in /frontend\", \"number\": 15, \"base_ref\": \"main\", \"head_ref\": \"dependabot/npm_and_yarn/frontend/js-yaml-4.3.2"
+  },
+  {
+   "name": "real read: repository.list_workflow_runs",
+   "ok": true,
+   "detail": "{\"count\": 5, \"total_count\": 141, \"workflow_runs\": [{\"id\": 34856215965, \"name\": \"Security Scan\", \"event\": \"schedule\", \"status\": \"completed\", \"head_sha\": \"cea434539915e4d926bdfdd39f5c0eac209c7843\", \"htm"
+  },
+  {
+   "name": "real read: repository.list_deployments",
+   "ok": true,
+   "detail": "{\"count\": 3, \"deployments\": [{\"id\": 5702954235, \"ref\": \"main\", \"sha\": \"23e22ed8d83dd8fd434fe4a53d7ab68ce8b772b3\", \"task\": \"deploy\", \"created_at\": \"2026-08-01T08:19:37Z\", \"updated_at\": \"2026-08-01T08:1"
+  },
+  {
+   "name": "real read: repository.get_pull_request",
+   "ok": true,
+   "detail": "{\"draft\": false, \"state\": \"open\", \"title\": \"Bump js-yaml from 4.1.1 to 4.3.2 in /frontend\", \"merged\": false, \"number\": 15, \"commits\": 1, \"base_ref\": \"main\", \"head_ref\": \"dependabot/npm_and_yarn/fronte"
+  },
+  {
+   "name": "real read: repository.get_workflow_run",
+   "ok": true,
+   "detail": "{\"id\": 34856215965, \"name\": \"Security Scan\", \"event\": \"schedule\", \"status\": \"completed\", \"head_sha\": \"cea434539915e4d926bdfdd39f5c0eac209c7843\", \"html_url\": \"https://github.com/chandu0580/CortexPrime/"
+  },
+  {
+   "name": "a commit list answers what changed, when and by whom",
+   "ok": true,
+   "detail": "{'sha': 'cea434539915e4d926bdfdd39f5c0eac209c7843', 'html_url': 'https://github.com/chandu0580/CortexPrime/commit/cea434539915e4d926bdfdd39f5c0eac209c7843', 'authored_at': '2026-08-02T18:12:56Z', 'author_login': 'chandu0580', 'message_line': 'Close the approval loop: replay gated actions once a human approves'}"
+  },
+  {
+   "name": "a commit detail answers how much changed",
+   "ok": true,
+   "detail": "{'sha': 'cea434539915e4d926bdfdd39f5c0eac209c7843', 'files': [{'status': 'modified', 'filename': 'backend/main.py', 'additions': 10, 'deletions': 0}, {'status': 'added', 'filename': 'backend/services/enterprise_approval_action_dispatcher.py', 'additions': 168, 'deletions': 0}, {'status': 'modified', 'filename': 'backend/services/enterprise_branch_protection_fix_executor.py', 'additions': 24, 'deletions': 8}, {'status': 'modified', 'filename': 'backend/services/enterprise_deploy_rollback_executor.py', 'additions': 93, 'deletions': 57}, {'status': 'modified', 'filename': 'backend/services/enterp"
+  },
+  {
+   "name": "a workflow-run list answers what ran and how it ended",
+   "ok": true,
+   "detail": "{'id': 34856215965, 'name': 'Security Scan', 'event': 'schedule', 'status': 'completed', 'head_sha': 'cea434539915e4d926bdfdd39f5c0eac209c7843', 'html_url': 'https://github.com/chandu0580/CortexPrime/actions/runs/34856215965', 'conclusion': 'failure', 'created_at': '2026-09-14T14:31:58Z', 'run_number': 19, 'updated_at': '2026-09-14T14:33:21Z', 'head_branch': 'main'}"
+  },
+  {
+   "name": "responses are normalized and bounded, never raw GitHub payloads",
+   "ok": true,
+   "detail": "2076"
+  },
+  {
+   "name": "a governed write with no approval -> refused by authorization (approval required) (0 GitHub writes)",
+   "ok": true,
+   "detail": "authorization refused: approval_required (effect=require_approval)"
+  },
+  {
+   "name": "an approval was requested for this exact action",
+   "ok": true,
+   "detail": "{'approval_id': 'appr-p112-1789908767', 'digest': '88309099809186f0'}"
+  },
+  {
+   "name": "the request is visible in the human approval queue",
+   "ok": true,
+   "detail": "{'code': 200, 'count': 1}"
+  },
+  {
+   "name": "approval by a tenant member without approve authority -> refused by approval authority (0 GitHub writes)",
+   "ok": true,
+   "detail": "HTTP 403"
+  },
+  {
+   "name": "approval by another tenant's approver -> refused by tenant boundary (0 GitHub writes)",
+   "ok": true,
+   "detail": "HTTP 404"
+  },
+  {
+   "name": "the scoped approver approved through the product API",
+   "ok": true,
+   "detail": "HTTP 200 {\"approval_id\": \"appr-p112-1789908767\", \"investigation_ref\": null, \"capability_ref\": \"platform.github.repository.create_issue_comment@1\", \"capability_digest\": \""
+  },
+  {
+   "name": "REAL WRITE: the governed write succeeded through the contained worker",
+   "ok": true,
+   "detail": "{'html_url': 'https://github.com/chandu0580/CortexPrime/issues/22#issuecomment-5749916554', 'issue_url': 'https://api.github.com/repos/chandu0580/CortexPrime/issues/22', 'comment_id': 5749916554, 'created_at': '2026-09-20T12:52:23Z', 'body_sha256': '7c44505139e9b69cb5bf48d841b7d98615cf9d07fc15ede83f7a2fc00943fbee', 'author_login': 'chandu0580', 'action_marker': '239fcb9a214f0b82'}"
+  },
+  {
+   "name": "INDEPENDENT VERIFICATION: the comment exists on GitHub with the id the worker reported",
+   "ok": true,
+   "detail": "{'before': 0, 'after': 1, 'worker_id': 5749916554}"
+  },
+  {
+   "name": "the comment carries the action that produced it, and the text that was approved",
+   "ok": true,
+   "detail": "{'author': 'chandu0580', 'marker': '239fcb9a214f0b82'}"
+  },
+  {
+   "name": "the body GitHub holds is byte-for-byte the body the worker composed",
+   "ok": true,
+   "detail": "7c44505139e9b69c"
+  },
+  {
+   "name": "the platform can verify the thread through its own governed read",
+   "ok": true,
+   "detail": "{'state': 'open', 'title': 'CortexPrime Phase 11.2 connector verification', 'number': 22, 'comments': 1, 'html_url': 'https://github.com/chandu0580/CortexPrime/issues/22', 'created_at': '2026-09-20T12:51:32Z', 'updated_at': '2026-09-20T12:52:23Z', 'author_login': 'chandu0580'}"
+  },
+  {
+   "name": "the approval is marked consumed by the action that spent it",
+   "ok": true,
+   "detail": "{'execution_ref': 'appr-p112-1789908767'}"
+  },
+  {
+   "name": "replaying the consumed approval -> refused by authorization (approval consumed) (0 GitHub writes)",
+   "ok": true,
+   "detail": "authorization refused: approval_required (effect=require_approval)"
+  },
+  {
+   "name": "a prompt-injection comment is read as bounded evidence, not instruction",
+   "ok": true,
+   "detail": "{'evidence_keys': ['author_login', 'comments', 'created_at', 'html_url', 'number', 'state', 'title', 'updated_at']}"
+  },
+  {
+   "name": "argument injection: path traversal in repo -> refused by input validation / connection scope (0 GitHub writes)",
+   "ok": true,
+   "detail": "the node recorded no attempt"
+  },
+  {
+   "name": "argument injection: url in owner -> refused by input validation / connection scope (0 GitHub writes)",
+   "ok": true,
+   "detail": "the node recorded no attempt"
+  },
+  {
+   "name": "argument injection: query smuggling -> refused by input validation / connection scope (0 GitHub writes)",
+   "ok": true,
+   "detail": "the node recorded no attempt"
+  },
+  {
+   "name": "argument injection: second target -> refused by input validation / connection scope (0 GitHub writes)",
+   "ok": true,
+   "detail": "the node recorded no attempt"
+  },
+  {
+   "name": "a write aimed at a repository outside the connection -> refused by gateway / worker binding (0 GitHub writes)",
+   "ok": true,
+   "detail": "authorization refused: approval_required (effect=require_approval)"
+  },
+  {
+   "name": "V1 GitHub create_issue -> refused by legacy execution boundary (0 GitHub writes)",
+   "ok": true,
+   "detail": "connector:github.create_issue is a V1 execution surface and is disabled. Execution reaches a provider through the govern"
+  },
+  {
+   "name": "V1 GitHub create_issue_comment -> refused by legacy execution boundary (0 GitHub writes)",
+   "ok": true,
+   "detail": "connector:github.create_issue_comment is a V1 execution surface and is disabled. Execution reaches a provider through th"
+  },
+  {
+   "name": "V1 GitHub dispatch_workflow -> refused by legacy execution boundary (0 GitHub writes)",
+   "ok": true,
+   "detail": "connector:github.dispatch_workflow is a V1 execution surface and is disabled. Execution reaches a provider through the g"
+  },
+  {
+   "name": "V1 GitHub merge_pull_request -> refused by legacy execution boundary (0 GitHub writes)",
+   "ok": true,
+   "detail": "connector:github.merge_pull_request is a V1 execution surface and is disabled. Execution reaches a provider through the "
+  },
+  {
+   "name": "V1 raw GitHub POST outside an admitted operation -> refused by effect gate (0 GitHub writes)",
+   "ok": true,
+   "detail": "connector:github.raw POST is a V1 execution surface and is disabled. Execution reaches a provider through the governed M"
+  },
+  {
+   "name": "the deployed governed product exposes no V1 GitHub route at all",
+   "ok": true,
+   "detail": "POST /api/github/sync -> 404"
+  },
+  {
+   "name": "a rejected GitHub credential -> not CONNECTED, with a credential-class reason",
+   "ok": true,
+   "detail": "{\"connector\": \"github\", \"tenant_id\": \"tenant-p112000a\", \"state\": \"AUTHENTICATION_REQUIRED\", \"summary\": \"authentication_required: repositories: chandu0580/CortexPrime -> authentication_failed: Bad credentials\", \"checked_at\": \"2026-09-20T13:01:06.086506+00:00\", \"duration_seconds\": 21.479, \"available_capabilities\": [\"platform.github.repository.get_repository\", \"platform.github.repository.list_commits"
+  },
+  {
+   "name": "the credential restored -> CONNECTED without a restart",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "the connection still reads its repository after recovery",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "the GitHub worker down -> DEGRADED; reads stay available; the comment is unavailable",
+   "ok": true,
+   "detail": "{'state': 'DEGRADED', 'unavailable': {'platform.github.repository.create_issue_comment': 'worker unreachable: not delivered'}}"
+  },
+  {
+   "name": "the worker back -> CONNECTED",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "the chart refuses a GitHub worker with no pinned digest, naming the value",
+   "ok": true,
+   "detail": "st is required: the platform checks the worker's implementation digest on every execution, and an unpinned worker is one nobody can attribute an action to\n\nUse --debug flag to render out invalid YAML\n"
+  },
+  {
+   "name": "the chart refuses a GitHub connection with no repositories",
+   "ok": true,
+   "detail": "(cortexprime-governed/templates/github-worker.yaml:9:4): github.repositories is required: a connection to 'whatever the token can see' is not a connection\n\nUse --debug flag to render out invalid YAML\n"
+  },
+  {
+   "name": "connector health is exported for both connectors",
+   "ok": true,
+   "detail": "8"
+  },
+  {
+   "name": "no metric carries a credential-like label or value",
+   "ok": true,
+   "detail": "[]"
+  },
+  {
+   "name": "governed GitHub work is recorded in the durable audit chain",
+   "ok": true,
+   "detail": "{'audit_logs': 0, 'cp_audit_chain': 1, 'cp_audit_record': 5070}"
+  },
+  {
+   "name": "no GitHub token value in the runtime log",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "no GitHub token value in the worker log",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "no GitHub token value in the this report",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "the worker logs no request bodies (method and path only)",
+   "ok": true,
+   "detail": "worker GET /healthz worker GET /healthz worker GET /healthz worker GET /healthz worker GET /healthz worker GET /healthz "
+  },
+  {
+   "name": "no GitHub token value in the durable store",
+   "ok": true,
+   "detail": "0"
+  },
+  {
+   "name": "contract evaluation: the GitHub manifest and its catalogs pass every rule",
+   "ok": true,
+   "detail": "[]"
+  },
+  {
+   "name": "behavioural evaluation: every question answered PASS from this run's real evidence",
+   "ok": true,
+   "detail": "{'select': 'PASS', 'arguments': 'PASS', 'governance': 'PASS', 'authorized_execution': 'PASS', 'verification': 'PASS', 'recovery': 'PASS', 'explain': 'PASS'}"
+  }
+ ],
+ "measurements": {
+  "github_identity": {
+   "login": "chandu0580",
+   "type": "User"
+  },
+  "helm_install_seconds": 14.7,
+  "github_objects": [
+   "deployment.apps/contained-github-worker",
+   "service/contained-github-worker",
+   "serviceaccount/contained-github-worker",
+   "networkpolicy.networking.k8s.io/contained-github-worker-egress"
+  ],
+  "seconds_to_connected": 67.4,
+  "health": {
+   "connector": "github",
+   "tenant_id": "tenant-p112000a",
+   "state": "CONNECTED",
+   "summary": "connected; 10 capabilities available",
+   "checked_at": "2026-09-20T12:45:53.755349+00:00",
+   "duration_seconds": 1.927,
+   "available_capabilities": [
+    "platform.github.repository.get_repository",
+    "platform.github.repository.list_commits",
+    "platform.github.repository.get_commit",
+    "platform.github.repository.list_pull_requests",
+    "platform.github.repository.get_pull_request",
+    "platform.github.repository.list_workflow_runs",
+    "platform.github.repository.get_workflow_run",
+    "platform.github.repository.list_deployments",
+    "platform.github.repository.get_issue",
+    "platform.github.repository.create_issue_comment"
+   ],
+   "unavailable_capabilities": {},
+   "checks": [
+    {
+     "name": "commissioning",
+     "ok": true,
+     "detail": "10 capabilities commissioned",
+     "error_class": null,
+     "state_if_failed": "MISCONFIGURED"
+    },
+    {
+     "name": "repositories",
+     "ok": true,
+     "detail": "all 1 connected repositories are readable with this connection's own credential",
+     "error_class": null,
+     "state_if_failed": "MISCONFIGURED"
+    },
+    {
+     "name": "worker:github-contained",
+     "ok": true,
+     "detail": "HTTP 200 over verified TLS",
+     "error_class": null,
+     "state_if_failed": "DEGRADED"
+    }
+   ]
+  },
+  "commissioning": {
+   "connector": "github",
+   "ok": true,
+   "available": [
+    "platform.github.repository.get_repository",
+    "platform.github.repository.list_commits",
+    "platform.github.repository.get_commit",
+    "platform.github.repository.list_pull_requests",
+    "platform.github.repository.get_pull_request",
+    "platform.github.repository.list_workflow_runs",
+    "platform.github.repository.get_workflow_run",
+    "platform.github.repository.list_deployments",
+    "platform.github.repository.get_issue",
+    "platform.github.repository.create_issue_comment"
+   ],
+   "commissioned": [],
+   "already_current": [
+    "platform.github.repository.get_repository",
+    "platform.github.repository.list_commits",
+    "platform.github.repository.get_commit",
+    "platform.github.repository.list_pull_requests",
+    "platform.github.repository.get_pull_request",
+    "platform.github.repository.list_workflow_runs",
+    "platform.github.repository.get_workflow_run",
+    "platform.github.repository.list_deployments",
+    "platform.github.repository.get_issue",
+    "platform.github.repository.create_issue_comment"
+   ],
+   "skipped": {},
+   "conflicts": {},
+   "failed": {},
+   "workers_admitted": [
+    "github-connector",
+    "github-contained-worker"
+   ]
+  },
+  "read_evidence": {
+   "repository.get_repository": {
+    "id": 1304831979,
+    "private": false,
+    "full_name": "chandu0580/CortexPrime",
+    "default_branch": "main"
+   },
+   "repository.list_commits": {
+    "count": 5,
+    "commits": [
+     {
+      "sha": "cea434539915e4d926bdfdd39f5c0eac209c7843",
+      "html_url": "https://github.com/chandu0580/CortexPrime/commit/cea434539915e4d926bdfdd39f5c0eac209c7843",
+      "authored_at": "2026-08-02T18:12:56Z",
+      "author_login": "chandu0580",
+      "message_line": "Close the approval loop: replay gated actions once a human approves"
+     },
+     {
+      "sha": "7cb134caf1bbce5224b20c626e72d6d7a4761239",
+      "html_url": "https://github.com/chandu0580/CortexPrime/commit/7cb134caf1bbce5224b20c626e72d6d7a4761239",
+      "authored_at": "2026-08-02T17:39:30Z",
+      "author_login": "chandu0580",
+      "message_line": "Add branch protection gap detection & gated remediation (8th detector)"
+     },
+     {
+      "sha": "9d4110a43c2fb75c1116e38d22daa3e958fdf591",
+      "html_url": "https://github.com/chandu0580/CortexPrime/commit/9d4110a43c2fb75c1116e38d22daa3e958fdf591",
+      "authored_at": "2026-08-02T17:00:24Z",
+      "author_login": "chandu0580",
+      "message_line": "Add vulnerability monitoring; gate automated actions behind approval"
+     },
+     {
+      "sha": "92fd748b8bb8d433f5c121699a98a7e403f62dc2",
+      "html_url": "https://github.com/chandu0580/CortexPrime/commit/92fd748b8bb8d433f5c121699a98a7e403f62dc2",
+      "authored_at": "2026-08-02T14:08:32Z",
+      "author_login": "chandu0580",
+      "message_line": "Fix Redis: a misplaced function silently broke the connection pool class"
+     },
+     {
+      "sha": "588b6a0a854987c403362f22251136d602a85da2",
+      "html_url": "https://github.com/chandu0580/CortexPrime/commit/588b6a0a854987c403362f22251136d602a85da2",
+      "authored_at": "2026-08-02T13:40:46Z",
+      "author_login": "chandu0580",
+      "message_line": "Fix watcher startup ordering: connectors weren't registered yet"
+     }
+    ]
+   },
+   "repository.get_commit": {
+    "sha": "cea434539915e4d926bdfdd39f5c0eac209c7843",
+    "files": [
+     {
+      "status": "modified",
+      "filename": "backend/main.py",
+      "additions": 10,
+      "deletions": 0
+     },
+     {
+      "status": "added",
+      "filename": "backend/services/enterprise_approval_action_dispatcher.py",
+      "additions": 168,
+      "deletions": 0
+     },
+     {
+      "status": "modified",
+      "filename": "backend/services/enterprise_branch_protection_fix_executor.py",
+      "additions": 24,
+      "deletions": 8
+     },
+     {
+      "status": "modified",
+      "filename": "backend/services/enterprise_deploy_rollback_executor.py",
+      "additions": 93,
+      "deletions": 57
+     },
+     {
+      "status": "modified",
+      "filename": "backend/services/enterprise_vulnerability_fix_executor.py",
+      "additions": 23,
+      "deletions": 9
+     },
+     {
+      "status": "added",
+      "filename": "tests/test_approval_action_dispatcher.py",
+      "additions": 145,
+      "deletions": 0
+     },
+     {
+      "status": "modified",
+      "filename": "tests/test_branch_protection_fix_executor.py",
+      "additions": 45,
+      "deletions": 1
+     },
+     {
+      "status": "modified",
+      "filename": "tests/test_deploy_rollback_executor.py",
+      "additions": 43,
+      "deletions": 1
+     },
+     {
+      "status": "modified",
+      "filename": "tests/test_vulnerability_fix_executor.py",
+      "additions": 47,
+      "deletions": 1
+     }
+    ],
+    "html_url": "https://github.com/chandu0580/CortexPrime/commit/cea434539915e4d926bdfdd39f5c0eac209c7843",
+    "additions": 598,
+    "deletions": 77,
+    "authored_at": "2026-08-02T18:12:56Z",
+    "author_login": "chandu0580",
+    "committed_at": "2026-08-02T18:12:56Z",
+    "message_line": "Close the approval loop: replay gated actions once a human approves",
+    "parent_count": 1,
+    "files_changed": 9
+   },
+   "repository.list_pull_requests": {
+    "count": 5,
+    "pull_requests": [
+     {
+      "state": "open",
+      "title": "Bump js-yaml from 4.1.1 to 4.3.2 in /frontend",
+      "number": 15,
+      "base_ref": "main",
+      "head_ref": "dependabot/npm_and_yarn/frontend/js-yaml-4.3.2",
+      "head_sha": "ca7d680cbdb29890ea8e7a9a0b70093dc6cb3864",
+      "html_url": "https://github.com/chandu0580/CortexPrime/pull/15",
+      "created_at": "2026-09-13T19:33:46Z",
+      "author_login": "dependabot[bot]"
+     },
+     {
+      "state": "open",
+      "title": "Bump sharp and next in /frontend",
+      "number": 14,
+      "base_ref": "main",
+      "head_ref": "dependabot/npm_and_yarn/frontend/multi-602d0ec552",
+      "head_sha": "768118c722b780a7b2d949022900d727575f24d8",
+      "html_url": "https://github.com/chandu0580/CortexPrime/pull/14",
+      "created_at": "2026-09-11T03:32:08Z",
+      "author_login": "dependabot[bot]"
+     },
+     {
+      "state": "open",
+      "title": "Bump baseline-browser-mapping from 2.10.27 to 2.11.22 in /frontend",
+      "number": 13,
+      "base_ref": "main",
+      "head_ref": "dependabot/npm_and_yarn/frontend/baseline-browser-mapping-2.11.22",
+      "head_sha": "540ef2efb15d03b3792f4b582e9b6f5103e3e02f",
+      "html_url": "https://github.com/chandu0580/CortexPrime/pull/13",
+      "created_at": "2026-09-10T23:25:25Z",
+      "author_login": "dependabot[bot]"
+     },
+     {
+      "state": "open",
+      "title": "Bump @vitest/mocker and vitest in /frontend",
+      "number": 12,
+      "base_ref": "main",
+      "head_ref": "dependabot/npm_and_yarn/frontend/multi-d0c2d048a7",
+      "head_sha": "d19d6e8f59b46c458673b5a546895109ed1792f3",
+      "html_url": "https://github.com/chandu0580/CortexPrime/pull/12",
+      "created_at": "2026-09-10T08:14:50Z",
+      "author_login": "dependabot[bot]"
+     },
+     {
+      "state": "open",
+      "title": "Bump browserslist from 4.28.2 to 4.28.8 in /frontend",
+      "number": 11,
+      "base_ref": "main",
+      "head_ref": "dependabot/npm_and_yarn/frontend/browserslist-4.28.8",
+      "head_sha": "80b7b3d449a94e6a9a5ace9915369c3e66c524cf",
+      "html_url": "https://github.com/chandu0580/CortexPrime/pull/11",
+      "created_at": "2026-09-03T05:12:24Z",
+      "author_login": "dependabot[bot]"
+     }
+    ]
+   },
+   "repository.list_workflow_runs": {
+    "count": 5,
+    "total_count": 141,
+    "workflow_runs": [
+     {
+      "id": 34856215965,
+      "name": "Security Scan",
+      "event": "schedule",
+      "status": "completed",
+      "head_sha": "cea434539915e4d926bdfdd39f5c0eac209c7843",
+      "html_url": "https://github.com/chandu0580/CortexPrime/actions/runs/34856215965",
+      "conclusion": "failure",
+      "created_at": "2026-09-14T14:31:58Z",
+      "run_number": 19,
+      "updated_at": "2026-09-14T14:33:21Z",
+      "head_branch": "main"
+     },
+     {
+      "id": 34778070823,
+      "name": "CI",
+      "event": "pull_request",
+      "status": "completed",
+      "head_sha": "ca7d680cbdb29890ea8e7a9a0b70093dc6cb3864",
+      "html_url": "https://github.com/chandu0580/CortexPrime/actions/runs/34778070823",
+      "conclusion": "failure",
+      "created_at": "2026-09-13T19:33:50Z",
+      "run_number": 25,
+      "updated_at": "2026-09-13T19:37:05Z",
+      "head_branch": "dependabot/npm_and_yarn/frontend/js-yaml-4.3.2"
+     },
+     {
+      "id": 34778070811,
+      "name": "CI",
+      "event": "pull_request",
+      "status": "completed",
+      "head_sha": "ca7d680cbdb29890ea8e7a9a0b70093dc6cb3864",
+      "html_url": "https://github.com/chandu0580/CortexPrime/actions/runs/34778070811",
+      "conclusion": "failure",
+      "created_at": "2026-09-13T19:33:50Z",
+      "run_number": 24,
+      "updated_at": "2026-09-13T19:35:18Z",
+      "head_branch": "dependabot/npm_and_yarn/frontend/js-yaml-4.3.2"
+     },
+     {
+      "id": 34778068894,
+      "name": ".github/workflows/azure-pipeline.yml",
+      "event": "push",
+      "status": "completed",
+      "head_sha": "ca7d680cbdb29890ea8e7a9a0b70093dc6cb3864",
+      "html_url": "https://github.com/chandu0580/CortexPrime/actions/runs/34778068894",
+      "conclusion": "failure",
+      "created_at": "2026-09-13T19:33:48Z",
+      "run_number": 30,
+      "updated_at": "2026-09-13T19:33:48Z",
+      "head_branch": "dependabot/npm_and_yarn/frontend/js-yaml-4.3.2"
+     },
+     {
+      "id": 34778010781,
+      "name": "npm_and_yarn in /frontend for js-yaml - Update #1573692098",
+      "event": "dynamic",
+      "status": "completed",
+      "head_sha": "cea434539915e4d926bdfdd39f5c0eac209c7843",
+      "html_url": "https://github.com/chandu0580/CortexPrime/actions/runs/34778010781",
+      "conclusion": "success",
+      "created_at": "2026-09-13T19:32:42Z",
+      "run_number": 22,
+      "updated_at": "2026-09-13T19:33:48Z",
+      "head_branch": "main"
+     }
+    ]
+   },
+   "repository.list_deployments": {
+    "count": 3,
+    "deployments": [
+     {
+      "id": 5702954235,
+      "ref": "main",
+      "sha": "23e22ed8d83dd8fd434fe4a53d7ab68ce8b772b3",
+      "task": "deploy",
+      "created_at": "2026-08-01T08:19:37Z",
+      "updated_at": "2026-08-01T08:19:38Z",
+      "environment": "production"
+     },
+     {
+      "id": 5702731291,
+      "ref": "main",
+      "sha": "23e22ed8d83dd8fd434fe4a53d7ab68ce8b772b3",
+      "task": "deploy",
+      "created_at": "2026-08-01T07:44:31Z",
+      "updated_at": "2026-08-01T08:19:38Z",
+      "environment": "production"
+     },
+     {
+      "id": 5702502425,
+      "ref": "main",
+      "sha": "23e22ed8d83dd8fd434fe4a53d7ab68ce8b772b3",
+      "task": "deploy",
+      "created_at": "2026-08-01T07:05:35Z",
+      "updated_at": "2026-08-01T07:44:32Z",
+      "environment": "production"
+     }
+    ]
+   },
+   "repository.get_pull_request": {
+    "draft": false,
+    "state": "open",
+    "title": "Bump js-yaml from 4.1.1 to 4.3.2 in /frontend",
+    "merged": false,
+    "number": 15,
+    "commits": 1,
+    "base_ref": "main",
+    "head_ref": "dependabot/npm_and_yarn/frontend/js-yaml-4.3.2",
+    "head_sha": "ca7d680cbdb29890ea8e7a9a0b70093dc6cb3864",
+    "html_url": "https://github.com/chandu0580/CortexPrime/pull/15",
+    "additions": 16,
+    "deletions": 5,
+    "created_at": "2026-09-13T19:33:46Z",
+    "updated_at": "2026-09-13T19:33:46Z",
+    "author_login": "dependabot[bot]",
+    "changed_files": 1
+   },
+   "repository.get_workflow_run": {
+    "id": 34856215965,
+    "name": "Security Scan",
+    "event": "schedule",
+    "status": "completed",
+    "head_sha": "cea434539915e4d926bdfdd39f5c0eac209c7843",
+    "html_url": "https://github.com/chandu0580/CortexPrime/actions/runs/34856215965",
+    "conclusion": "failure",
+    "created_at": "2026-09-14T14:31:58Z",
+    "run_number": 19,
+    "updated_at": "2026-09-14T14:33:21Z",
+    "head_branch": "main",
+    "run_attempt": 1
+   }
+  },
+  "verification_issue": {
+   "number": 22,
+   "url": "https://github.com/chandu0580/CortexPrime/issues/22"
+  },
+  "seconds_approval_to_executed": 53.3,
+  "write_outcome": {
+   "approval_digest": "88309099809186f06f4a0650391bfb2d48b20d45db0eea84db35cceea7406997",
+   "succeeded": true,
+   "failure_reason": "",
+   "status": 201,
+   "evidence": {
+    "html_url": "https://github.com/chandu0580/CortexPrime/issues/22#issuecomment-5749916554",
+    "issue_url": "https://api.github.com/repos/chandu0580/CortexPrime/issues/22",
+    "comment_id": 5749916554,
+    "created_at": "2026-09-20T12:52:23Z",
+    "body_sha256": "7c44505139e9b69cb5bf48d841b7d98615cf9d07fc15ede83f7a2fc00943fbee",
+    "author_login": "chandu0580",
+    "action_marker": "239fcb9a214f0b82"
+   }
+  },
+  "metric_families": [
+   "cortex_active_agents",
+   "cortex_active_missions",
+   "cortex_active_voice_sessions",
+   "cortex_adapter_failure_created",
+   "cortex_adapter_failure_total",
+   "cortex_adapter_invocation_created",
+   "cortex_adapter_invocation_total",
+   "cortex_adapter_success_created",
+   "cortex_adapter_success_total",
+   "cortex_connector_health",
+   "cortex_credential_acquisition_success_created",
+   "cortex_credential_acquisition_success_total",
+   "cortex_investigations_active",
+   "cortex_mission_queue_depth",
+   "cortex_signal_cycle_seconds_bucket",
+   "cortex_signal_cycle_seconds_count",
+   "cortex_signal_cycle_seconds_created",
+   "cortex_signal_cycle_seconds_sum",
+   "cortex_signal_cycles_created",
+   "cortex_signal_cycles_total",
+   "cortex_signal_event_lag_seconds_bucket",
+   "cortex_signal_event_lag_seconds_count",
+   "cortex_signal_event_lag_seconds_created",
+   "cortex_signal_event_lag_seconds_sum",
+   "cortex_signal_events_deduplicated_created",
+   "cortex_signal_events_deduplicated_total",
+   "cortex_signal_events_persisted_created",
+   "cortex_signal_events_persisted_total",
+   "cortex_signal_events_received_created",
+   "cortex_signal_events_received_total",
+   "cortex_signal_facts_derived_created",
+   "cortex_signal_facts_derived_total",
+   "cortex_signal_handoffs_created",
+   "cortex_signal_handoffs_total",
+   "cortex_signal_incident_candidates",
+   "cortex_signal_worker_leader",
+   "cortex_stt_latency_ms_bucket",
+   "cortex_stt_latency_ms_count",
+   "cortex_stt_latency_ms_created",
+   "cortex_stt_latency_ms_sum"
+  ],
+  "audit_rows": {
+   "audit_logs": 0,
+   "cp_audit_chain": 1,
+   "cp_audit_record": 5070
+  },
+  "audit_kinds": [
+   [
+    "connector_operation",
+    2651
+   ],
+   [
+    "identity_event",
+    1209
+   ],
+   [
+    "execution_succeeded",
+    1137
+   ],
+   [
+    "execution_failed",
+    46
+   ],
+   [
+    "execution_refused",
+    22
+   ],
+   [
+    "policy_evaluated",
+    5
+   ]
+  ],
+  "evaluation_contract": {
+   "connector": "github",
+   "capabilities": 10,
+   "passed": true,
+   "findings": []
+  },
+  "evaluation_select": {
+   "verdict": "PASS",
+   "missing": []
+  },
+  "evaluation_arguments": {
+   "verdict": "PASS",
+   "missing": []
+  },
+  "evaluation_governance": {
+   "verdict": "PASS",
+   "missing": []
+  },
+  "evaluation_authorized_execution": {
+   "verdict": "PASS",
+   "missing": []
+  },
+  "evaluation_verification": {
+   "verdict": "PASS",
+   "missing": []
+  },
+  "evaluation_recovery": {
+   "verdict": "PASS",
+   "missing": []
+  },
+  "evaluation_explain": {
+   "verdict": "PASS",
+   "missing": []
+  },
+  "wall_clock_seconds": 1701.3
+ },
+ "negative_matrix": [
+  {
+   "case": "a repository outside the connection (same credential can see it)",
+   "stopped_by": "gateway input stage (connection scope)",
+   "detail": "invocation refused at dispatch: input_invalid: owner/repo 'chandu0580/Student-Expense-Tracking-System' is outside this tenant's github connection",
+   "github_writes": 0
+  },
+  {
+   "case": "half a repository identifier (repo without owner)",
+   "stopped_by": "gateway input stage (connection scope)",
+   "detail": "invocation refused at dispatch: input_invalid: owner: required; owner must be given: part of a owner/repo does not identify a target, and an unscoped github call cannot be authorized",
+   "github_writes": 0
+  },
+  {
+   "case": "a governed write with no approval",
+   "stopped_by": "authorization (approval required)",
+   "detail": "authorization refused: approval_required (effect=require_approval)",
+   "github_writes": 0
+  },
+  {
+   "case": "approval by a tenant member without approve authority",
+   "stopped_by": "approval authority",
+   "detail": "HTTP 403",
+   "github_writes": 0
+  },
+  {
+   "case": "approval by another tenant's approver",
+   "stopped_by": "tenant boundary",
+   "detail": "HTTP 404",
+   "github_writes": 0
+  },
+  {
+   "case": "replaying the consumed approval",
+   "stopped_by": "authorization (approval consumed)",
+   "detail": "authorization refused: approval_required (effect=require_approval)",
+   "github_writes": 0
+  },
+  {
+   "case": "argument injection: path traversal in repo",
+   "stopped_by": "input validation / connection scope",
+   "detail": "the node recorded no attempt",
+   "github_writes": 0
+  },
+  {
+   "case": "argument injection: url in owner",
+   "stopped_by": "input validation / connection scope",
+   "detail": "the node recorded no attempt",
+   "github_writes": 0
+  },
+  {
+   "case": "argument injection: query smuggling",
+   "stopped_by": "input validation / connection scope",
+   "detail": "the node recorded no attempt",
+   "github_writes": 0
+  },
+  {
+   "case": "argument injection: second target",
+   "stopped_by": "input validation / connection scope",
+   "detail": "the node recorded no attempt",
+   "github_writes": 0
+  },
+  {
+   "case": "a write aimed at a repository outside the connection",
+   "stopped_by": "gateway / worker binding",
+   "detail": "authorization refused: approval_required (effect=require_approval)",
+   "github_writes": 0
+  },
+  {
+   "case": "V1 GitHub create_issue",
+   "stopped_by": "legacy execution boundary",
+   "detail": "connector:github.create_issue is a V1 execution surface and is disabled. Execution reaches a provider through the govern",
+   "github_writes": 0
+  },
+  {
+   "case": "V1 GitHub create_issue_comment",
+   "stopped_by": "legacy execution boundary",
+   "detail": "connector:github.create_issue_comment is a V1 execution surface and is disabled. Execution reaches a provider through th",
+   "github_writes": 0
+  },
+  {
+   "case": "V1 GitHub dispatch_workflow",
+   "stopped_by": "legacy execution boundary",
+   "detail": "connector:github.dispatch_workflow is a V1 execution surface and is disabled. Execution reaches a provider through the g",
+   "github_writes": 0
+  },
+  {
+   "case": "V1 GitHub merge_pull_request",
+   "stopped_by": "legacy execution boundary",
+   "detail": "connector:github.merge_pull_request is a V1 execution surface and is disabled. Execution reaches a provider through the ",
+   "github_writes": 0
+  },
+  {
+   "case": "V1 raw GitHub POST outside an admitted operation",
+   "stopped_by": "effect gate",
+   "detail": "connector:github.raw POST is a V1 execution surface and is disabled. Execution reaches a provider through the governed M",
+   "github_writes": 0
+  }
+ ],
+ "failure_injections": [
+  {
+   "injection": "GitHub credential replaced with an invalid one",
+   "health": "AUTHENTICATION_REQUIRED",
+   "detail": "[{\"name\": \"commissioning\", \"ok\": true, \"detail\": \"10 capabilities commissioned\", \"error_class\": null, \"state_if_failed\": \"MISCONFIGURED\"}, {\"name\": \"repositories\", \"ok\": false, \"detail\": \"chandu0580/CortexPrime -> authentication_failed: Bad credentials\", \"error_class\": \"authentication_failed\", \"stat",
+   "recovered": true
+  },
+  {
+   "injection": "contained GitHub worker scaled to zero",
+   "health": "DEGRADED",
+   "detail": "{\"platform.github.repository.create_issue_comment\": \"worker unreachable: not delivered\"}",
+   "recovered": true
+  }
+ ],
+ "stages": [
+  "INSTALL",
+  "CONNECT",
+  "CREDS",
+  "TENANCY",
+  "READS",
+  "WRITE",
+  "SECURITY",
+  "FAILURES",
+  "OBSERVE",
+  "EVALUATE"
+ ],
+ "repository": "chandu0580/CortexPrime",
+ "environment": "staging",
+ "evaluation": {
+  "select": {
+   "question": "Can CortexPrime correctly select the capability?",
+   "verdict": "PASS",
+   "evidence": [
+    "the one write is NEVER-retry, independently verified and not reversible",
+    "real read: repository.list_commits",
+    "real read: repository.list_workflow_runs"
+   ],
+   "missing_evidence": []
+  },
+  "arguments": {
+   "question": "Can it produce valid arguments?",
+   "verdict": "PASS",
+   "evidence": [
+    "a commit list answers what changed, when and by whom",
+    "a commit detail answers how much changed",
+    "REAL WRITE: the governed write succeeded through the contained worker"
+   ],
+   "missing_evidence": []
+  },
+  "governance": {
+   "question": "Can governance reject unsafe operations?",
+   "verdict": "PASS",
+   "evidence": [
+    "no credential -> the connector API refuses (401)",
+    "a repository outside the connection (same credential can see it) -> refused by gateway input stage (connection scope) (0 GitHub writes)",
+    "a governed write with no approval -> refused by authorization (approval required) (0 GitHub writes)",
+    "approval by a tenant member without approve authority -> refused by approval authority (0 GitHub writes)",
+    "approval by another tenant's approver -> refused by tenant boundary (0 GitHub writes)",
+    "argument injection: path traversal in repo -> refused by input validation / connection scope (0 GitHub writes)",
+    "argument injection: url in owner -> refused by input validation / connection scope (0 GitHub writes)",
+    "argument injection: query smuggling -> refused by input validation / connection scope (0 GitHub writes)",
+    "argument injection: second target -> refused by input validation / connection scope (0 GitHub writes)",
+    "the deployed governed product exposes no V1 GitHub route at all"
+   ],
+   "missing_evidence": []
+  },
+  "authorized_execution": {
+   "question": "Can execution happen only after authorization?",
+   "verdict": "PASS",
+   "evidence": [
+    "the scoped approver approved through the product API",
+    "replaying the consumed approval -> refused by authorization (approval consumed) (0 GitHub writes)",
+    "a write aimed at a repository outside the connection -> refused by gateway / worker binding (0 GitHub writes)"
+   ],
+   "missing_evidence": []
+  },
+  "verification": {
+   "question": "Can verification correctly distinguish success from failure?",
+   "verdict": "PASS",
+   "evidence": [
+    "INDEPENDENT VERIFICATION: the comment exists on GitHub with the id the worker reported",
+    "the body GitHub holds is byte-for-byte the body the worker composed",
+    "the platform can verify the thread through its own governed read"
+   ],
+   "missing_evidence": []
+  },
+  "recovery": {
+   "question": "Can the system recover from provider failures?",
+   "verdict": "PASS",
+   "evidence": [
+    "the credential restored -> CONNECTED without a restart",
+    "the connection still reads its repository after recovery",
+    "the worker back -> CONNECTED"
+   ],
+   "missing_evidence": []
+  },
+  "explain": {
+   "question": "Can the system explain the result to the user?",
+   "verdict": "PASS",
+   "evidence": [
+    "health CONNECTED, read through the product API as the connection's tenant",
+    "every capability publishes its contract (description, schema, permission, risk, retry, timeout, verification)",
+    "the connector list shows GitHub beside Kubernetes, each with its own state",
+    "the GitHub worker down -> DEGRADED; reads stay available; the comment is unavailable"
+   ],
+   "missing_evidence": []
+  }
+ },
+ "passed": 81,
+ "failed": 0,
+ "total": 81,
+ "failed_checks": [],
+ "verdict": "VERIFIED"
+}

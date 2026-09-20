@@ -56,6 +56,14 @@ METRIC_NAMES = (
     "execution.dispatch.refused",
     "execution.lease.acquired",
     "execution.lease.conflict",
+    # Phase 11.3 (F-2): the queue claim could not be reached. Recorded because
+    # the dispatch proceeds on the lease alone, and a claim layer that is quietly
+    # absent is how F-2 survived unnoticed.
+    "execution.queue.unavailable",
+    # Phase 11.3 (D-2): a background dispatch ran under a tenant context rebuilt
+    # from the node's sealed binding. Counted because "the platform dispatched
+    # as a tenant" is a thing an operator should be able to see the rate of.
+    "execution.dispatch.rebound",
     "execution.lease.expired",
     "execution.invocation.admitted",
     "execution.invocation.refused",

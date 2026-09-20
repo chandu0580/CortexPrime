@@ -248,6 +248,42 @@ class SqlExecutionRepository:
             ).first()
         return from_record(row[0]) if row else None
 
+    def find_with_revision(
+        self,
+        context: Any,
+        execution_id: ExecutionId,
+        *,
+        unit: Optional[UnitOfWork] = None,
+    ) -> tuple:
+        """The run **and the revision it was read at**, in one statement.
+
+        Reading them separately is a race, and not a theoretical one: it was
+        measured. ``find`` then ``revision_of`` lets another process commit
+        between the two, so the caller holds an aggregate that still says the
+        node is free alongside a revision that already includes the lease. The
+        compare-and-swap then *matches* and the winner's lease is overwritten —
+        the very defect the revision check was added to close, reintroduced one
+        statement away from it. Four processes racing twelve nodes produced
+        twelve double-leases (Phase 11.3).
+
+        One ``SELECT`` of both columns cannot be interleaved, so the revision a
+        caller passes to ``compare_and_swap`` is always the revision of the copy
+        it actually decided from.
+
+        Returns ``(None, None)`` for a run this tenant cannot see.
+        """
+        access = self._guard.authorize(StorageOperation.READ, context)
+        with self._scope(unit) as work:
+            row = work.execute(
+                sa.select(execution_table.c.record, execution_table.c.revision).where(
+                    execution_table.c.execution_id == str(execution_id),
+                    *self._tenant_predicate(access),
+                )
+            ).first()
+        if row is None:
+            return (None, None)
+        return (from_record(row[0]), int(row[1]))
+
     def all(self, context: Any, *, unit: Optional[UnitOfWork] = None) -> Sequence[Execution]:
         """Every run visible to this context.
 
