@@ -20,7 +20,7 @@ Build, orchestrate, govern, and observe intelligent agents across your organizat
 
 <br>
 
-<img src="docs/assets/landing.png" alt="CortexPrime — landing page and operator console" width="100%">
+<img src="docs/assets/landing.png?v=2" alt="CortexPrime — landing page and operator console" width="100%">
 
 </div>
 
