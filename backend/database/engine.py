@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 from functools import wraps
 from typing import Any, Callable, TypeVar
 
@@ -79,15 +80,26 @@ def _build_dsn() -> str:
     """Return an asyncpg-compatible PostgreSQL DSN."""
     if url := os.getenv("POSTGRES_URL"):
         # Replace the scheme if the caller provided a plain postgres:// URL
-        return url.replace("postgresql://", "postgresql+asyncpg://", 1).replace(
+        url = url.replace("postgresql://", "postgresql+asyncpg://", 1).replace(
             "postgres://", "postgresql+asyncpg://", 1
         )
+        # A production URL carries the libpq ``sslmode=require``; asyncpg
+        # refuses that keyword (``connect() got an unexpected keyword argument
+        # 'sslmode'``) and takes the same modes as ``ssl=`` (Phase 11.1-K: the
+        # chart's migration Job failed on exactly this).
+        return re.sub(r"([?&])sslmode=", r"\1ssl=", url)
     user = os.getenv("POSTGRES_USER",     "cortex")
     pw   = os.getenv("POSTGRES_PASSWORD", "")
     host = os.getenv("POSTGRES_HOST",     "localhost")
     port = os.getenv("POSTGRES_PORT",     "5432")
     db   = os.getenv("POSTGRES_DB",       "cortexdb")
     return f"postgresql+asyncpg://{user}:{pw}@{host}:{port}/{db}"
+
+
+def _sync_dsn() -> str:
+    """The same DSN for psycopg2 (libpq): plain scheme, ``sslmode=`` kept."""
+    url = _build_dsn().replace("postgresql+asyncpg://", "postgresql://", 1)
+    return re.sub(r"([?&])ssl=", r"\1sslmode=", url)
 
 
 # ---------------------------------------------------------------------------

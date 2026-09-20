@@ -425,6 +425,7 @@ def build_production_connectivity(
     clock: Optional[Any] = None,
     enable_github: bool = True,
     connectors: Any = (),
+    connection_scopes: Any = (),
 ) -> ProductionConnectivity:
     """Assemble the one production path. Every seam wired, or refused.
 
@@ -593,6 +594,14 @@ def build_production_connectivity(
 
     # 6. Input validation, from the same catalogs the adapters build from.
     input_validator = build_operation_input_validator(*catalogs.values())
+    if connection_scopes:
+        # Phase 11.1-K: a capability may target only what the invoking tenant is
+        # connected to. Wrapping the ONE validator both the gateway and the
+        # worker runtime call keeps a single input authority.
+        from backend.api.connector_scope import ConnectionScopes, ConnectionScopeValidator
+
+        input_validator = ConnectionScopeValidator(
+            input_validator, ConnectionScopes(list(connection_scopes)))
 
     # 7. The runtime and the one gate.
     worker_runtime = build_worker_runtime(
@@ -689,6 +698,14 @@ def _bootstrap_vault_token(
     from backend.platform.credentials.material import CredentialMaterial
 
     raw = os.environ.get(_VAULT_TOKEN_ENV, "").strip()
+    if not raw and os.environ.get("CORTEX_VAULT_AUTH_ROLE", "").strip():
+        # Phase 11.1-K: the platform authenticates to Vault with Vault's
+        # Kubernetes auth method (the pod's projected ServiceAccount token) and
+        # holds no static Vault token at all. The connectors that use that path
+        # build their own renewing token source; the static-token KV adapters
+        # below are simply not registered in this process.
+        log.info("no %s: Vault is reached through Kubernetes auth", _VAULT_TOKEN_ENV)
+        return None
     if not raw:
         if config.environment is ExecutionEnvironment.PRODUCTION:
             raise ConnectivityMisconfigured(

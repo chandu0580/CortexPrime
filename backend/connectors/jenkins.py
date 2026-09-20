@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from backend.connectors.base import BaseConnector
+from backend.connectors.effects import guard_raw_request
 
 log = logging.getLogger(__name__)
 
@@ -90,6 +91,9 @@ class JenkinsConnector(BaseConnector):
         }
 
     async def _request(self, method: str, path: str, **kwargs) -> Any:
+        # Audit S-1: a state-changing raw request outside an admitted _execute
+        # operation is an unnamed write and meets the effect gate.
+        guard_raw_request(self.connector_type, method)
         if not self._client:
             raise RuntimeError("Jenkins connector not initialized")
         last_error: Optional[Exception] = None

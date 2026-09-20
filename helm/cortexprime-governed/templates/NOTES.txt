@@ -1,0 +1,19 @@
+CortexPrime governed runtime installed.
+
+Connection: tenant {{ .Values.connection.tenant }} -> namespace {{ .Values.connection.namespace }} ({{ .Values.connection.clusterRef }})
+
+1. Wait for the runtime:
+     kubectl -n {{ .Release.Namespace }} rollout status deploy/cortexprime-governed
+
+2. Ask it how the connection is doing (a CortexPrime token for the tenant is needed):
+     kubectl -n {{ .Release.Namespace }} port-forward svc/cortexprime-governed 8110:8110
+     curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8110/api/v1/connectors/kubernetes
+
+   CONNECTED means every shipped capability's requirements hold. Anything else
+   names the check that failed: the missing permission, the credential Vault
+   refused, or the endpoint it could not reach.
+
+3. Metrics: svc/cortexprime-governed port {{ .Values.metrics.port }} (Prometheus format).
+
+Vault must be configured once for this connection:
+     scripts/connector/configure_vault_kubernetes.sh (see docs/KUBERNETES_CONNECTOR_RUNBOOK.md)

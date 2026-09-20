@@ -281,7 +281,11 @@ def _compose_remediation(runtime):
             definitions=definitions,
             approvals=SqlApprovalRepository(runtime.persistence.store),
             writer_factory=writer_factory,
-            environment=ExecutionEnvironment.DEVELOPMENT,
+            # The deployment's own environment (Phase 11.1-K): hardcoded
+            # DEVELOPMENT made every production approval ask for a development
+            # authorization, which the capability contract refuses.
+            environment=(getattr(runtime, "environment", None)
+                         or ExecutionEnvironment.DEVELOPMENT),
             # The verb AUTHORIZATION is asked about, named here in composition
             # because this is where the connectivity context is already in
             # scope. It is NOT the provider operation, and conflating the two
@@ -294,12 +298,53 @@ def _compose_remediation(runtime):
         return None
 
 
+def _runs_governed_plane() -> bool:
+    import os
+
+    return (os.getenv("CORTEX_RUN_GOVERNED_PLANE") or "0").strip() == "1"
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    set_engine(compose_engine())
+    """Compose the engine; in governed-runtime mode also run the plane.
+
+    Phase 11.1-K: with ``CORTEX_RUN_GOVERNED_PLANE=1`` this process IS the
+    governed runtime a deployment runs (the slim image the Helm chart ships):
+    it validates its configuration and refuses to start with a message naming
+    every variable to fix, derives the per-loop settings from the one
+    connection, commissions connectors, and starts the signal, investigation
+    and remediation loops and connector health. Without it, the product API
+    composes read surfaces exactly as before.
+    """
+    plane = None
+    if _runs_governed_plane():
+        from backend.api.governed_plane import (
+            apply_connection_defaults,
+            validate_governed_environment,
+        )
+
+        apply_connection_defaults()
+        problems = validate_governed_environment()
+        if problems:
+            for problem in problems:
+                log.error("configuration: %s", problem)
+            raise RuntimeError("the governed runtime refuses to start: " + "; ".join(problems))
+    engine = compose_engine()
+    set_engine(engine)
+    if _runs_governed_plane():
+        runtime = getattr(engine, "runtime", None)
+        if runtime is None:
+            raise RuntimeError("the governed runtime could not be composed; see the log above")
+        from backend.api.governed_plane import start_governed_plane
+
+        runtime.start()
+        plane = start_governed_plane(runtime)
+        _app.state.plane = plane
     try:
         yield
     finally:
+        if plane is not None and plane.health is not None:
+            plane.health.stop()
         set_engine(None)
 
 
@@ -354,4 +399,34 @@ def build_product_app(*, engine: Optional[ProductEngine] = None) -> FastAPI:
     from backend.api.product.remediation_routes import router as governed_remediation_router
 
     app.include_router(governed_remediation_router)
+    # Phase 11.1-K: connectors, their health and their capability contracts.
+    # Read-only; a connection is deployment configuration, never a request.
+    from backend.api.product.connector_routes import router as connector_router
+
+    app.include_router(connector_router)
+
+    @app.get("/healthz", include_in_schema=False)
+    def healthz() -> dict:
+        """Liveness: the process answers. Deliberately nothing more."""
+        return {"status": "ok"}
+
+    @app.get("/readyz", include_in_schema=False)
+    def readyz() -> Any:
+        """Readiness: the governed engine is composed and its store is usable.
+
+        Connector health is NOT readiness: a DEGRADED connector must not take
+        the API (and every other connector) out of rotation.
+        """
+        from fastapi.responses import JSONResponse
+
+        engine = current_engine()
+        runtime = getattr(engine, "runtime", None) if engine is not None else None
+        ready = runtime is not None
+        if ready:
+            try:
+                ready = bool(runtime.persistence.readiness_port.is_ready())
+            except Exception:  # noqa: BLE001 - unverifiable is not ready
+                ready = False
+        return JSONResponse({"ready": ready}, status_code=200 if ready else 503)
+
     return app

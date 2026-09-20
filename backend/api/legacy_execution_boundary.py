@@ -118,7 +118,7 @@ LEGACY_EXECUTION_SURFACES: tuple = (
         gated=True,
     ),
     LegacyExecutionSurface(
-        route="POST /api/v1/runtime/execute",
+        route="POST /api/runtime/execute",
         module="backend.api.runtime_api",
         reaches="the V1 execution manager's cognition pipeline",
         gap="no tenant binding, no capability authorization; runs the V1 "
@@ -257,6 +257,39 @@ LEGACY_EXECUTION_SURFACES: tuple = (
         gap="a second approval authority beside cp_approval (ADR-090/113): "
         "in-memory, no tenant, no action digest, and until this phase the "
         "approver identity was a query parameter the caller chose",
+        gated=True,
+    ),
+    # Phase 11.1-K: connector reality audit findings S-1 and S-2
+    # (docs/PHASE_CONNECTOR_REALITY_AUDIT.md section 18). Missed by every earlier
+    # inventory; found by reading call sites, not route names.
+    LegacyExecutionSurface(
+        route="POST /api/git/{branches,commit,pull-request,pull-request/{n}/merge,issues/sync}",
+        module="backend.api.enterprise_git_routes",
+        reaches="enterprise_git_operations, which called GitHubConnector._request "
+        "directly: branch deletion, blob/tree/commit creation and a ref PATCH (a "
+        "push), PR edits, reviewer and label changes, issue comments",
+        gap="S-1: bypassed BaseConnector._execute and therefore the effect gate "
+        "and this flag; perimeter authentication only. Closed at two layers: this "
+        "route guard, and effects.guard_raw_request in every connector's raw "
+        "request method",
+        gated=True,
+    ),
+    LegacyExecutionSurface(
+        route="POST /api/runtime/autonomous-loop",
+        module="backend.api.runtime_api",
+        reaches="the V1 execution manager's autonomous loop and cognition "
+        "pipeline: Tavily and Azure OpenAI directly, episodic memory writes",
+        gap="S-2: its sibling /execute was gated and it was not; same pipeline, "
+        "no tenant binding, no capability authorization",
+        gated=True,
+    ),
+    LegacyExecutionSurface(
+        route="POST /api/orchestrator/{autonomous,route,reflect}",
+        module="backend.api.routes.orchestrator_routes",
+        reaches="the V1 autonomous reasoning loop (LLM gateway, memory writes), "
+        "the agent router (computer_agent screen analysis, a host effect) and the "
+        "reflection engine (episodic memory writes)",
+        gap="S-2: its sibling /execute was gated and these were not",
         gated=True,
     ),
 )

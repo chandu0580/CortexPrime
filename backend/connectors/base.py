@@ -10,7 +10,7 @@ import httpx
 
 # Legacy — use base_connector.py for new connectors.
 from backend.connectors.activity_service import ConnectorActivityService
-from backend.connectors.effects import assert_effect_permitted
+from backend.connectors.effects import assert_effect_permitted, effect_scope
 from backend.connectors.base_connector import (
     CircuitBreaker,
     PaginatedResponse,
@@ -233,7 +233,10 @@ class BaseConnector(ABC):
         message = None
         result = None
         try:
-            result = await func(*args, **kwargs)
+            # Audit S-1: raw requests made while running this admitted
+            # operation carry its classification; see effects.guard_raw_request.
+            with effect_scope(self.connector_type):
+                result = await func(*args, **kwargs)
             if hasattr(result, "id"):
                 resource_id = str(result.id)
             elif isinstance(result, dict) and "id" in result:

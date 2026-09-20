@@ -275,12 +275,23 @@ def decide_retry(
         )
 
     next_attempt = attempts_spent + 1
+    delay = policy.delay_for(next_attempt, seed=seed)
+    # Phase 11.1-K: a provider that answered 429/503 with Retry-After has said
+    # when it will accept another attempt (Kubernetes API Priority and Fairness
+    # does). Retrying sooner is guaranteed to be refused again and spends the
+    # attempt budget for nothing. Honoured as a floor, never above the policy's
+    # own ceiling -- a provider cannot park a node indefinitely. This runs only
+    # after safety (1) and budget (3) allowed a retry at all: Retry-After can
+    # delay a retry, never create one.
+    provider_after = (failure.detail or {}).get("provider_retry_after_seconds") if failure else None
+    if isinstance(provider_after, (int, float)) and provider_after > 0:
+        delay = min(policy.max_delay_seconds, max(delay, int(-(-provider_after // 1))))
     return RetryDecision(
         verdict=RetryVerdict.RETRY,
         node_id=node_id,
         previous_attempt=attempts_spent,
         next_attempt=next_attempt,
-        delay_seconds=policy.delay_for(next_attempt, seed=seed),
+        delay_seconds=delay,
         reason=(
             f"attempt {attempts_spent} ended "
             + (f"in {failure_class.value}" if failure_class else "without success")

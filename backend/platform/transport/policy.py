@@ -396,6 +396,17 @@ class ConnectionPolicy:
 
     ``CLOUD_METADATA`` is refused even if listed: see ``judge_destination``."""
 
+    allowed_private_addresses: frozenset = field(default_factory=frozenset)
+    """Phase 11.1-K: the explicit, reviewed in-cluster policy the production
+    builder has always demanded ("an in-cluster production provider needs an
+    explicit reviewed policy naming exactly which classes it reaches -- not a
+    boolean"). Exact IP literals, each of which must itself be PRIVATE or
+    UNIQUE_LOCAL: a destination resolving to one of these is reachable even
+    though its class is not in ``allowed_address_classes``. Nothing wider --
+    no CIDR, no class, no loopback, no link-local, never cloud metadata. A
+    connector composes it from the addresses its OWN configured endpoints
+    resolve to, so the policy names exactly the destinations it was built for."""
+
     require_dns_resolution: bool = True
     """Whether a hostname must be resolved and every answer judged before
     connecting. On by default. Turning it off means dialling a name that was
@@ -405,6 +416,18 @@ class ConnectionPolicy:
     def __post_init__(self) -> None:
         if not isinstance(self.environment, ExecutionEnvironment):
             raise ContractViolation("a policy must state its environment")
+        for address in self.allowed_private_addresses:
+            import ipaddress as _ipaddress
+
+            try:
+                parsed = _ipaddress.ip_address(address)
+            except ValueError as exc:
+                raise ContractViolation(
+                    "allowed_private_addresses holds exact IP literals only") from exc
+            if not parsed.is_private or parsed.is_loopback or parsed.is_link_local:
+                raise ContractViolation(
+                    f"{address} is not a private cluster address; the exact-address "
+                    "allowance exists for in-cluster providers and nothing else")
         for entry in self.allowed_address_classes:
             if not isinstance(entry, AddressClass):
                 raise ContractViolation(
@@ -484,6 +507,10 @@ class ConnectionPolicy:
                 "the cloud instance metadata service is never a valid destination",
                 judgement.address,
             )
+        if (judgement.address in self.allowed_private_addresses
+                and judgement.address_class in (AddressClass.PRIVATE,
+                                                AddressClass.UNIQUE_LOCAL)):
+            return None
         if judgement.address_class not in self.allowed_address_classes:
             return PolicyRefusal(
                 TransportFailure.SSRF_REFUSED,

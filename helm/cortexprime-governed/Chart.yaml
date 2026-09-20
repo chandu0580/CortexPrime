@@ -1,0 +1,10 @@
+apiVersion: v2
+name: cortexprime-governed
+description: >-
+  The CortexPrime governed runtime with the Kubernetes reference connector:
+  observe one namespace, investigate incidents from evidence, and take governed,
+  independently verified remediation actions -- one install, one connection.
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords: [cortexprime, kubernetes, remediation, governance]

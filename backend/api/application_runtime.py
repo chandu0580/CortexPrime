@@ -153,6 +153,13 @@ class GovernedApplicationRuntime:
         self.publisher = publisher
         self.audit = persistence.audit
         self.audit_writer = persistence.audit_writer
+        # Phase 11.1-K: set by build_governed_runtime after commissioning.
+        self.environment: Any = None
+        self.manifests: tuple = ()
+        self.connection_scopes: tuple = ()
+        self.connector_reports: dict = {}
+        self.health_probe_factories: dict = {}
+        self.connector_health: Any = None
         self._publisher_leadership = publisher_leadership
         self._publisher_handle = None
         self._context_factory = context_factory
@@ -286,6 +293,32 @@ class GovernedApplicationRuntime:
 # ----------------------------------------------------------------------
 
 
+_RUNTIME_METRICS: dict = {}
+
+
+def runtime_metrics() -> Any:
+    """The process-wide fabric metrics recorder (Phase 11.1-K).
+
+    One ``SafeMetrics``-wrapped Prometheus recorder per process, shared by the
+    gateway's rate limiter, the credential and transport brokers and every
+    connector adapter, so their counters appear on the one ``/metrics``
+    endpoint the process serves. Without ``prometheus_client`` it is a
+    ``NullMetrics`` -- measurement is never a reason a runtime cannot start.
+    """
+    recorder = _RUNTIME_METRICS.get("recorder")
+    if recorder is None:
+        from backend.platform.observability.metrics import NullMetrics, SafeMetrics
+
+        try:
+            from backend.observability.prometheus_recorder import PrometheusMetricsRecorder
+
+            inner: Any = PrometheusMetricsRecorder()
+        except ImportError:  # pragma: no cover - prometheus_client is a dependency
+            inner = NullMetrics()
+        recorder = _RUNTIME_METRICS.setdefault("recorder", SafeMetrics(inner))
+    return recorder
+
+
 def _load_extensions(environment: Any) -> dict:
     """Deployment-provided providers, from ``CORTEX_CONNECTOR_FACTORIES``.
 
@@ -302,7 +335,12 @@ def _load_extensions(environment: Any) -> dict:
     """
     spec = (os.getenv("CORTEX_CONNECTOR_FACTORIES") or "").strip()
     merged: dict = {"connectors": [], "credential_providers": [],
-                    "context_factory": None, "event_sink": None}
+                    "context_factory": None, "event_sink": None,
+                    # Phase 11.1-K: a connector extension may also declare its
+                    # manifest (commissioned at boot) and the connection scopes
+                    # its tenants are confined to (enforced at the gateway).
+                    "manifests": [], "connection_scopes": [],
+                    "credential_provider_builders": [], "health_probes": {}}
     if not spec:
         return merged
     for item in spec.split(","):
@@ -315,6 +353,11 @@ def _load_extensions(environment: Any) -> dict:
         merged["context_factory"] = (
             produced.get("context_factory") or merged["context_factory"])
         merged["event_sink"] = produced.get("event_sink") or merged["event_sink"]
+        merged["manifests"].extend(produced.get("manifests", ()))
+        merged["connection_scopes"].extend(produced.get("connection_scopes", ()))
+        merged["credential_provider_builders"].extend(
+            produced.get("credential_provider_builders", ()))
+        merged["health_probes"].update(produced.get("health_probes", {}))
     return merged
 
 
@@ -403,6 +446,12 @@ def build_governed_runtime(
     # 4. The one governed path. GitHub stays off unless explicitly enabled;
     #    enabling it is a deployment decision, never a default.
     enable_github = (os.getenv("CORTEX_ENABLE_GITHUB") or "0").strip() == "1"
+    # Phase 11.1-K (audit S-3): the gateway's rate stage existed and nothing
+    # was ever passed to it. One limiter, at the one choke point, always on;
+    # CORTEX_RATE_LIMIT_* resizes the budgets and can never remove them.
+    from backend.contexts.execution.infrastructure.rate_limiting import build_rate_limiter
+
+    rate_limiter = build_rate_limiter(metrics=runtime_metrics())
     connectivity = build_production_connectivity(
         config=ProductionConnectivityConfig(
             environment=environment,
@@ -426,12 +475,21 @@ def build_governed_runtime(
         worker_kind_resolver=_ConnectorKindResolver(),
         context_factory=context_factory,
         delegation=build_delegation_authority(persistence.delegations),
+        rate_limiter=rate_limiter,
         audit=persistence.audit,
+        # Phase 11.1-K: the fabric's credential, transport and adapter metrics
+        # were threaded through every builder and never supplied.
+        metrics=runtime_metrics(),
         enable_github=enable_github,
         connectors=extensions["connectors"],
+        connection_scopes=extensions["connection_scopes"],
     )
     for provider in extensions["credential_providers"]:
         connectivity.credential_broker.register(provider)
+    # Phase 11.1-K: adapters that dial through the transport broker (Vault) can
+    # only be built once it exists.
+    for build_provider in extensions["credential_provider_builders"]:
+        connectivity.credential_broker.register(build_provider(connectivity))
 
     # 5. Lifecycle: dispatcher + recovery, scheduler, publisher.
     dispatcher, recovery = build_execution_lifecycle(
@@ -467,7 +525,7 @@ def build_governed_runtime(
     publisher_leadership = SchedulerLeadership(
         persistence.leadership, role=LeadershipRole.OUTBOX_PUBLISHER)
 
-    return GovernedApplicationRuntime(
+    runtime = GovernedApplicationRuntime(
         persistence=persistence,
         connectivity=connectivity,
         capabilities=capabilities,
@@ -483,6 +541,27 @@ def build_governed_runtime(
         publish_interval_seconds=float(
             os.getenv("CORTEX_OUTBOX_INTERVAL", "1.0")),
     )
+
+    # 6. Phase 11.1-K: boot-time connector commissioning. Every connector this
+    #    process composed and declared a manifest for gets its capabilities
+    #    registered (full contract), enabled and trusted, and its workers
+    #    admitted -- idempotently, refusing silent contract drift. Before this
+    #    a governed process had no capabilities until a script registered them.
+    from backend.api.connector_commissioning import commission_connector
+
+    runtime.environment = environment
+    runtime.manifests = tuple(extensions["manifests"])
+    runtime.health_probe_factories = dict(extensions["health_probes"])
+    runtime.connection_scopes = tuple(extensions["connection_scopes"])
+    runtime.connector_reports = {}
+    for manifest in runtime.manifests:
+        try:
+            runtime.connector_reports[manifest.connector_id] = commission_connector(
+                runtime, manifest, environment=environment.value)
+        except Exception as exc:  # noqa: BLE001 - reported through health, not fatal
+            log.error("connector %s could not be commissioned: %s",
+                      manifest.connector_id, type(exc).__name__, exc_info=True)
+    return runtime
 
 
 class _ConnectorKindResolver:

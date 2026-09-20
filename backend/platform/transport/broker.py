@@ -567,7 +567,7 @@ class TransportBroker:
         from backend.contracts.audit import AuditEventKind
 
         self._safe_audit(
-            AuditEventKind.CONNECTOR_OPERATION,
+            AuditEventKind.CONNECTOR_OPERATION, request,
             subject_reference=request.endpoint.normalised,
             detail={**request.to_dict(), **outcome.to_dict()},
         )
@@ -580,7 +580,7 @@ class TransportBroker:
         from backend.contracts.audit import AuditEventKind
 
         self._safe_audit(
-            AuditEventKind.EXECUTION_REFUSED,
+            AuditEventKind.EXECUTION_REFUSED, request,
             subject_reference=request.endpoint.normalised,
             detail={
                 **request.to_dict(),
@@ -590,12 +590,23 @@ class TransportBroker:
             },
         )
 
-    def _safe_audit(self, kind: Any, **fields: Any) -> None:
+    def _safe_audit(self, kind: Any, request: Any, **fields: Any) -> None:
         """Audit failure can never turn a refusal into an allow."""
         try:
-            self._audit.record(kind, **fields)
-        except Exception:  # noqa: BLE001
-            log.error("recording a transport audit fact failed", exc_info=False)
+            from backend.contracts.tenant import TenantRef, TenantScope
+
+            # AuditRuntime.record takes the tenant scope positionally; the
+            # call without it raised TypeError on EVERY fact, swallowed here,
+            # so no transport fact ever reached the chain (Phase 11.1-K).
+            self._audit.record(
+                kind, TenantScope(tenant=TenantRef(tenant_id=request.tenant_id)),
+                actor=request.principal, **fields)
+        except Exception as exc:  # noqa: BLE001
+            # The class and message name the cause (unowned writer, store
+            # unavailable, rejected fact) -- without them an operator sees only
+            # that the audit trail is silently empty (Phase 11.1-K).
+            log.error("recording a transport audit fact failed: %s: %s",
+                      type(exc).__name__, str(exc)[:300], exc_info=False)
 
     def _count(self, name: str, request: TransportRequest) -> None:
         """Labels carry tenant, transport and host. **Never a full URL**.

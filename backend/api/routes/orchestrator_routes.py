@@ -49,7 +49,12 @@ async def execute_goal(
 # AUTONOMOUS LOOP
 # ==========================================
 
-@router.post("/autonomous")
+@router.post(
+    "/autonomous",
+    # Audit S-1/S-2 (Phase 11.1-K): a V1 surface that reaches an external
+    # write or an ungoverned model/tool loop; quarantined like its siblings.
+    dependencies=[Depends(guard_legacy_execution("POST /api/orchestrator/autonomous"))],
+)
 
 async def autonomous_execution(
     payload: Dict[str, Any]
@@ -76,7 +81,12 @@ async def autonomous_execution(
 # ROUTE GOAL
 # ==========================================
 
-@router.post("/route")
+@router.post(
+    "/route",
+    # Audit S-1/S-2 (Phase 11.1-K): a V1 surface that reaches an external
+    # write or an ungoverned model/tool loop; quarantined like its siblings.
+    dependencies=[Depends(guard_legacy_execution("POST /api/orchestrator/route"))],
+)
 
 async def route_goal(
     payload: Dict[str, Any]
@@ -103,7 +113,12 @@ async def route_goal(
 # REFLECT
 # ==========================================
 
-@router.post("/reflect")
+@router.post(
+    "/reflect",
+    # Audit S-1/S-2 (Phase 11.1-K): a V1 surface that reaches an external
+    # write or an ungoverned model/tool loop; quarantined like its siblings.
+    dependencies=[Depends(guard_legacy_execution("POST /api/orchestrator/reflect"))],
+)
 
 async def reflect(
     payload: Dict[str, Any]

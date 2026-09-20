@@ -1,0 +1,266 @@
+{{- include "cg.required" . -}}
+{{- $ns := .Values.connection.namespace -}}
+{{- $authSecret := .Values.auth.existingSecret | default "cortexprime-auth" -}}
+{{- $existingAuth := lookup "v1" "Secret" .Release.Namespace "cortexprime-auth" -}}
+{{- $existingRedis := lookup "v1" "Secret" .Release.Namespace "cortexprime-redis" -}}
+{{- if not .Values.auth.existingSecret }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cortexprime-auth
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "cg.labels" . | nindent 4 }}
+type: Opaque
+data:
+  # Generated once and kept across upgrades (a rotated signing key would sign
+  # every user out).
+  JWT_SECRET_KEY: {{ if $existingAuth }}{{ index $existingAuth.data "JWT_SECRET_KEY" }}{{ else }}{{ randAlphaNum 48 | b64enc }}{{ end }}
+---
+{{- end }}
+{{- if not .Values.redis.url }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cortexprime-redis
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "cg.labels" . | nindent 4 }}
+type: Opaque
+data:
+  password: {{ if $existingRedis }}{{ index $existingRedis.data "password" }}{{ else }}{{ randAlphaNum 32 | b64enc }}{{ end }}
+---
+# Token revocation store. Production authentication fails CLOSED without it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cortexprime-redis
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "cg.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: cortexprime-redis}}
+  template:
+    metadata: {labels: {app: cortexprime-redis}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 999, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: redis
+          image: {{ .Values.redis.image }}
+          imagePullPolicy: IfNotPresent
+          args: ["--requirepass", "$(REDIS_PASSWORD)", "--save", "", "--appendonly", "no"]
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom: {secretKeyRef: {name: cortexprime-redis, key: password}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ["ALL"]}}
+          ports: [{containerPort: 6379}]
+          resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {cpu: 200m, memory: 128Mi}}
+          volumeMounts: [{name: data, mountPath: /data}]
+      volumes: [{name: data, emptyDir: {}}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cortexprime-redis
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "cg.labels" . | nindent 4 }}
+spec:
+  selector: {app: cortexprime-redis}
+  ports: [{port: 6379, targetPort: 6379}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cortexprime-redis-ingress
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "cg.labels" . | nindent 4 }}
+spec:
+  podSelector: {matchLabels: {app: cortexprime-redis}}
+  policyTypes: ["Ingress"]
+  ingress:
+    - from: [{podSelector: {matchLabels: {app: cortexprime-governed}}}]
+      ports: [{protocol: TCP, port: 6379}]
+---
+{{- end }}
+# The runtime's own identity. It holds no Kubernetes permission at all: it is
+# used only to log in to Vault (Kubernetes auth), which is why its token is mounted.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "cg.sa" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "cg.labels" . | nindent 4 }}
+automountServiceAccountToken: true
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cortexprime-governed
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "cg.labels" . | nindent 4 }}
+data:
+  ENVIRONMENT: {{ .Values.environment | quote }}
+  CORTEX_DURABLE_ENV: {{ .Values.environment | quote }}
+  CORTEX_RUN_GOVERNED_PLANE: "1"
+  CORTEX_CONNECTOR_FACTORIES: "backend.api.kubernetes_connector:kubernetes_connector_extension"
+  CORTEX_KUBERNETES_TENANT: {{ .Values.connection.tenant | quote }}
+  CORTEX_KUBERNETES_NAMESPACE: {{ $ns | quote }}
+  CORTEX_SIGNAL_CLUSTER_REF: {{ .Values.connection.clusterRef | quote }}
+  CORTEX_KUBERNETES_CREDENTIALS: "vault"
+  CORTEX_VAULT_ADDR: {{ .Values.vault.address | quote }}
+  CORTEX_VAULT_AUTH_ROLE: {{ .Values.vault.authRole | quote }}
+  CORTEX_VAULT_AUTH_MOUNT: {{ .Values.vault.authMount | quote }}
+  CORTEX_VAULT_KUBERNETES_MOUNT: {{ .Values.vault.kubernetesMount | quote }}
+  CORTEX_VAULT_ROLE_READER: {{ .Values.vault.roles.reader | quote }}
+  CORTEX_VAULT_ROLE_ROLLBACK: {{ .Values.vault.roles.rollback | quote }}
+  CORTEX_VAULT_ROLE_RESTART: {{ .Values.vault.roles.restart | quote }}
+  {{- if .Values.vault.caSecret }}
+  CORTEX_VAULT_CA_BUNDLE: /etc/cortexprime/vault-ca/ca.crt
+  {{- end }}
+  CORTEX_WORKER_CA_BUNDLE: /etc/cortexprime/worker-ca/ca.crt
+  {{- if .Values.workers.rollback.enabled }}
+  CORTEX_ROLLBACK_WORKER_URL: {{ include "cg.workerUrl" (dict "worker" "rollback" "ns" $ns) | quote }}
+  CORTEX_ROLLBACK_IMPL_DIGEST: {{ .Values.workers.rollback.digest | quote }}
+  {{- end }}
+  {{- if .Values.workers.restart.enabled }}
+  CORTEX_RESTART_WORKER_URL: {{ include "cg.workerUrl" (dict "worker" "restart" "ns" $ns) | quote }}
+  CORTEX_RESTART_IMPL_DIGEST: {{ .Values.workers.restart.digest | quote }}
+  {{- end }}
+  CORTEX_REMEDIATION_ENABLED: {{ ternary "1" "0" .Values.remediation.enabled | quote }}
+  CORTEX_REMEDIATION_COMPENSABLE_AUTONOMY: {{ ternary "1" "0" .Values.remediation.compensableAutonomy | quote }}
+  {{- if .Values.model.provider }}
+  CORTEX_INVESTIGATION_MODEL_PROVIDER: {{ .Values.model.provider | quote }}
+  CORTEX_INVESTIGATION_MODEL: {{ .Values.model.name | quote }}
+  CORTEX_REMEDIATION_MODEL_PROVIDER: {{ .Values.model.provider | quote }}
+  CORTEX_REMEDIATION_MODEL: {{ .Values.model.name | quote }}
+  # The openai-compatible adapter requires the model name as LLM_MODEL too;
+  # without it the provider reports "not configured" and every proposal falls
+  # back to recommendation-only (Phase 11.1-K run 11).
+  LLM_MODEL: {{ .Values.model.name | quote }}
+  LLM_ALLOW_PLAINTEXT_HTTP: {{ ternary "1" "0" .Values.model.allowPlaintextHttp | quote }}
+  CORTEX_INVESTIGATION_MODEL_MAX_OUTPUT_TOKENS: {{ .Values.model.investigationMaxOutputTokens | quote }}
+  CORTEX_INVESTIGATION_MODEL_TIMEOUT_SECONDS: {{ .Values.model.timeoutSeconds | quote }}
+  CORTEX_REMEDIATION_MODEL_TIMEOUT_SECONDS: {{ .Values.model.timeoutSeconds | quote }}
+  {{- end }}
+  CORTEX_METRICS_PORT: {{ .Values.metrics.port | quote }}
+  CORTEX_CONNECTOR_HEALTH_INTERVAL: {{ .Values.health.intervalSeconds | quote }}
+  {{- range $key, $value := .Values.rateLimit }}
+  CORTEX_RATE_LIMIT_{{ $key }}: {{ $value | quote }}
+  {{- end }}
+  {{- if .Values.redis.url }}
+  REDIS_URL: {{ .Values.redis.url | quote }}
+  {{- else }}
+  REDIS_HOST: "cortexprime-redis"
+  REDIS_PORT: "6379"
+  {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cortexprime-governed
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "cg.labels" . | nindent 4 }}
+spec:
+  # One dispatching process per store (the scheduler and audit-writer roles
+  # are leader-elected singletons; ADR-122).
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app: cortexprime-governed}}
+  template:
+    metadata:
+      labels: {app: cortexprime-governed}
+      annotations:
+        checksum/config: {{ toJson .Values | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "cg.sa" . }}
+      securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: runtime
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ["ALL"]}}
+          envFrom:
+            - configMapRef: {name: cortexprime-governed}
+          env:
+            - name: CORTEX_DURABLE_URL
+              valueFrom: {secretKeyRef: {name: {{ .Values.database.existingSecret }}, key: {{ .Values.database.secretKey }}}}
+            - name: JWT_SECRET_KEY
+              valueFrom: {secretKeyRef: {name: {{ $authSecret }}, key: {{ .Values.auth.secretKey }}}}
+            {{- if not .Values.redis.url }}
+            - name: REDIS_PASSWORD
+              valueFrom: {secretKeyRef: {name: cortexprime-redis, key: password}}
+            {{- end }}
+            {{- if .Values.model.existingSecret }}
+            - name: LLM_API_KEY
+              valueFrom: {secretKeyRef: {name: {{ .Values.model.existingSecret }}, key: LLM_API_KEY}}
+            - name: LLM_BASE_URL
+              valueFrom: {secretKeyRef: {name: {{ .Values.model.existingSecret }}, key: LLM_BASE_URL}}
+            {{- end }}
+          ports:
+            - {name: http, containerPort: 8110}
+            - {name: metrics, containerPort: {{ .Values.metrics.port }}}
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: worker-ca, mountPath: /etc/cortexprime/worker-ca, readOnly: true}
+            {{- if .Values.vault.caSecret }}
+            - {name: vault-ca, mountPath: /etc/cortexprime/vault-ca, readOnly: true}
+            {{- end }}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+        - name: worker-ca
+          secret: {secretName: cortexprime-worker-ca, items: [{key: ca.crt, path: ca.crt}]}
+        {{- if .Values.vault.caSecret }}
+        - name: vault-ca
+          secret: {secretName: {{ .Values.vault.caSecret }}, items: [{key: ca.crt, path: ca.crt}]}
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cortexprime-governed
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "cg.labels" . | nindent 4 }}
+spec:
+  selector: {app: cortexprime-governed}
+  ports:
+    - {name: http, port: 8110, targetPort: http}
+    - {name: metrics, port: {{ .Values.metrics.port }}, targetPort: metrics}
+---
+# Schema migrations: Alembic, from the same image, before the runtime starts.
+# A production process never creates its own schema (DurabilityConfig).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cortexprime-migrate-{{ .Release.Revision }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "cg.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 65532, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: migrate
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python", "-m", "alembic", "-c", "backend/database/migrations/alembic.ini", "upgrade", "head"]
+          env:
+            - name: POSTGRES_URL
+              valueFrom: {secretKeyRef: {name: {{ .Values.database.existingSecret }}, key: {{ .Values.database.secretKey }}}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ["ALL"]}}
+          volumeMounts: [{name: tmp, mountPath: /tmp}]
+      volumes: [{name: tmp, emptyDir: {}}]

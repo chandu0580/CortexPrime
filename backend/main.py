@@ -132,35 +132,21 @@ async def lifespan(_app: FastAPI):
         _app.state.governed = governed_runtime
         log.info("Governed durable runtime ONLINE: %s",
                  governed_runtime.describe())
-        # Phase 11.2 (ADR-122): the signal fabric loop runs INSIDE this
-        # runtime process when configured (CORTEX_SIGNAL_TENANT_ID +
-        # CORTEX_SIGNAL_NAMESPACE), because the scheduler and audit-writer
-        # roles are per-store singletons and a runtime dispatches only the
-        # executions its own process started. Unconfigured: observes nothing.
-        from backend.signal.worker import start_embedded
+        # Phases 11.2-11.4 (ADR-122..124): the signal fabric loop, the
+        # investigator and the remediator run INSIDE this runtime process,
+        # because the scheduler and audit-writer roles are per-store singletons
+        # and a runtime dispatches only the executions its own process started.
+        # Phase 11.1-K: started by the one shared function the slim product
+        # server also uses (backend.api.governed_plane), together with connector
+        # health. Unconfigured loops observe nothing, exactly as before.
+        from backend.api.governed_plane import apply_connection_defaults, start_governed_plane
 
-        # Phase 11.3 (ADR-123): the investigator runs beside the signal loop
-        # in this same process, for the same reason. It receives the signal
-        # loop's candidates through the DetectionHandoff seam, detects
-        # sustained conditions, opens ONE investigation per incident and runs
-        # it to an evidence-backed conclusion. It composes no write capability.
-        from backend.api.investigation_runtime import start_embedded_investigator
-
-        # Phase 11.4 (ADR-124): the governed remediation runtime, in this same
-        # process for the same reason (it dispatches through this runtime's
-        # scheduler and gateway). Off unless CORTEX_REMEDIATION_ENABLED=1 and the
-        # rollback capability is commissioned. It receives each concluded
-        # investigation and turns it into a plan the platform governs; it never
-        # executes without an approval the approval authority granted.
-        from backend.api.remediation_runtime import start_embedded_remediator
-
-        _app.state.remediator = start_embedded_remediator(governed_runtime)
-        _app.state.investigator = start_embedded_investigator(
-            governed_runtime,
-            on_outcome=_app.state.remediator.offer if _app.state.remediator else None)
-        _app.state.signal_worker = start_embedded(
-            governed_runtime,
-            handoff=_app.state.investigator.handoff if _app.state.investigator else None)
+        apply_connection_defaults()
+        _plane = start_governed_plane(governed_runtime)
+        _app.state.remediator = _plane.remediator
+        _app.state.investigator = _plane.investigator
+        _app.state.signal_worker = _plane.signal_worker
+        _app.state.connector_health = _plane.health
 
     # Repository Layer (Pilot Services)
     from backend.database.repositories.factory import repo_factory

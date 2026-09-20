@@ -101,11 +101,13 @@ class TestKubernetesCatalog:
         cat = kubernetes_read_catalog()
         assert set(cat.operations) == set(KUBERNETES_READ_OPERATIONS)
         # Six reads for the first incident vertical (9.1), plus the WATCH that
-        # continues the list (9.3), plus the ReplicaSet lineage read (11.3) that
-        # answers "what changed, and when". Pinned so a ninth does not appear
-        # by habit.
-        assert len(KUBERNETES_READ_OPERATIONS) == 8
+        # continues the list (9.3), the ReplicaSet lineage read (11.3) that
+        # answers "what changed, and when", and the connection's own permission
+        # check (11.1-K) that connector health asks the cluster. Pinned so a
+        # tenth does not appear by habit.
+        assert len(KUBERNETES_READ_OPERATIONS) == 9
         assert "kubernetes.replicasets.list" in KUBERNETES_READ_OPERATIONS
+        assert "kubernetes.access.review" in KUBERNETES_READ_OPERATIONS
 
     def test_catalog_is_read_only_by_construction(self):
         cat = kubernetes_read_catalog()
@@ -113,7 +115,22 @@ class TestKubernetesCatalog:
             spec = cat.require(op)
             assert spec.side_effect_class is SideEffectClass.READ
             assert spec.effect_semantics is EffectSemantics.READ_ONLY
-            assert spec.method == "GET"
+            if op == "kubernetes.access.review":
+                # The ONE read that is an HTTP POST, and only because the
+                # Kubernetes API asks a SelfSubjectAccessReview that way: the
+                # API server evaluates the question and stores nothing (11.1-K).
+                # Held to the exact endpoint so "a read may POST" cannot spread.
+                assert spec.method == "POST"
+                assert spec.path_template == (
+                    "/apis/authorization.k8s.io/v1/selfsubjectaccessreviews")
+            else:
+                assert spec.method == "GET"
+
+    def test_only_the_access_review_may_be_a_posting_read(self):
+        """The exception above, stated as its own invariant."""
+        cat = kubernetes_read_catalog()
+        posting = {op for op in cat.operations if cat.require(op).method != "GET"}
+        assert posting == {"kubernetes.access.review"}
 
     def test_no_write_operation_present(self):
         cat = kubernetes_read_catalog()
@@ -127,7 +144,9 @@ class TestKubernetesCatalog:
         # only the log op (no envelope) legitimately omits it.
         for op in cat.operations:
             spec = cat.require(op)
-            if op == "kubernetes.pod.logs":
+            if op in ("kubernetes.pod.logs", "kubernetes.access.review"):
+                # Neither answers with an object envelope: a log has none, and a
+                # review answers only allowed/denied/reason (11.1-K).
                 assert "resourceVersion" not in spec.response_evidence_fields
             elif op == "kubernetes.pods.watch":
                 # A watch window has no single envelope version: the position is

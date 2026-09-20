@@ -575,7 +575,7 @@ class CredentialBroker:
         from backend.contracts.audit import AuditEventKind
 
         self._safe_audit(
-            AuditEventKind.IDENTITY_EVENT,
+            AuditEventKind.IDENTITY_EVENT, request,
             subject_reference=grant.ref.value,
             detail={**request.audit_detail(), **grant.to_dict(), "issued": True},
         )
@@ -591,7 +591,7 @@ class CredentialBroker:
         from backend.contracts.audit import AuditEventKind
 
         self._safe_audit(
-            AuditEventKind.EXECUTION_REFUSED,
+            AuditEventKind.EXECUTION_REFUSED, request,
             subject_reference=request.capability_ref,
             detail={
                 **request.audit_detail(),
@@ -602,7 +602,7 @@ class CredentialBroker:
             },
         )
 
-    def _safe_audit(self, kind: Any, **fields: Any) -> None:
+    def _safe_audit(self, kind: Any, request: Any, **fields: Any) -> None:
         """Audit failure never turns a refusal into an allow.
 
         The decision is already made by the time anything is written. A raise
@@ -610,9 +610,17 @@ class CredentialBroker:
         something other than a refusal.
         """
         try:
-            self._audit.record(kind, **fields)
-        except Exception:  # noqa: BLE001
-            log.error("recording a credential audit fact failed", exc_info=False)
+            from backend.contracts.tenant import TenantRef, TenantScope
+
+            # AuditRuntime.record takes the tenant scope positionally; the
+            # call without it raised TypeError on EVERY fact, swallowed here,
+            # so no credential fact ever reached the chain (Phase 11.1-K).
+            self._audit.record(
+                kind, TenantScope(tenant=TenantRef(tenant_id=request.tenant_id)),
+                actor=request.principal, **fields)
+        except Exception as exc:  # noqa: BLE001
+            log.error("recording a credential audit fact failed: %s: %s",
+                      type(exc).__name__, str(exc)[:300], exc_info=False)
 
     def _count(
         self, name: str, request: CredentialRequest, **extra: str

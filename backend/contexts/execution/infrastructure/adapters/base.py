@@ -971,6 +971,10 @@ class AdapterSeam:
                 reason=(outcome.error_message or default_reason)[:500],
                 occurred_at=completed,
                 source=f"adapter:{type(self).__name__}",
+                # Phase 11.1-K: the provider's own Retry-After, carried to the
+                # retry policy on the failure it decides from.
+                detail=({"provider_retry_after_seconds": outcome.retry_after_seconds}
+                        if outcome.retry_after_seconds is not None else {}),
             ),
             observed_effect=outcome.observed_effect,
             detail=dict(detail),

@@ -1,0 +1,30 @@
+# CortexPrime governed runtime (Phase 11.1-K) -- the slim image's dependencies.
+#
+# Derived from what the governed runtime actually imports (the product API, the
+# capability fabric, the signal/investigation/remediation loops, the credential
+# and transport brokers, Vault and Prometheus metrics), plus what loads at
+# connection/request time (the PostgreSQL driver, Alembic for the migration job,
+# the ASGI server, Redis for token revocation). Versions are the ones the
+# repository's requirements.txt already pins and the test suite runs against.
+# The V1 monolith's heavy stack (torch, Playwright, OCR, chromadb) is absent by
+# design: the governed runtime does not import it.
+fastapi==0.136.1
+starlette==1.0.1
+uvicorn==0.46.0
+pydantic>=2.11.0
+sqlalchemy[asyncio]==2.0.50
+psycopg2-binary==2.9.12
+asyncpg==0.31.0
+alembic==1.18.4
+httpx==0.28.1
+openai==2.36.0
+PyJWT==2.13.0
+bcrypt>=4.3.0
+cryptography==45.0.0
+python-dotenv==1.2.2
+python-multipart==0.0.20
+prometheus-client==0.25.0
+redis[hiredis]==7.4.0
+orjson==3.11.9
+# The migration job loads the ORM models; the schema uses the vector type.
+pgvector==0.4.2

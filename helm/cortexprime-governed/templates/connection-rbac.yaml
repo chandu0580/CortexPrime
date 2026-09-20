@@ -1,0 +1,161 @@
+{{- include "cg.required" . -}}
+{{- $ns := .Values.connection.namespace -}}
+{{- $roles := .Values.vault.roles -}}
+# Least privilege, namespace-scoped, explicit verbs, no wildcard, no ClusterRole.
+# Three identities, one per boundary: the in-process reader, and one per
+# contained write worker. None mounts a token: every credential is minted per
+# action by Vault and handed to the one request that needs it.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $roles.reader }}
+  namespace: {{ $ns }}
+  labels: {{- include "cg.labels" . | nindent 4 }}
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $roles.reader }}
+  namespace: {{ $ns }}
+  labels: {{- include "cg.labels" . | nindent 4 }}
+rules:
+  # Exactly the read capabilities the connector ships (see /api/v1/connectors/kubernetes).
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $roles.reader }}
+  namespace: {{ $ns }}
+  labels: {{- include "cg.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: {{ $roles.reader }}}
+subjects:
+  - {kind: ServiceAccount, name: {{ $roles.reader }}, namespace: {{ $ns }}}
+{{- if .Values.workers.rollback.enabled }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $roles.rollback }}
+  namespace: {{ $ns }}
+  labels: {{- include "cg.labels" . | nindent 4 }}
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $roles.rollback }}
+  namespace: {{ $ns }}
+  labels: {{- include "cg.labels" . | nindent 4 }}
+rules:
+  # Read the Deployment it is asked about and write back a template the
+  # controller already holds. No update, no delete, no scale, no subresource.
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $roles.rollback }}
+  namespace: {{ $ns }}
+  labels: {{- include "cg.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: {{ $roles.rollback }}}
+subjects:
+  - {kind: ServiceAccount, name: {{ $roles.rollback }}, namespace: {{ $ns }}}
+{{- end }}
+{{- if .Values.workers.restart.enabled }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $roles.restart }}
+  namespace: {{ $ns }}
+  labels: {{- include "cg.labels" . | nindent 4 }}
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $roles.restart }}
+  namespace: {{ $ns }}
+  labels: {{- include "cg.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $roles.restart }}
+  namespace: {{ $ns }}
+  labels: {{- include "cg.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: {{ $roles.restart }}}
+subjects:
+  - {kind: ServiceAccount, name: {{ $roles.restart }}, namespace: {{ $ns }}}
+{{- end }}
+---
+# Vault mints the per-action tokens (Kubernetes secrets engine, existing-
+# ServiceAccount mode). Its own identity may create tokens for exactly the three
+# CortexPrime ServiceAccounts, in this namespace, and nothing else.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cortexprime-token-minter
+  namespace: {{ $ns }}
+  labels: {{- include "cg.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["serviceaccounts/token"]
+    verbs: ["create"]
+    resourceNames:
+      - {{ $roles.reader }}
+      {{- if .Values.workers.rollback.enabled }}
+      - {{ $roles.rollback }}
+      {{- end }}
+      {{- if .Values.workers.restart.enabled }}
+      - {{ $roles.restart }}
+      {{- end }}
+  # Vault's engine reads the ServiceAccount before minting for it.
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["get"]
+    resourceNames:
+      - {{ $roles.reader }}
+      {{- if .Values.workers.rollback.enabled }}
+      - {{ $roles.rollback }}
+      {{- end }}
+      {{- if .Values.workers.restart.enabled }}
+      - {{ $roles.restart }}
+      {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cortexprime-token-minter
+  namespace: {{ $ns }}
+  labels: {{- include "cg.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: cortexprime-token-minter}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.vault.serviceAccount.name }}
+    namespace: {{ .Values.vault.serviceAccount.namespace }}

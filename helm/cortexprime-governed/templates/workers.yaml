@@ -1,0 +1,116 @@
+{{- include "cg.required" . -}}
+{{- $ns := .Values.connection.namespace -}}
+{{- $endpoint := .Values.workers.apiServerEndpoint -}}
+{{- $port := .Values.workers.apiServerPort -}}
+{{- if not $endpoint -}}
+{{- $ep := lookup "v1" "Endpoints" "default" "kubernetes" -}}
+{{- if $ep -}}
+{{- $endpoint = (index (index $ep.subsets 0).addresses 0).ip -}}
+{{- $port = (index (index $ep.subsets 0).ports 0).port -}}
+{{- end -}}
+{{- end -}}
+{{- if not $endpoint -}}
+{{- fail "workers.apiServerEndpoint is required: the contained write workers are confined to the API server by an egress NetworkPolicy, and this install could not discover the endpoint itself (set it to the address in `kubectl -n default get endpoints kubernetes`). Refusing rather than deploying a worker that may reach anything." -}}
+{{- end -}}
+{{- $dns := "" -}}
+{{- $dnsSvc := lookup "v1" "Service" "kube-system" "kube-dns" -}}
+{{- if $dnsSvc -}}{{- $dns = $dnsSvc.spec.clusterIP -}}{{- end -}}
+{{- $root := . -}}
+{{- range $kind, $spec := dict "rollback" (dict "enabled" .Values.workers.rollback.enabled "image" .Values.workers.rollback.image "digest" .Values.workers.rollback.digest "sa" .Values.vault.roles.rollback "capability" "platform.kubernetes.deployment.rollback" "provider" "kubernetes-contained-rollback" "operation" "kubernetes.deployment.rollback") "restart" (dict "enabled" .Values.workers.restart.enabled "image" .Values.workers.restart.image "digest" .Values.workers.restart.digest "sa" .Values.vault.roles.restart "capability" "platform.kubernetes.workload.rollout_restart" "provider" "kubernetes-contained" "operation" "kubernetes.workload.rollout_restart") }}
+{{- if $spec.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: contained-{{ $kind }}-worker
+  namespace: {{ $ns }}
+  labels: {{- include "cg.labels" $root | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: contained-{{ $kind }}-worker}
+  template:
+    metadata:
+      labels: {app: contained-{{ $kind }}-worker}
+    spec:
+      serviceAccountName: {{ $spec.sa }}
+      # No standing credential: the token arrives per execution as the request's
+      # authorization header, minted by Vault for this ServiceAccount.
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 2
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: worker
+          image: {{ $spec.image }}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          ports: [{containerPort: 8080}]
+          env:
+            - {name: CORTEX_BIND_TENANT, value: {{ $root.Values.connection.tenant | quote }}}
+            - {name: CORTEX_BIND_CAPABILITY_ID, value: {{ $spec.capability | quote }}}
+            - {name: CORTEX_BIND_CAPABILITY_VERSION, value: "1"}
+            - {name: CORTEX_BIND_PROVIDER, value: {{ $spec.provider | quote }}}
+            - {name: CORTEX_BIND_OPERATION, value: {{ $spec.operation | quote }}}
+            - {name: CORTEX_BIND_NAMESPACE, value: {{ $ns | quote }}}
+            - {name: CORTEX_IMPLEMENTATION_DIGEST, value: {{ $spec.digest | quote }}}
+            - {name: CORTEX_IMPLEMENTATION_VERSION, value: "1.0.0"}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: tls, mountPath: /tls, readOnly: true}
+            - {name: kube-ca, mountPath: /var/run/secrets/kubernetes.io/serviceaccount, readOnly: true}
+          resources:
+            requests: {memory: "32Mi", cpu: "10m"}
+            limits: {memory: "96Mi", cpu: "250m"}
+          readinessProbe:
+            httpGet: {path: /healthz, port: 8080, scheme: HTTPS}
+            initialDelaySeconds: 2
+            periodSeconds: 5
+      volumes:
+        - name: tmp
+          emptyDir: {medium: Memory, sizeLimit: 8Mi}
+        - name: tls
+          secret: {secretName: contained-{{ $kind }}-worker-tls, defaultMode: 0444}
+        # The cluster CA only (to verify the API server). No token is mounted.
+        - name: kube-ca
+          configMap:
+            name: kube-root-ca.crt
+            items: [{key: ca.crt, path: ca.crt}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: contained-{{ $kind }}-worker
+  namespace: {{ $ns }}
+  labels: {{- include "cg.labels" $root | nindent 4 }}
+spec:
+  selector: {app: contained-{{ $kind }}-worker}
+  ports:
+    - {port: 8080, targetPort: 8080}
+---
+# Egress: the API server and DNS, nothing else. (An ipBlock on the API server's
+# ClusterIP would not match -- kube-proxy rewrites it -- so the endpoint is named.)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: contained-{{ $kind }}-worker-egress
+  namespace: {{ $ns }}
+  labels: {{- include "cg.labels" $root | nindent 4 }}
+spec:
+  podSelector: {matchLabels: {app: contained-{{ $kind }}-worker}}
+  policyTypes: ["Egress"]
+  egress:
+    - to: [{ipBlock: {cidr: {{ printf "%s/32" $endpoint }}}}]
+      ports: [{protocol: TCP, port: {{ $port }}}]
+    {{- if $dns }}
+    - to: [{ipBlock: {cidr: {{ printf "%s/32" $dns }}}}]
+      ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
+    {{- end }}
+{{- end }}
+{{- end }}

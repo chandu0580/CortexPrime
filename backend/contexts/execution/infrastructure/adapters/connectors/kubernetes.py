@@ -85,6 +85,10 @@ __all__ = [
     "KubernetesResponseTranslator",
     "KubernetesWatchDecoder",
     "KubernetesRestartBodyBuilder",
+    "KubernetesAccessReviewBodyBuilder",
+    "KubernetesBodyBuilder",
+    "KUBERNETES_ACCESS_REVIEW_OPERATION",
+    "ACCESS_REVIEW_VERBS",
     "ROLLOUT_RESTART_OPERATION",
     "RESTART_ANNOTATION",
     "DEPLOYMENT_ROLLBACK_OPERATION",
@@ -123,7 +127,15 @@ KUBERNETES_READ_OPERATIONS = (
     # Deployment ever rolled, each with its own image and creation time. This
     # is the observable a "what changed, and when" question is answered from.
     KUBERNETES_REPLICASETS_OPERATION,
+    # Phase 11.1-K: the connector's own permission check (SelfSubjectAccessReview).
+    "kubernetes.access.review",
 )
+
+#: Phase 11.1-K: "may I do this verb on this resource in this namespace?", asked
+#: of the API server with the connector's own credential. It persists nothing
+#: (the review object is evaluated and discarded), so it is a READ. Health uses it
+#: to report the exact permission a connection is missing instead of "unhealthy".
+KUBERNETES_ACCESS_REVIEW_OPERATION = "kubernetes.access.review"
 
 #: The Phase 9.3 WATCH operation (ADR-083). A READ: it observes and cannot act.
 KUBERNETES_WATCH_OPERATION = "kubernetes.pods.watch"
@@ -210,6 +222,8 @@ KUBERNETES_REAL_READ_OPERATIONS = (
     # that carries every revision's image). All three are READ and were
     # declared in 9.1/11.3; none carries a write field.
     "kubernetes.pod.logs", "kubernetes.events.list", KUBERNETES_REPLICASETS_OPERATION,
+    # Phase 11.1-K: the permission check health runs on every connection.
+    "kubernetes.access.review",
     # Phase 9.6's write is deliberately ABSENT. It is declared (see
     # ``kubernetes_write_catalog``) but not exposed: an IRREVERSIBLE_WRITE may
     # not be performed by a CONTAINED in-process worker, so putting it in the
@@ -416,8 +430,81 @@ def kubernetes_read_catalog() -> OperationCatalog:
                             "replicaSetsTruncated"),
                   records=_REPLICASET_RECORDS),
             _watch(),
+            _access_review(),
         ),
     )
+
+
+#: The verbs a permission check may ask about -- the ones this connector's
+#: capabilities actually need. A closed set: the review is a health probe, not a
+#: general-purpose oracle for what else the credential could do.
+ACCESS_REVIEW_VERBS = ("get", "list", "watch", "patch")
+
+
+def _access_review() -> ProviderOperationSpec:
+    return ProviderOperationSpec(
+        operation=KUBERNETES_ACCESS_REVIEW_OPERATION, method="POST",
+        path_template="/apis/authorization.k8s.io/v1/selfsubjectaccessreviews",
+        side_effect_class=SideEffectClass.READ, effect_semantics=EffectSemantics.READ_ONLY,
+        parameters=(
+            ParameterSpec(name="namespace", kind=ParameterKind.RESOURCE_SEGMENT,
+                          location=ParameterLocation.BODY, max_length=63),
+            ParameterSpec(name="verb", kind=ParameterKind.ENUM,
+                          location=ParameterLocation.BODY, allowed_values=ACCESS_REVIEW_VERBS),
+            ParameterSpec(name="group", kind=ParameterKind.ENUM, location=ParameterLocation.BODY,
+                          required=False, allowed_values=("apps",)),
+            ParameterSpec(name="resource", kind=ParameterKind.ENUM,
+                          location=ParameterLocation.BODY,
+                          allowed_values=("pods", "deployments", "replicasets", "events")),
+            ParameterSpec(name="subresource", kind=ParameterKind.ENUM,
+                          location=ParameterLocation.BODY, required=False,
+                          allowed_values=("log",)),
+        ),
+        # 201: the API server "creates" a review it evaluates and never stores.
+        success_statuses=(200, 201),
+        response_required_fields=("allowed",),
+        response_evidence_fields=("allowed", "denied", "reason"),
+        static_headers={**_K8S_HEADERS, "content-type": "application/json"},
+        # A review answer is under a kilobyte, but a response budget below the
+        # transport's single-frame budget (1 MiB) makes the connection policy
+        # refuse to construct (found by the installed runtime, 11.1-K).
+        provider_timeout_seconds=_TIMEOUT, max_response_bytes=1024 * 1024)
+
+
+class KubernetesAccessReviewBodyBuilder:
+    """The one SelfSubjectAccessReview document. Constant except the validated
+    resource attributes, which ``input_problems`` already confined to the
+    declared enums -- there is no field here a caller can widen."""
+
+    def build(self, spec: Any, payload: Any, *, idempotency_key: Optional[str]) -> Any:
+        if spec.operation != KUBERNETES_ACCESS_REVIEW_OPERATION:
+            return None
+        attributes = {"namespace": str(payload["namespace"]), "verb": str(payload["verb"]),
+                      "resource": str(payload["resource"])}
+        if payload.get("group"):
+            attributes["group"] = str(payload["group"])
+        if payload.get("subresource"):
+            attributes["subresource"] = str(payload["subresource"])
+        return {"apiVersion": "authorization.k8s.io/v1", "kind": "SelfSubjectAccessReview",
+                "spec": {"resourceAttributes": attributes}}
+
+
+class KubernetesBodyBuilder:
+    """Every Kubernetes request body this platform may send, by operation.
+
+    One adapter carries one builder; each delegate answers only for its own
+    operation and returns ``None`` otherwise, so an operation without a builder
+    keeps the flat (empty) body its spec declares."""
+
+    def __init__(self) -> None:
+        self._builders = (KubernetesRestartBodyBuilder(), KubernetesAccessReviewBodyBuilder())
+
+    def build(self, spec: Any, payload: Any, *, idempotency_key: Optional[str]) -> Any:
+        for builder in self._builders:
+            built = builder.build(spec, payload, idempotency_key=idempotency_key)
+            if built is not None:
+                return built
+        return None
 
 
 def kubernetes_write_catalog() -> OperationCatalog:
@@ -804,6 +891,13 @@ class KubernetesReadNormalizer:
             )
         if spec.operation == KUBERNETES_WATCH_OPERATION:
             return self._normalize_watch(body)
+        if spec.operation == KUBERNETES_ACCESS_REVIEW_OPERATION:
+            status = body.get("status") if isinstance(body.get("status"), Mapping) else {}
+            allowed = status.get("allowed")
+            if not isinstance(allowed, bool):
+                raise ValueError("an access review without a boolean status.allowed")
+            return {"allowed": allowed, "denied": bool(status.get("denied", False)),
+                    "reason": str(status.get("reason") or "")[:200]}
         out = dict(body)
         meta = body.get("metadata")
         if isinstance(meta, Mapping):
@@ -1447,5 +1541,6 @@ def kubernetes_read_profiles() -> dict:
              "kubernetes.pod.logs": "pod", "kubernetes.deployments.list": "namespace",
              "kubernetes.deployment.get": "deployment", "kubernetes.events.list": "namespace",
              KUBERNETES_WATCH_OPERATION: "namespace",
-             KUBERNETES_REPLICASETS_OPERATION: "namespace"}
+             KUBERNETES_REPLICASETS_OPERATION: "namespace",
+             KUBERNETES_ACCESS_REVIEW_OPERATION: "namespace"}
     return {op: _profile(op, scope[op]) for op in KUBERNETES_READ_OPERATIONS}

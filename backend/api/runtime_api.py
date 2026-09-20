@@ -59,7 +59,7 @@ class DecomposeRequest(BaseModel):
     "/execute",
     # V1 strangler boundary (ADR-039). Privileged, and bypasses the
     # invocation gateway entirely. Disabled unless the migration flag is set.
-    dependencies=[Depends(guard_legacy_execution("POST /api/v1/runtime/execute"))],
+    dependencies=[Depends(guard_legacy_execution("POST /api/runtime/execute"))],
 )
 async def execute_mission(request: ExecuteRequest) -> Dict[str, Any]:
     """
@@ -106,7 +106,12 @@ async def execute_mission(request: ExecuteRequest) -> Dict[str, Any]:
 # AUTONOMOUS LOOP
 # =========================================================
 
-@router.post("/autonomous-loop")
+@router.post(
+    "/autonomous-loop",
+    # Audit S-1/S-2 (Phase 11.1-K): a V1 surface that reaches an external
+    # write or an ungoverned model/tool loop; quarantined like its siblings.
+    dependencies=[Depends(guard_legacy_execution("POST /api/runtime/autonomous-loop"))],
+)
 async def start_autonomous_loop(
     request: AutonomousLoopRequest,
     background_tasks: BackgroundTasks,

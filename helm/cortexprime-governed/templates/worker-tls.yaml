@@ -1,0 +1,52 @@
+{{- include "cg.required" . -}}
+{{- $ns := .Values.connection.namespace -}}
+{{- $caSecret := lookup "v1" "Secret" .Release.Namespace "cortexprime-worker-ca" -}}
+{{- $rbSecret := lookup "v1" "Secret" $ns "contained-rollback-worker-tls" -}}
+{{- $rsSecret := lookup "v1" "Secret" $ns "contained-restart-worker-tls" -}}
+{{- $caCrt := "" -}}{{- $caKey := "" -}}
+{{- $rbCrt := "" -}}{{- $rbKey := "" -}}{{- $rsCrt := "" -}}{{- $rsKey := "" -}}
+{{- if and $caSecret $rbSecret $rsSecret -}}
+{{- /* Upgrade: keep the CA and certificates the running workers already serve. */ -}}
+{{- $caCrt = index $caSecret.data "ca.crt" | b64dec -}}{{- $caKey = index $caSecret.data "ca.key" | b64dec -}}
+{{- $rbCrt = index $rbSecret.data "tls.crt" | b64dec -}}{{- $rbKey = index $rbSecret.data "tls.key" | b64dec -}}
+{{- $rsCrt = index $rsSecret.data "tls.crt" | b64dec -}}{{- $rsKey = index $rsSecret.data "tls.key" | b64dec -}}
+{{- else -}}
+{{- $ca := genCA "cortexprime-contained-workers" 825 -}}
+{{- $rb := genSignedCert "contained-rollback-worker" nil (list "contained-rollback-worker" (printf "contained-rollback-worker.%s" $ns) (printf "contained-rollback-worker.%s.svc" $ns)) 825 $ca -}}
+{{- $rs := genSignedCert "contained-restart-worker" nil (list "contained-restart-worker" (printf "contained-restart-worker.%s" $ns) (printf "contained-restart-worker.%s.svc" $ns)) 825 $ca -}}
+{{- $caCrt = $ca.Cert -}}{{- $caKey = $ca.Key -}}
+{{- $rbCrt = $rb.Cert -}}{{- $rbKey = $rb.Key -}}{{- $rsCrt = $rs.Cert -}}{{- $rsKey = $rs.Key -}}
+{{- end }}
+# The runtime trusts exactly this CA for the contained workers (verified TLS).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cortexprime-worker-ca
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "cg.labels" . | nindent 4 }}
+type: Opaque
+data:
+  ca.crt: {{ $caCrt | b64enc }}
+  ca.key: {{ $caKey | b64enc }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: contained-rollback-worker-tls
+  namespace: {{ $ns }}
+  labels: {{- include "cg.labels" . | nindent 4 }}
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ $rbCrt | b64enc }}
+  tls.key: {{ $rbKey | b64enc }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: contained-restart-worker-tls
+  namespace: {{ $ns }}
+  labels: {{- include "cg.labels" . | nindent 4 }}
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ $rsCrt | b64enc }}
+  tls.key: {{ $rsKey | b64enc }}

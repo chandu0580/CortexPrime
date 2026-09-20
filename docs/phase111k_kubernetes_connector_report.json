@@ -1,0 +1,997 @@
+{
+ "phase": "11.1-K",
+ "adr": "ADR-125",
+ "checks": [
+  {
+   "name": "model credential delivered as a Kubernetes Secret through stdin (never printed, never on disk)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "helm upgrade --install --wait succeeded (migrations Job, workers, runtime, Redis)",
+   "ok": true,
+   "detail": "W0920 11:43:52.252676   15880 warnings.go:70] v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice\n"
+  },
+  {
+   "name": "release deployed",
+   "ok": true,
+   "detail": "deployed"
+  },
+  {
+   "name": "schema migrated by the chart's pre-install Job (alembic_version present)",
+   "ok": true,
+   "detail": "['0025_mission_replay_events']"
+  },
+  {
+   "name": "tenants A and B and their members provisioned durably",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "workers, ServiceAccounts, Roles and egress policy created in the connected namespace",
+   "ok": true,
+   "detail": "19"
+  },
+  {
+   "name": "nothing installed in a namespace that is not connected",
+   "ok": true,
+   "detail": "[]"
+  },
+  {
+   "name": "no credential -> the connector API refuses (401)",
+   "ok": true,
+   "detail": "401"
+  },
+  {
+   "name": "/healthz answers 200",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "name": "/readyz answers 200",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "name": "health CONNECTED, read through the product API as the connection's tenant",
+   "ok": true,
+   "detail": "{\"connector\": \"kubernetes\", \"tenant_id\": \"tenant-p111k0000a\", \"state\": \"CONNECTED\", \"summary\": \"connected; 10 capabilities available\", \"checked_at\": \"2026-09-20T06:14:31.758467+00:00\", \"duration_seconds\": 24.93, \"available_capabilities\": [\"platform.kubernetes.pods.list\", \"platform.kubernetes.pod.get\", \"platform.kubernetes.pod.logs\", \"platform.kubernetes.deployment.get\", \"platform.kubernetes.events.list\", \"platform.kubernetes.replicasets.list\", \"platform.kubernetes.pods.watch\", \"platform.kubernet"
+  },
+  {
+   "name": "all 10 shipped capabilities commissioned at boot, zero conflicts or failures",
+   "ok": true,
+   "detail": "{'available': ['platform.kubernetes.pods.list', 'platform.kubernetes.pod.get', 'platform.kubernetes.pod.logs', 'platform.kubernetes.deployment.get', 'platform.kubernetes.events.list', 'platform.kubernetes.replicasets.list', 'platform.kubernetes.pods.watch', 'platform.kubernetes.access.review', 'platform.kubernetes.deployment.rollback', 'platform.kubernetes.workload.rollout_restart'], 'conflicts': {}, 'failed': {}, 'skipped': {}}"
+  },
+  {
+   "name": "every capability publishes its contract (description, schema, permissions, risk, retry, timeout, verification)",
+   "ok": true,
+   "detail": "['platform.kubernetes.access.review', 'platform.kubernetes.deployment.get', 'platform.kubernetes.deployment.rollback', 'platform.kubernetes.events.list', 'platform.kubernetes.pod.get', 'platform.kubernetes.pod.logs', 'platform.kubernetes.pods.list', 'platform.kubernetes.pods.watch', 'platform.kubernetes.replicasets.list', 'platform.kubernetes.workload.rollout_restart']"
+  },
+  {
+   "name": "exactly two writes: rollback and rollout_restart, both NEVER-retry",
+   "ok": true,
+   "detail": "{'platform.kubernetes.deployment.rollback': 'never', 'platform.kubernetes.workload.rollout_restart': 'never'}"
+  },
+  {
+   "name": "reads are SAFE-retry and carry their provider permission",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "no arbitrary API / shell / raw-request capability exists",
+   "ok": true,
+   "detail": "['platform.kubernetes.access.review', 'platform.kubernetes.deployment.get', 'platform.kubernetes.deployment.rollback', 'platform.kubernetes.events.list', 'platform.kubernetes.pod.get', 'platform.kubernetes.pod.logs', 'platform.kubernetes.pods.list', 'platform.kubernetes.pods.watch', 'platform.kubernetes.replicasets.list', 'platform.kubernetes.workload.rollout_restart']"
+  },
+  {
+   "name": "the connector list shows one line per connector with state and a one-line summary",
+   "ok": true,
+   "detail": "{'id': 'kubernetes', 'name': 'Kubernetes', 'version': '1.0.0', 'description': 'Observe one Kubernetes namespace and take governed, independently verified remediation actions on its Deployments.', 'state': 'CONNECTED', 'summary': 'connected; 10 capabilities available', 'capabilities': 10}"
+  },
+  {
+   "name": "restart: commissioning is idempotent (already current, no new registry rows, no conflicts)",
+   "ok": true,
+   "detail": "{'commissioned': 0, 'already_current': 10, 'conflicts': 0}"
+  },
+  {
+   "name": "runtime carries no Vault token and no Kubernetes token (env or config)",
+   "ok": true,
+   "detail": "[]"
+  },
+  {
+   "name": "credentials mode is vault; Vault auth is the pod's own ServiceAccount identity",
+   "ok": true,
+   "detail": "cortexprime"
+  },
+  {
+   "name": "Vault's lease table shows reader tokens minted for this connection",
+   "ok": true,
+   "detail": "45"
+  },
+  {
+   "name": "cortexprime-reader: no long-lived token Secret, automount off",
+   "ok": true,
+   "detail": "{'secrets': None, 'automount': False}"
+  },
+  {
+   "name": "cortexprime-rollbacker: no long-lived token Secret, automount off",
+   "ok": true,
+   "detail": "{'secrets': None, 'automount': False}"
+  },
+  {
+   "name": "cortexprime-restarter: no long-lived token Secret, automount off",
+   "ok": true,
+   "detail": "{'secrets': None, 'automount': False}"
+  },
+  {
+   "name": "no service-account-token Secret exists in the connected namespace",
+   "ok": true,
+   "detail": "[]"
+  },
+  {
+   "name": "reader tokens are short-lived (<= 10 minutes default)",
+   "ok": true,
+   "detail": "600"
+  },
+  {
+   "name": "the runtime's own identity holds NO Kubernetes permission in the connected namespace",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "reader: exactly the seven read permissions its capabilities declare",
+   "ok": true,
+   "detail": "{'list pods': True, 'get pods': True, 'watch pods': True, 'get pods/log': True, 'list events': True, 'get deployments.apps': True, 'list replicasets.apps': True}"
+  },
+  {
+   "name": "reader: no write, no secrets, no exec, no configmaps",
+   "ok": true,
+   "detail": "{'patch deployments.apps': False, 'delete pods': False, 'get secrets': False, 'create pods/exec': False, 'list configmaps': False, 'create pods': False}"
+  },
+  {
+   "name": "reader: nothing at all in another namespace",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "reader: no cluster-scoped reads",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "rollbacker: get+patch deployments, list replicasets",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "rollbacker: no delete, no create, no scale, no secrets, no other namespace",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "restarter: patch deployments only, nothing in another namespace",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "Vault may mint tokens ONLY for the three CortexPrime ServiceAccounts (not the namespace default)",
+   "ok": true,
+   "detail": "resourceNames-scoped Role"
+  },
+  {
+   "name": "no ClusterRoleBinding for any CortexPrime identity (no cluster-admin, nothing cluster-wide)",
+   "ok": true,
+   "detail": "[]"
+  },
+  {
+   "name": "tenant B: the Kubernetes connector reports DISABLED (it has no connection)",
+   "ok": true,
+   "detail": "{'state': 'DISABLED', 'summary': 'your tenant has no connection for this connector'}"
+  },
+  {
+   "name": "tenant B learns nothing about A's connection (no namespace, cluster, tenant id)",
+   "ok": true,
+   "detail": "[]"
+  },
+  {
+   "name": "tenant B's connector list shows DISABLED",
+   "ok": true,
+   "detail": "{'tenant_id': 'tenant-p111k0000b', 'connectors': [{'id': 'kubernetes', 'name': 'Kubernetes', 'version': '1.0.0', 'description': 'Observe one Kubernetes namespace and take governed, independently verified remediation actions on its Deployments.', 'state': 'DISABLED', 'summary': 'your tenant has no connection for this connector', 'capabilities': 10}]}"
+  },
+  {
+   "name": "tenant B sees none of tenant A's plans",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "name": "a B member presenting A's tenant claim is refused (no membership of A)",
+   "ok": true,
+   "detail": "403"
+  },
+  {
+   "name": "cross-tenant target A -> B's namespace -> refused by gateway input stage (connection scope) (0 cluster writes)",
+   "ok": true,
+   "detail": "namespace 'cortex-conn-b' is outside this tenant's kubernetes connection"
+  },
+  {
+   "name": "cross-tenant target B -> A's namespace -> refused by gateway input stage (connection scope) (0 cluster writes)",
+   "ok": true,
+   "detail": "this tenant has no connection for kubernetes; a capability of a connector the tenant is not connected to cannot target anything"
+  },
+  {
+   "name": "A -> its own namespace admitted by the connection scope",
+   "ok": true,
+   "detail": "admitted"
+  },
+  {
+   "name": "provider layer: A's reader credential is refused in B's namespace by RBAC",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "the bad revision really crash-loops on the cluster",
+   "ok": true,
+   "detail": "{'generation': 2, 'revision': '2', 'template': '21e2ced8912c163e379ee98f8f0e20f460a9b2f2ff330c8145bf879bff756957', 'available': 0, 'crash_looping': True, 'rolled_back_by': None}"
+  },
+  {
+   "name": "detection -> investigation -> plan -> an approval request reached the human queue",
+   "ok": true,
+   "detail": "{'approval_id': 'appr_01M2YQM58CS83JTB2V5Q231JZP', 'investigation_ref': 'winv_01M2YQDGC9VT1RAS5AK0KDT4HH', 'incident_ref': 'kubernetes:pod:cortex-conn-a/p111k-shop-7888dfbf66-d2662', 'requested_by': 'platform:remediation-runtime', 'decided_by': None, 'requested_at': '2026-09-20T06:21:29.740925+00:00', 'decided_at': None, 'expires_at': '2026-09-20T06:51:29.740925+00:00', 'capability_ref': 'platform.kubernetes.deployment.rollback@1', 'capability_version': 1, 'capability_digest': '9f4a8595dd9a747a35ebc030a50fe02428b6b6862ab9b1c7ca8a2182e02a56c5', 'operation': 'kubernetes.deployment.rollback', 'pr"
+  },
+  {
+   "name": "the plan is visible to the tenant with its evidence-backed target",
+   "ok": true,
+   "detail": "['rplan_d299e96700d96a534a14374e']"
+  },
+  {
+   "name": "nothing was written before approval (template still the bad revision)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "approval by a member without approve authority -> refused by approval authority (0 cluster writes)",
+   "ok": true,
+   "detail": "HTTP 403"
+  },
+  {
+   "name": "approval by another tenant's approver -> refused by tenant boundary (0 cluster writes)",
+   "ok": true,
+   "detail": "HTTP 404"
+  },
+  {
+   "name": "the scoped approver approved through the product API",
+   "ok": true,
+   "detail": "HTTP 200"
+  },
+  {
+   "name": "the rollback executed through the contained worker (plan reached executing and closed)",
+   "ok": true,
+   "detail": "['planned', 'autonomy_decided', 'approval_requested', 'approval_granted', 'executing', 'executed', 'verified', 'learned', 'closed']"
+  },
+  {
+   "name": "REAL WRITE: the cluster runs the healthy template again (generation advanced)",
+   "ok": true,
+   "detail": "{'healthy': 'f5736fc746e3b828206787eeb3f0e88621bb9c244f990781d49be09fdf7b1d94', 'now': 'f5736fc746e3b828206787eeb3f0e88621bb9c244f990781d49be09fdf7b1d94'}"
+  },
+  {
+   "name": "the write is attributable on the object (rolled-back-by-action annotation)",
+   "ok": true,
+   "detail": "50c4aae0c305a945dac5a212d6ca745b8241b9ea6ef35332beffc7c29de3a29c"
+  },
+  {
+   "name": "the workload is healthy again on the cluster",
+   "ok": true,
+   "detail": "{'generation': 3, 'revision': '3', 'template': 'f5736fc746e3b828206787eeb3f0e88621bb9c244f990781d49be09fdf7b1d94', 'available': 1, 'crash_looping': False, 'rolled_back_by': '50c4aae0c305a945dac5a212d6ca745b8241b9ea6ef35332beffc7c29de3a29c'}"
+  },
+  {
+   "name": "independent verification established the outcome (not the executor's word)",
+   "ok": true,
+   "detail": "{'stage': 'verified', 'plan_id': 'rplan_d299e96700d96a534a14374e', 'verdict': 'supported', 'sequence': 7, 'authority': None, 'incident_ref': 'kubernetes:pod:cortex-conn-a/p111k-shop-7888dfbf66-d2662', 'verification': {'polls': 1, 'reads': {}, 'metric': None, 'seconds': 20.68, 'verdict': 'supported', 'expected': {'available': True, 'rolledOut': True, 'crashLooping': False, 'templateDigest': 'f5736fc746e3b828206787eeb3f0e88621bb9c244f990781d49be09fdf7b1d94'}, 'rationale': 'independent world evidence matches the claimed value', 'discrepancy': None, 'proposition': {'available': True, 'rolledOut': "
+  },
+  {
+   "name": "the write ran with a rollbacker token Vault minted for this action",
+   "ok": true,
+   "detail": "{'before': 0, 'after': 1}"
+  },
+  {
+   "name": "replaying the consumed approval -> refused by approval consumption (0 cluster writes)",
+   "ok": true,
+   "detail": "HTTP 409"
+  },
+  {
+   "name": "failure scenario: an approval request reached the queue",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "failure scenario: approved by the scoped approver",
+   "ok": true,
+   "detail": "HTTP 200"
+  },
+  {
+   "name": "failure scenario: the rollback executed exactly once to the approved (previously healthy) template",
+   "ok": true,
+   "detail": "{'stages': ['planned', 'autonomy_decided', 'approval_requested', 'approval_granted', 'executing', 'executed', 'verification_failed', 'discrepancy', 'recovery_decided', 'escalated', 'learned', 'closed']}"
+  },
+  {
+   "name": "VERIFICATION DISTINGUISHES FAILURE: the incident persisted -> verification_failed, escalated, never reported as success",
+   "ok": true,
+   "detail": "['planned', 'autonomy_decided', 'approval_requested', 'approval_granted', 'executing', 'executed', 'verification_failed', 'discrepancy', 'recovery_decided', 'escalated', 'learned', 'closed']"
+  },
+  {
+   "name": "no retry after a failed verification (no second write)",
+   "ok": true,
+   "detail": "4"
+  },
+  {
+   "name": "found the reader's RoleBinding",
+   "ok": true,
+   "detail": "['cortexprime-reader']"
+  },
+  {
+   "name": "RBAC removed -> MISCONFIGURED, naming the exact missing permissions",
+   "ok": true,
+   "detail": "{\"connector\": \"kubernetes\", \"tenant_id\": \"tenant-p111k0000a\", \"state\": \"MISCONFIGURED\", \"summary\": \"misconfigured: permissions: missing: kubernetes:apps/deployments:get, kubernetes:apps/replicasets:list, kubernetes:events:list, kubernetes:pods/log:get, kubernetes:pods:get, kubernetes:pods:list, kubernetes:pods:watch\", \"checked_at\": \"2026-09-20T06:33:48.842737+00:00\", \"duration_seconds\": 2.175, \"av"
+  },
+  {
+   "name": "RBAC restored -> CONNECTED without a restart",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "read the Vault reader role",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "Vault role removed -> not CONNECTED, with a credential-class reason",
+   "ok": true,
+   "detail": "{\"connector\": \"kubernetes\", \"tenant_id\": \"tenant-p111k0000a\", \"state\": \"AUTHENTICATION_REQUIRED\", \"summary\": \"authentication_required: api: a permission check through the governed path failed (authentication_failed): invocation refused at dispatch: credential_unavailable\", \"checked_at\": \"2026-09-20T06:39:44.783661+00:00\", \"duration_seconds\": 176.475, \"available_capabilities\": [\"platform.kubernetes"
+  },
+  {
+   "name": "Vault role restored -> CONNECTED",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "Vault down -> UNAVAILABLE/AUTHENTICATION_REQUIRED (never CONNECTED on a stale answer)",
+   "ok": true,
+   "detail": "{\"connector\": \"kubernetes\", \"tenant_id\": \"tenant-p111k0000a\", \"state\": \"AUTHENTICATION_REQUIRED\", \"summary\": \"authentication_required: api: a permission check through the governed path failed (authentication_failed): invocation refused at dispatch: credential_unavailable\", \"checked_at\": \"2026-09-20T06:44:46.966171+00:00\", \"duration_seconds\": 177.235, \"available_capabilities\": [\"platform.kubernetes"
+  },
+  {
+   "name": "operator re-ran the Vault configuration script (idempotent)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "Vault back -> CONNECTED (the runtime re-authenticated with its pod identity, no restart)",
+   "ok": true,
+   "detail": "CONNECTED"
+  },
+  {
+   "name": "rollback worker down -> DEGRADED; reads stay available; rollback named unavailable",
+   "ok": true,
+   "detail": "{\"state\": \"DEGRADED\", \"unavailable\": {\"platform.kubernetes.deployment.rollback\": \"worker unreachable: not delivered\"}, \"available\": [\"platform.kubernetes.pods.list\", \"platform.kubernetes.pod.get\", \"platform.kubernetes.pod.logs\", \"platform.kubernetes.deployment.get\", \"platform.kubernetes.events.list\", \"platform.kubernetes.replicasets.list\", \"platform.kubernetes.pods.watch\", \"platform.kubernetes.acc"
+  },
+  {
+   "name": "worker back -> CONNECTED",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "helm refuses an install without a Vault address, naming the value",
+   "ok": true,
+   "detail": "Error: UPGRADE FAILED: execution error at (cortexprime-governed/templates/workers.yaml:1:4): vault.address is required: the credential source (https://...)\n"
+  },
+  {
+   "name": "helm refuses a connection without a namespace, naming the value",
+   "ok": true,
+   "detail": "Error: execution error at (cortexprime-governed/templates/workers.yaml:1:4): connection.namespace is required: the namespace CortexPrime observes and may remediate\n\nUse --debug flag to render out invalid YAML\n"
+  },
+  {
+   "name": "the running release is untouched by the refused upgrades",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "connector health is exported (cortex_connector_health)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "no metric carries a credential-like label",
+   "ok": true,
+   "detail": "[]"
+  },
+  {
+   "name": "rate limits configured through Helm values (upgrade succeeded)",
+   "ok": true,
+   "detail": "W0920 12:22:58.719109   23012 warnings.go:70] v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice\n"
+  },
+  {
+   "name": "a real burst is refused by the gateway's limiter -> health RATE_LIMITED",
+   "ok": true,
+   "detail": "{\"connector\": \"kubernetes\", \"tenant_id\": \"tenant-p111k0000a\", \"state\": \"RATE_LIMITED\", \"summary\": \"rate_limited: api: a permission check through the governed path failed (rate_limited): invocation refused at dispatch: rate_limited\", \"checked_at\": \"2026-09-20T06:55:25.354920+00:00\", \"duration_seconds"
+  },
+  {
+   "name": "the refusal is counted (cortex_gateway_rate_limited)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "limits restored -> CONNECTED",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "governed invocations are durably recorded",
+   "ok": true,
+   "detail": "{'audit_logs': 0, 'cp_audit_chain': 1, 'cp_audit_record': 1666}"
+  },
+  {
+   "name": "no credential value in the runtime's logs",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "no bearer token in the runtime's logs",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "no credential value in this report",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "no credential value in the durable store (observations, facts, remediation events)",
+   "ok": true,
+   "detail": "0"
+  },
+  {
+   "name": "the image carries no .env",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "contract evaluation: the manifest and composed catalogs pass every rule",
+   "ok": true,
+   "detail": "[]"
+  },
+  {
+   "name": "behavioural evaluation: every question answered PASS from this run's real evidence",
+   "ok": true,
+   "detail": "{'select': 'PASS', 'arguments': 'PASS', 'governance': 'PASS', 'authorized_execution': 'PASS', 'verification': 'PASS', 'recovery': 'PASS', 'explain': 'PASS'}"
+  }
+ ],
+ "measurements": {
+  "helm_install_seconds": 23.1,
+  "objects_in_connected_namespace": [
+   "deployment.apps/contained-restart-worker",
+   "deployment.apps/contained-rollback-worker",
+   "service/contained-restart-worker",
+   "service/contained-rollback-worker",
+   "serviceaccount/cortexprime-reader",
+   "serviceaccount/cortexprime-restarter",
+   "serviceaccount/cortexprime-rollbacker",
+   "role.rbac.authorization.k8s.io/cortexprime-reader",
+   "role.rbac.authorization.k8s.io/cortexprime-restarter",
+   "role.rbac.authorization.k8s.io/cortexprime-rollbacker",
+   "role.rbac.authorization.k8s.io/cortexprime-token-minter",
+   "rolebinding.rbac.authorization.k8s.io/cortexprime-reader",
+   "rolebinding.rbac.authorization.k8s.io/cortexprime-restarter",
+   "rolebinding.rbac.authorization.k8s.io/cortexprime-rollbacker",
+   "rolebinding.rbac.authorization.k8s.io/cortexprime-token-minter",
+   "networkpolicy.networking.k8s.io/contained-restart-worker-egress",
+   "networkpolicy.networking.k8s.io/contained-rollback-worker-egress",
+   "secret/contained-restart-worker-tls",
+   "secret/contained-rollback-worker-tls"
+  ],
+  "seconds_to_connected_after_ready": 5.6,
+  "health": {
+   "connector": "kubernetes",
+   "tenant_id": "tenant-p111k0000a",
+   "state": "CONNECTED",
+   "summary": "connected; 10 capabilities available",
+   "checked_at": "2026-09-20T06:14:31.758467+00:00",
+   "duration_seconds": 24.93,
+   "available_capabilities": [
+    "platform.kubernetes.pods.list",
+    "platform.kubernetes.pod.get",
+    "platform.kubernetes.pod.logs",
+    "platform.kubernetes.deployment.get",
+    "platform.kubernetes.events.list",
+    "platform.kubernetes.replicasets.list",
+    "platform.kubernetes.pods.watch",
+    "platform.kubernetes.access.review",
+    "platform.kubernetes.deployment.rollback",
+    "platform.kubernetes.workload.rollout_restart"
+   ],
+   "unavailable_capabilities": {},
+   "checks": [
+    {
+     "name": "commissioning",
+     "ok": true,
+     "detail": "10 capabilities commissioned",
+     "error_class": null,
+     "state_if_failed": "MISCONFIGURED"
+    },
+    {
+     "name": "api",
+     "ok": true,
+     "detail": "authenticated to k3d-cortex-p99b",
+     "error_class": null,
+     "state_if_failed": "UNAVAILABLE"
+    },
+    {
+     "name": "permissions",
+     "ok": true,
+     "detail": "all 7 read permissions held in namespace cortex-conn-a",
+     "error_class": null,
+     "state_if_failed": "DEGRADED"
+    },
+    {
+     "name": "worker:kubernetes-contained-rollback",
+     "ok": true,
+     "detail": "HTTP 200 over verified TLS",
+     "error_class": null,
+     "state_if_failed": "DEGRADED"
+    },
+    {
+     "name": "worker:kubernetes-contained",
+     "ok": true,
+     "detail": "HTTP 200 over verified TLS",
+     "error_class": null,
+     "state_if_failed": "DEGRADED"
+    }
+   ]
+  },
+  "commissioning": {
+   "connector": "kubernetes",
+   "ok": true,
+   "available": [
+    "platform.kubernetes.pods.list",
+    "platform.kubernetes.pod.get",
+    "platform.kubernetes.pod.logs",
+    "platform.kubernetes.deployment.get",
+    "platform.kubernetes.events.list",
+    "platform.kubernetes.replicasets.list",
+    "platform.kubernetes.pods.watch",
+    "platform.kubernetes.access.review",
+    "platform.kubernetes.deployment.rollback",
+    "platform.kubernetes.workload.rollout_restart"
+   ],
+   "commissioned": [],
+   "already_current": [
+    "platform.kubernetes.pods.list",
+    "platform.kubernetes.pod.get",
+    "platform.kubernetes.pod.logs",
+    "platform.kubernetes.deployment.get",
+    "platform.kubernetes.events.list",
+    "platform.kubernetes.replicasets.list",
+    "platform.kubernetes.pods.watch",
+    "platform.kubernetes.access.review",
+    "platform.kubernetes.deployment.rollback",
+    "platform.kubernetes.workload.rollout_restart"
+   ],
+   "skipped": {},
+   "conflicts": {},
+   "failed": {},
+   "workers_admitted": [
+    "kubernetes-connector",
+    "kubernetes-contained-rollback-worker",
+    "kubernetes-contained-worker"
+   ]
+  },
+  "registry_rows": [
+   [
+    "platform.kubernetes.access.review",
+    1,
+    "enabled",
+    "trusted"
+   ],
+   [
+    "platform.kubernetes.deployment.get",
+    1,
+    "enabled",
+    "trusted"
+   ],
+   [
+    "platform.kubernetes.deployment.rollback",
+    1,
+    "enabled",
+    "trusted"
+   ],
+   [
+    "platform.kubernetes.events.list",
+    1,
+    "enabled",
+    "trusted"
+   ],
+   [
+    "platform.kubernetes.pod.get",
+    1,
+    "enabled",
+    "trusted"
+   ],
+   [
+    "platform.kubernetes.pod.logs",
+    1,
+    "enabled",
+    "trusted"
+   ],
+   [
+    "platform.kubernetes.pods.list",
+    1,
+    "enabled",
+    "trusted"
+   ],
+   [
+    "platform.kubernetes.pods.watch",
+    1,
+    "enabled",
+    "trusted"
+   ],
+   [
+    "platform.kubernetes.replicasets.list",
+    1,
+    "enabled",
+    "trusted"
+   ],
+   [
+    "platform.kubernetes.workload.rollout_restart",
+    1,
+    "enabled",
+    "trusted"
+   ]
+  ],
+  "vault_reader_leases": 45,
+  "vault_reader_token_ttl_seconds": 600,
+  "healthy_revision": {
+   "generation": 1,
+   "revision": "1",
+   "template": "f5736fc746e3b828206787eeb3f0e88621bb9c244f990781d49be09fdf7b1d94",
+   "available": 1,
+   "crash_looping": false,
+   "rolled_back_by": null
+  },
+  "bad_revision": {
+   "generation": 2,
+   "revision": "2",
+   "template": "21e2ced8912c163e379ee98f8f0e20f460a9b2f2ff330c8145bf879bff756957",
+   "available": 0,
+   "crash_looping": true,
+   "rolled_back_by": null
+  },
+  "seconds_failure_to_approval_request": 265.9,
+  "approval_request": {
+   "approval_id": "appr_01M2YQM58CS83JTB2V5Q231JZP",
+   "workload": "p111k-shop",
+   "capability": null,
+   "risk": "high",
+   "action": null,
+   "summary": null
+  },
+  "seconds_approval_to_closed": 41.7,
+  "after_rollback": {
+   "generation": 3,
+   "revision": "3",
+   "template": "f5736fc746e3b828206787eeb3f0e88621bb9c244f990781d49be09fdf7b1d94",
+   "available": 1,
+   "crash_looping": false,
+   "rolled_back_by": "50c4aae0c305a945dac5a212d6ca745b8241b9ea6ef35332beffc7c29de3a29c"
+  },
+  "plan_stages": [
+   "planned",
+   "autonomy_decided",
+   "approval_requested",
+   "approval_granted",
+   "executing",
+   "executed",
+   "verified",
+   "learned",
+   "closed"
+  ],
+  "vault_rollbacker_leases": {
+   "before": 0,
+   "after": 1
+  },
+  "failure_scenario": {
+   "stages": [
+    "planned",
+    "autonomy_decided",
+    "approval_requested",
+    "approval_granted",
+    "executing",
+    "executed",
+    "verification_failed",
+    "discrepancy",
+    "recovery_decided",
+    "escalated",
+    "learned",
+    "closed"
+   ],
+   "before": {
+    "generation": 3,
+    "revision": "3",
+    "template": "5a18c111c33f43e60be1445c0b33720850f6161ea6452fe093c471e48feb3e33",
+    "available": 0,
+    "crash_looping": true,
+    "rolled_back_by": null
+   },
+   "after": {
+    "generation": 4,
+    "revision": "4",
+    "template": "beb75d9a10fa0570a3f1a8fadaf790ed87a6447fbf94f40ae38bf946dde95ca2",
+    "available": 0,
+    "crash_looping": true,
+    "rolled_back_by": "fd716b65c3afa5c4e53607c82edc49039a510164cb10466bce675af79507f7c9"
+   },
+   "healthy_was": {
+    "generation": 2,
+    "revision": "2",
+    "template": "beb75d9a10fa0570a3f1a8fadaf790ed87a6447fbf94f40ae38bf946dde95ca2",
+    "available": 1,
+    "crash_looping": false,
+    "rolled_back_by": null
+   }
+  },
+  "metric_families": [
+   "cortex_active_agents",
+   "cortex_active_missions",
+   "cortex_active_voice_sessions",
+   "cortex_adapter_failure_created",
+   "cortex_adapter_failure_total",
+   "cortex_adapter_invocation_created",
+   "cortex_adapter_invocation_total",
+   "cortex_adapter_success_created",
+   "cortex_adapter_success_total",
+   "cortex_connector_health",
+   "cortex_credential_acquisition_success_created",
+   "cortex_credential_acquisition_success_total",
+   "cortex_detections_created",
+   "cortex_detections_total",
+   "cortex_investigation_evidence_seconds_bucket",
+   "cortex_investigation_evidence_seconds_count",
+   "cortex_investigation_evidence_seconds_created",
+   "cortex_investigation_evidence_seconds_sum",
+   "cortex_investigation_reads_created",
+   "cortex_investigation_reads_total",
+   "cortex_investigation_seconds_bucket",
+   "cortex_investigation_seconds_count",
+   "cortex_investigation_seconds_created",
+   "cortex_investigation_seconds_sum",
+   "cortex_investigation_steps_created",
+   "cortex_investigation_steps_total",
+   "cortex_investigations_active",
+   "cortex_investigations_concluded_created",
+   "cortex_investigations_concluded_total",
+   "cortex_investigations_opened_created",
+   "cortex_investigations_opened_total",
+   "cortex_mission_queue_depth",
+   "cortex_remediation_action_seconds_bucket",
+   "cortex_remediation_action_seconds_count",
+   "cortex_remediation_action_seconds_created",
+   "cortex_remediation_action_seconds_sum",
+   "cortex_remediation_actions_created",
+   "cortex_remediation_actions_total",
+   "cortex_remediation_approvals_created",
+   "cortex_remediation_approvals_total",
+   "cortex_remediation_executions_created",
+   "cortex_remediation_executions_total",
+   "cortex_remediation_model_calls_created",
+   "cortex_remediation_model_calls_total",
+   "cortex_remediation_model_tokens_created",
+   "cortex_remediation_model_tokens_total",
+   "cortex_remediation_plans_created",
+   "cortex_remediation_plans_total",
+   "cortex_remediation_proposals_rejected_created",
+   "cortex_remediation_proposals_rejected_total",
+   "cortex_remediation_recoveries_created",
+   "cortex_remediation_recoveries_total",
+   "cortex_remediation_verification_seconds_bucket",
+   "cortex_remediation_verification_seconds_count",
+   "cortex_remediation_verification_seconds_created",
+   "cortex_remediation_verification_seconds_sum",
+   "cortex_remediation_verifications_created",
+   "cortex_remediation_verifications_total",
+   "cortex_signal_cycle_seconds_bucket",
+   "cortex_signal_cycle_seconds_count"
+  ],
+  "audit_tables": [
+   "audit_logs",
+   "cp_audit_chain",
+   "cp_audit_record"
+  ],
+  "audit_rows": {
+   "audit_logs": 0,
+   "cp_audit_chain": 1,
+   "cp_audit_record": 1666
+  },
+  "evaluation_contract": {
+   "connector": "kubernetes",
+   "capabilities": 10,
+   "passed": true,
+   "findings": []
+  },
+  "evaluation_select": {
+   "verdict": "PASS",
+   "missing": []
+  },
+  "evaluation_arguments": {
+   "verdict": "PASS",
+   "missing": []
+  },
+  "evaluation_governance": {
+   "verdict": "PASS",
+   "missing": []
+  },
+  "evaluation_authorized_execution": {
+   "verdict": "PASS",
+   "missing": []
+  },
+  "evaluation_verification": {
+   "verdict": "PASS",
+   "missing": []
+  },
+  "evaluation_recovery": {
+   "verdict": "PASS",
+   "missing": []
+  },
+  "evaluation_explain": {
+   "verdict": "PASS",
+   "missing": []
+  },
+  "wall_clock_seconds": 2681.3
+ },
+ "negative_matrix": [
+  {
+   "case": "cross-tenant target A -> B's namespace",
+   "stopped_by": "gateway input stage (connection scope)",
+   "detail": "namespace 'cortex-conn-b' is outside this tenant's kubernetes connection",
+   "cluster_writes": 0
+  },
+  {
+   "case": "cross-tenant target B -> A's namespace",
+   "stopped_by": "gateway input stage (connection scope)",
+   "detail": "this tenant has no connection for kubernetes; a capability of a connector the tenant is not connected to cannot target anything",
+   "cluster_writes": 0
+  },
+  {
+   "case": "approval by a member without approve authority",
+   "stopped_by": "approval authority",
+   "detail": "HTTP 403",
+   "cluster_writes": 0
+  },
+  {
+   "case": "approval by another tenant's approver",
+   "stopped_by": "tenant boundary",
+   "detail": "HTTP 404",
+   "cluster_writes": 0
+  },
+  {
+   "case": "replaying the consumed approval",
+   "stopped_by": "approval consumption",
+   "detail": "HTTP 409",
+   "cluster_writes": 0
+  }
+ ],
+ "failure_injections": [
+  {
+   "injection": "reader RoleBinding deleted",
+   "health": "MISCONFIGURED",
+   "detail": "[{\"name\": \"commissioning\", \"ok\": true, \"detail\": \"10 capabilities commissioned\", \"error_class\": null, \"state_if_failed\": \"MISCONFIGURED\"}, {\"name\": \"api\", \"ok\": true, \"detail\": \"authenticated to k3d-cortex-p99b\", \"error_class\": null, \"state_if_failed\": \"UNAVAILABLE\"}, {\"name\": \"permissions\", \"ok\": f",
+   "recovered": true
+  },
+  {
+   "injection": "Vault reader role deleted",
+   "health": "AUTHENTICATION_REQUIRED",
+   "detail": "[{\"name\": \"commissioning\", \"ok\": true, \"detail\": \"10 capabilities commissioned\", \"error_class\": null, \"state_if_failed\": \"MISCONFIGURED\"}, {\"name\": \"api\", \"ok\": false, \"detail\": \"a permission check through the governed path failed (authentication_failed): invocation refused at dispatch: credential_u",
+   "recovered": true
+  },
+  {
+   "injection": "Vault down",
+   "health": "AUTHENTICATION_REQUIRED",
+   "detail": "[{\"name\": \"commissioning\", \"ok\": true, \"detail\": \"10 capabilities commissioned\", \"error_class\": null, \"state_if_failed\": \"MISCONFIGURED\"}, {\"name\": \"api\", \"ok\": false, \"detail\": \"a permission check through the governed path failed (authentication_failed): invocation refused at dispatch: credential_u",
+   "recovered": true
+  },
+  {
+   "injection": "rollback worker down",
+   "health": "DEGRADED",
+   "detail": "{\"platform.kubernetes.deployment.rollback\": \"worker unreachable: not delivered\"}",
+   "recovered": true
+  }
+ ],
+ "stages": [
+  "INSTALL",
+  "CONNECT",
+  "CREDS",
+  "RBAC",
+  "TENANCY",
+  "INCIDENT",
+  "FAILURES",
+  "OBSERVE",
+  "EVALUATE"
+ ],
+ "evaluation": {
+  "select": {
+   "question": "Can CortexPrime correctly select the capability?",
+   "verdict": "PASS",
+   "evidence": [
+    "exactly two writes: rollback and rollout_restart, both NEVER-retry",
+    "detection -> investigation -> plan -> an approval request reached the human queue",
+    "the rollback executed through the contained worker (plan reached executing and closed)"
+   ],
+   "missing_evidence": []
+  },
+  "arguments": {
+   "question": "Can it produce valid arguments?",
+   "verdict": "PASS",
+   "evidence": [
+    "REAL WRITE: the cluster runs the healthy template again (generation advanced)",
+    "the write is attributable on the object (rolled-back-by-action annotation)"
+   ],
+   "missing_evidence": []
+  },
+  "governance": {
+   "question": "Can governance reject unsafe operations?",
+   "verdict": "PASS",
+   "evidence": [
+    "no credential -> the connector API refuses (401)",
+    "no arbitrary API / shell / raw-request capability exists",
+    "cross-tenant target A -> B's namespace -> refused by gateway input stage (connection scope) (0 cluster writes)",
+    "cross-tenant target B -> A's namespace -> refused by gateway input stage (connection scope) (0 cluster writes)",
+    "approval by a member without approve authority -> refused by approval authority (0 cluster writes)",
+    "approval by another tenant's approver -> refused by tenant boundary (0 cluster writes)"
+   ],
+   "missing_evidence": []
+  },
+  "authorized_execution": {
+   "question": "Can execution happen only after authorization?",
+   "verdict": "PASS",
+   "evidence": [
+    "nothing was written before approval (template still the bad revision)",
+    "the scoped approver approved through the product API",
+    "replaying the consumed approval -> refused by approval consumption (0 cluster writes)"
+   ],
+   "missing_evidence": []
+  },
+  "verification": {
+   "question": "Can verification correctly distinguish success from failure?",
+   "verdict": "PASS",
+   "evidence": [
+    "the workload is healthy again on the cluster",
+    "independent verification established the outcome (not the executor's word)",
+    "VERIFICATION DISTINGUISHES FAILURE: the incident persisted -> verification_failed, escalated, never reported as success",
+    "no retry after a failed verification (no second write)"
+   ],
+   "missing_evidence": []
+  },
+  "recovery": {
+   "question": "Can the system recover from provider failures?",
+   "verdict": "PASS",
+   "evidence": [
+    "RBAC restored -> CONNECTED without a restart",
+    "Vault role restored -> CONNECTED",
+    "Vault back -> CONNECTED (the runtime re-authenticated with its pod identity, no restart)",
+    "worker back -> CONNECTED"
+   ],
+   "missing_evidence": []
+  },
+  "explain": {
+   "question": "Can the system explain the result to the user?",
+   "verdict": "PASS",
+   "evidence": [
+    "health CONNECTED, read through the product API as the connection's tenant",
+    "the plan is visible to the tenant with its evidence-backed target",
+    "RBAC removed -> MISCONFIGURED, naming the exact missing permissions",
+    "rollback worker down -> DEGRADED; reads stay available; rollback named unavailable"
+   ],
+   "missing_evidence": []
+  }
+ },
+ "passed": 92,
+ "failed": 0,
+ "total": 92,
+ "failed_checks": [],
+ "verdict": "VERIFIED"
+}

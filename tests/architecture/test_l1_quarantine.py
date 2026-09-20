@@ -182,12 +182,12 @@ class TestEffectGateRuleSensitivity:
 
     def _real_graph_with_mutation(self, tmp_path, module_rel: str, mutate) -> ModuleGraph:
         root = tmp_path / "backend"
-        for rel in (
-            "connectors/base.py",
-            "connectors/argocd.py",
-            "connectors/github.py",
-            "connectors/terraform.py",
-        ):
+        # Every module the rule gates (Phase 11.1-K added the raw-request
+        # sites), so the unmutated copy is the real, complete gated surface.
+        gated = {site[0] for site in ConnectorEffectGateRule.gate_sites}
+        rels = sorted({m.split(".", 1)[1].replace(".", "/") + ".py" for m in gated}
+                      | {"connectors/base.py", "connectors/terraform.py"})
+        for rel in rels:
             src = (REPO_BACKEND / rel).read_text(encoding="utf-8")
             if rel == module_rel:
                 src = mutate(src)

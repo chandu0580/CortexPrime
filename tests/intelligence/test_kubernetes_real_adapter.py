@@ -240,11 +240,15 @@ class TestRealExposure:
         # deployments list stays contract-only: nothing discriminates on it.
         catalog = kubernetes_real_read_catalog()
         assert set(catalog.operations) == set(KUBERNETES_REAL_READ_OPERATIONS)
+        # Phase 11.1-K (ADR-125) added the eighth, and only the eighth: the
+        # connection's own permission check, which connector health asks the
+        # cluster so a missing RBAC rule is named instead of guessed. It reads
+        # nothing about workloads and changes nothing.
         assert set(KUBERNETES_REAL_READ_OPERATIONS) == {
             "kubernetes.pods.list", "kubernetes.pods.watch",
             "kubernetes.pod.get", "kubernetes.deployment.get",
             "kubernetes.pod.logs", "kubernetes.events.list",
-            "kubernetes.replicasets.list"}
+            "kubernetes.replicasets.list", "kubernetes.access.review"}
         assert set(kubernetes_read_catalog().operations) - set(
             KUBERNETES_REAL_READ_OPERATIONS) == {"kubernetes.deployments.list"}
 

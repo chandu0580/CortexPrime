@@ -1,0 +1,128 @@
+# CortexPrime governed runtime -- Kubernetes reference connector (Phase 11.1-K).
+#
+# The whole setup is: point it at a database, a Vault, and the namespace to
+# connect. Everything else below has a working default.
+#
+#   helm install cortexprime ./helm/cortexprime-governed \
+#     --namespace cortexprime --create-namespace \
+#     --set connection.tenant=<your tenant id> \
+#     --set connection.namespace=<namespace to observe> \
+#     --set database.existingSecret=<secret with key "url"> \
+#     --set vault.address=https://vault.vault.svc:8200 \
+#     --set vault.caSecret=<secret with key "ca.crt">
+#
+# Then: GET /api/v1/connectors reports the connection's health, and names the
+# exact permission, credential or endpoint to fix if it is not CONNECTED.
+
+image:
+  repository: cortexprime/governed-runtime
+  tag: "1.0.0"
+  pullPolicy: IfNotPresent
+
+# development | staging | production. Production refuses static credentials,
+# plaintext and a database connection without TLS.
+environment: production
+
+# REQUIRED: the one connection this deployment serves.
+connection:
+  # The CortexPrime tenant that owns this connection (a tenant id).
+  tenant: ""
+  # The Kubernetes namespace CortexPrime observes and may remediate. The chart
+  # creates the least-privilege ServiceAccounts and Roles there.
+  namespace: ""
+  clusterRef: in-cluster
+
+# REQUIRED: PostgreSQL 16+ with the pgvector extension available (the schema
+# uses the vector type; the migration Job runs CREATE EXTENSION vector, so the
+# database user must be allowed to create it, or an administrator creates it
+# once beforehand). A Secret in the release namespace with key `url`
+# (postgresql://user:pass@host:5432/db?sslmode=require).
+database:
+  existingSecret: ""
+  secretKey: url
+
+# The product API's token signing secret. Generated (and kept across upgrades)
+# when no existing Secret is named.
+auth:
+  existingSecret: ""
+  secretKey: JWT_SECRET_KEY
+
+# REQUIRED: Vault, the credential source. CortexPrime logs in with its own pod
+# identity (Vault Kubernetes auth) and asks Vault's Kubernetes secrets engine for
+# a short-lived ServiceAccount token per action. No static token is stored.
+# scripts/connector/configure_vault_kubernetes.sh configures Vault to match.
+vault:
+  address: ""
+  # Secret (release namespace) with key `ca.crt` when Vault uses a private CA.
+  caSecret: ""
+  authRole: cortexprime
+  authMount: kubernetes
+  kubernetesMount: kubernetes
+  # Vault's own ServiceAccount: it is granted, in the connected namespace only,
+  # the right to mint tokens for exactly the three CortexPrime ServiceAccounts.
+  serviceAccount:
+    name: vault
+    namespace: vault
+  roles:
+    reader: cortexprime-reader
+    rollback: cortexprime-rollbacker
+    restart: cortexprime-restarter
+
+# The contained write workers. Each runs in the connected namespace with its own
+# ServiceAccount and holds no standing credential. The digests identify the
+# shipped worker code and are checked by the platform on every execution.
+workers:
+  rollback:
+    enabled: true
+    image: cortexprime/contained-k8s-rollback:1.0.0
+    digest: 4f06d51a8f9633b55d3a3add5ff98446df85cf3c3025962551ae214fe0c48d5d
+  restart:
+    enabled: true
+    image: cortexprime/contained-k8s-restart:1.0.0
+    digest: dac6839e3e682a28888563cdc6b9e6088365817c97f7b472358d2cc21372feb5
+  # The API server endpoint the workers' egress policy allows. Discovered at
+  # install from the default/kubernetes Endpoints; the install REFUSES when it
+  # cannot be discovered (a worker without its egress policy could reach
+  # anything), so set it explicitly for `helm template`, a dry run, or an
+  # install whose credentials cannot read that Endpoints object:
+  #   kubectl -n default get endpoints kubernetes
+  apiServerEndpoint: ""
+  apiServerPort: 6443
+
+remediation:
+  enabled: true
+  # ADR-124 D-4/D-5: may a compensable rollback run under earned, policy-
+  # delegated autonomy? Off by default; every rollback then needs a human.
+  compensableAutonomy: false
+
+# Optional: a model for investigation and remediation proposals. Without one the
+# platform investigates with its deterministic plan and only recommends.
+model:
+  provider: ""          # e.g. openai-compatible
+  name: ""              # e.g. glm-5.2
+  existingSecret: ""    # keys LLM_API_KEY and LLM_BASE_URL
+  allowPlaintextHttp: false
+  # Reasoning models spend output tokens thinking; too small a budget returns
+  # empty content (Phase 11.3/11.4 findings). Defaults fit GLM-class models.
+  investigationMaxOutputTokens: 4096
+  timeoutSeconds: 120
+
+rateLimit: {}           # CORTEX_RATE_LIMIT_* overrides, e.g. {TENANT_PER_MINUTE: "600"}
+
+metrics:
+  port: 9102
+
+# How often connector health is re-checked (seconds; minimum 30). Each check is
+# one governed permission review per required permission.
+health:
+  intervalSeconds: 300
+
+resources:
+  requests: {cpu: 100m, memory: 256Mi}
+  limits: {cpu: "1", memory: 768Mi}
+
+# Token revocation store (production authentication fails closed without one).
+# Empty url: the chart runs a small password-protected Redis beside the runtime.
+redis:
+  url: ""
+  image: redis:7-alpine

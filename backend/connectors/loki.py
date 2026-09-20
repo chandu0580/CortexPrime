@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from backend.connectors.base import BaseConnector
+from backend.connectors.effects import guard_raw_request
 
 log = logging.getLogger(__name__)
 
@@ -97,6 +98,9 @@ class LokiConnector(BaseConnector):
             return {"status": "error", "error": str(exc)}
 
     async def _post(self, path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        # Audit S-1: a state-changing raw request outside an admitted _execute
+        # operation is an unnamed write and meets the effect gate.
+        guard_raw_request(self.connector_type, "POST")
         if not self._client:
             return {"status": "error", "error": "connector not initialized"}
         try:

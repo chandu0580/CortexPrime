@@ -75,6 +75,7 @@ migration infrastructure — never imported into a context.
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from typing import Any, Mapping, Optional
@@ -667,7 +668,7 @@ def build_kubernetes_connector(
         KUBERNETES_PROVIDER_ID,
         KubernetesReadNormalizer,
         KubernetesResponseTranslator,
-        KubernetesRestartBodyBuilder,
+        KubernetesBodyBuilder,
         KubernetesWatchDecoder,
         build_kubernetes_channel,
         kubernetes_real_read_catalog,
@@ -726,7 +727,7 @@ def build_kubernetes_connector(
         # Phase 9.6: every Kubernetes mutation is a nested document, which the
         # flat body a spec declares cannot express. The builder constructs the ONE
         # document this platform may send, from the already-validated payload.
-        body_builder=KubernetesRestartBodyBuilder(),
+        body_builder=KubernetesBodyBuilder(),
         preflight=preflight,
         metrics=metrics,
     )
@@ -1554,7 +1555,15 @@ class GovernedCapabilityReader:
                 "operation nobody declared is not one this may run"
             )
         node = node_id or operation.replace(".", "-")
-        environment = self._environment or CapabilityEnvironment.DEVELOPMENT
+        # Phase 11.1-K: the runtime's OWN environment, never an assumed one.
+        # This defaulted to DEVELOPMENT, so every reader composed without an
+        # explicit environment (connector health, the signal worker, the
+        # investigator, the remediator) asked for a development authorization
+        # in a production deployment -- and was refused
+        # ``environment_not_permitted`` on every read. Development runs hid it.
+        environment = self._environment or CapabilityEnvironment(
+            getattr(getattr(self._runtime, "environment", None), "value", None)
+            or (os.getenv("CORTEX_DURABLE_ENV") or "development").strip().lower())
         started_at = time.monotonic()
 
         decision = self._runtime.authorization.authorize(context, AuthorizationRequest(

@@ -42,7 +42,9 @@ effect regardless of the verb).
 
 from __future__ import annotations
 
-from typing import Dict, FrozenSet
+from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import Dict, FrozenSet, Iterator
 
 from backend.api.legacy_execution_boundary import guard_legacy_internal
 
@@ -53,6 +55,9 @@ __all__ = [
     "KNOWN_OPERATIONS",
     "classify_effect",
     "assert_effect_permitted",
+    "effect_scope",
+    "guard_raw_request",
+    "SAFE_HTTP_METHODS",
 ]
 
 EFFECT_WRITE = "write"
@@ -239,6 +244,56 @@ def classify_effect(connector_type: str, operation: str) -> str:
         return EFFECT_WRITE
     writes = WRITE_OPERATIONS.get(connector_type, frozenset())
     return EFFECT_WRITE if operation in writes else EFFECT_READ
+
+
+#: Phase 11.1-K (audit finding S-1). The connectors whose operations
+#: ``BaseConnector._execute`` has classified and admitted in the current call.
+#: A context variable, so it follows the awaited call chain of one task and
+#: nothing else: a coroutine that was not started inside ``_execute`` never
+#: carries it.
+_EFFECT_SCOPE: ContextVar[frozenset] = ContextVar(
+    "cortex_connector_effect_scope", default=frozenset())
+
+#: HTTP methods that cannot change provider state by definition.
+SAFE_HTTP_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+@contextmanager
+def effect_scope(connector_type: str) -> Iterator[None]:
+    """Mark ``connector_type``'s raw requests as belonging to an admitted operation.
+
+    Entered only by ``BaseConnector._execute`` AFTER ``assert_effect_permitted``
+    classified the named operation. A raw request inside this scope is carrying
+    an operation somebody named and the gate judged; outside it, it is not.
+    """
+    token = _EFFECT_SCOPE.set(_EFFECT_SCOPE.get() | {connector_type})
+    try:
+        yield
+    finally:
+        _EFFECT_SCOPE.reset(token)
+
+
+def guard_raw_request(connector_type: str, method: str) -> None:
+    """The effect gate at the lowest layer a connector writes through.
+
+    Audit S-1: ``enterprise_git_operations`` called ``GitHubConnector._request``
+    directly -- DELETE a branch, POST blobs/trees/commits, PATCH a ref (a push),
+    comment, label -- and so bypassed ``_execute`` and with it the only gate.
+    Gating each caller would miss the next one. So every connector's raw request
+    method calls this first: a state-changing HTTP method that did not arrive
+    through an admitted ``_execute`` operation is treated as an unnamed write,
+    which ``classify_effect`` already classifies as WRITE (fail-closed) and the
+    legacy boundary refuses unless ``CORTEXPRIME_ENABLE_LEGACY_EXECUTION`` is set.
+
+    Reads by method (GET/HEAD/OPTIONS) and POST-shaped reads that came through
+    ``_execute`` (Notion search, Azure WIQL) are unaffected.
+    """
+    verb = str(method or "").upper()
+    if verb in SAFE_HTTP_METHODS:
+        return
+    if connector_type in _EFFECT_SCOPE.get():
+        return
+    guard_legacy_internal(f"connector:{connector_type}.raw {verb}")
 
 
 def assert_effect_permitted(connector_type: str, operation: str) -> None:

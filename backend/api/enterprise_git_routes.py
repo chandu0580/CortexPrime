@@ -15,8 +15,10 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+
+from backend.api.legacy_execution_boundary import guard_legacy_execution
 
 from backend.services.enterprise_git_operations import git_operations
 
@@ -95,7 +97,12 @@ async def list_branches(repo_url: str = Query(..., description="Repository URL")
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
-@router.post("/branches")
+@router.post(
+    "/branches",
+    # Audit S-1/S-2 (Phase 11.1-K): a V1 surface that reaches an external
+    # write or an ungoverned model/tool loop; quarantined like its siblings.
+    dependencies=[Depends(guard_legacy_execution("POST /api/git/branches"))],
+)
 async def create_branch(req: CreateBranchRequest):
     """Create a new branch from a source branch."""
     try:
@@ -112,7 +119,12 @@ async def create_branch(req: CreateBranchRequest):
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
-@router.post("/commit")
+@router.post(
+    "/commit",
+    # Audit S-1/S-2 (Phase 11.1-K): a V1 surface that reaches an external
+    # write or an ungoverned model/tool loop; quarantined like its siblings.
+    dependencies=[Depends(guard_legacy_execution("POST /api/git/commit"))],
+)
 async def create_commit(req: CommitRequest):
     """Create a commit on a branch with staged files."""
     try:
@@ -135,7 +147,12 @@ async def create_commit(req: CommitRequest):
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
-@router.post("/pull-request")
+@router.post(
+    "/pull-request",
+    # Audit S-1/S-2 (Phase 11.1-K): a V1 surface that reaches an external
+    # write or an ungoverned model/tool loop; quarantined like its siblings.
+    dependencies=[Depends(guard_legacy_execution("POST /api/git/pull-request"))],
+)
 async def create_pull_request(req: CreatePRRequest):
     """Create a pull request with engineering context."""
     try:
@@ -162,7 +179,12 @@ async def create_pull_request(req: CreatePRRequest):
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
-@router.post("/pull-request/{pr_number}/merge")
+@router.post(
+    "/pull-request/{pr_number}/merge",
+    # Audit S-1/S-2 (Phase 11.1-K): a V1 surface that reaches an external
+    # write or an ungoverned model/tool loop; quarantined like its siblings.
+    dependencies=[Depends(guard_legacy_execution("POST /api/git/pull-request/{pr_number}/merge"))],
+)
 async def merge_pull_request(pr_number: int, req: MergePRRequest):
     """Merge a pull request."""
     try:
@@ -181,7 +203,12 @@ async def merge_pull_request(pr_number: int, req: MergePRRequest):
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
-@router.post("/issues/sync")
+@router.post(
+    "/issues/sync",
+    # Audit S-1/S-2 (Phase 11.1-K): a V1 surface that reaches an external
+    # write or an ungoverned model/tool loop; quarantined like its siblings.
+    dependencies=[Depends(guard_legacy_execution("POST /api/git/issues/sync"))],
+)
 async def sync_issue(req: SyncIssueRequest):
     """Sync an issue across GitHub, Jira, or Azure DevOps."""
     try:

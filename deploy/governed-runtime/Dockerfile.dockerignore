@@ -1,0 +1,15 @@
+# Allowlist: the governed runtime image needs its requirements and backend/.
+*
+!deploy/governed-runtime/requirements.txt
+!backend/
+backend/**/__pycache__/
+backend/**/*.pyc
+backend/**/.pytest_cache/
+backend/**/*.db
+backend/**/*.log
+backend/.env
+backend/.env.*
+backend/cortex_memory/
+backend/data/
+backend/generated_screens/
+backend/**/*.sqlite3

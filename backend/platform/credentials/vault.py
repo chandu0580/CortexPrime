@@ -141,11 +141,14 @@ class VaultCredentialAdapter:
                 "a production Vault endpoint must be https; plaintext exposes "
                 "the Vault token and every secret it returns"
             )
-        if not isinstance(vault_token, CredentialMaterial):
+        if not isinstance(vault_token, CredentialMaterial) and not callable(
+            getattr(vault_token, "material", None)
+        ):
             raise ContractViolation(
-                "the Vault token must arrive as CredentialMaterial, not as a "
-                "string read from the environment; it is a secret and the type "
-                "is what stops it being written down"
+                "the Vault token must arrive as CredentialMaterial (or a token "
+                "source yielding it, Phase 11.1-K), not as a string read from the "
+                "environment; it is a secret and the type is what stops it being "
+                "written down"
             )
         for label, value in (("mount", mount), ("secret_key", secret_key)):
             if not isinstance(value, str) or not value.strip():
@@ -312,6 +315,14 @@ class VaultCredentialAdapter:
     # Internals
     # ------------------------------------------------------------------
 
+    def _platform_token(self, request: CredentialRequest) -> CredentialMaterial:
+        """The platform's Vault token: fixed material, or a renewing source's
+        current material (Vault Kubernetes auth, Phase 11.1-K). A source that
+        cannot produce one refuses the acquisition; it never falls back."""
+        if isinstance(self._token, CredentialMaterial):
+            return self._token
+        return self._token.material(correlation_id=request.correlation_id)
+
     def _secret_path(self, request: CredentialRequest) -> str:
         """``<prefix>/<tenant>/<environment>/<provider>``. Tenant first, always.
 
@@ -348,6 +359,12 @@ class VaultCredentialAdapter:
         )
 
         remaining = max(1.0, (request.effective_expiry(now) - now).total_seconds())
+        try:
+            platform_token = self._platform_token(request)
+        except CredentialRefused as refused:
+            # The platform's own Vault identity could not be established (a
+            # Kubernetes-auth login refused). That refusal is the answer.
+            return {}, refused
         endpoint = replace(
             self._endpoint,
             path=f"/v1/{self._mount}/data/{path}",
@@ -374,7 +391,7 @@ class VaultCredentialAdapter:
                 authority_seconds_remaining=remaining,
                 # The Vault token itself, handed to transport for the moment of
                 # use exactly as a provider credential is.
-                credential=self._token,
+                credential=platform_token,
             )
         except Exception as exc:  # noqa: BLE001
             return {}, CredentialRefused(

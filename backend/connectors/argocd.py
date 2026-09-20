@@ -21,7 +21,7 @@ from typing import Any, Dict, Optional
 import httpx
 
 from backend.connectors.base import BaseConnector
-from backend.connectors.effects import assert_effect_permitted
+from backend.connectors.effects import assert_effect_permitted, guard_raw_request
 
 log = logging.getLogger(__name__)
 
@@ -116,6 +116,9 @@ class ArgoCDConnector(BaseConnector):
             return {"status": "error", "error": str(exc)}
 
     async def _post(self, path: str, json_body: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        # Audit S-1: a state-changing raw request outside an admitted _execute
+        # operation is an unnamed write and meets the effect gate.
+        guard_raw_request(self.connector_type, "POST")
         # Phase 6.1 (L1): every ArgoCD POST is a write (sync/refresh/rollback)
         # and bypasses BaseConnector._execute, so the effect gate sits here.
         # The path in the surface name makes the refusal self-explaining.

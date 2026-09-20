@@ -727,25 +727,39 @@ class ConnectorEffectGateRule:
 
     rule_id: str = "BND-EFFECT-GATE"
     description: str = (
-        "the connector effect gate is present at all four enforcement points"
+        "the connector effect gate is present at every enforcement point "
+        "(the four Phase 6.1 sites and every connector raw request method)"
     )
-    #: (module, function, must_be_first_statement)
-    gate_sites: tuple[tuple[str, str, bool], ...] = (
+    #: (module, function, must_be_first_statement[, gate function])
+    gate_sites: tuple = (
         ("backend.connectors.base", "_execute", True),
         ("backend.connectors.argocd", "_post", False),
         ("backend.connectors.github", "graphql_request", False),
         ("backend.connectors.terraform", "_run", False),
+    ) + tuple(
+        # Phase 11.1-K (audit S-1): every connector's raw request method gates
+        # state-changing HTTP methods first, so a caller that skips _execute --
+        # as enterprise_git_operations did -- still meets the effect gate.
+        (f"backend.connectors.{module}", function, True, "guard_raw_request")
+        for module, function in (
+            ("argocd", "_post"), ("azure_devops", "_request"),
+            ("circleci", "_request"), ("confluence", "_request"),
+            ("github", "_request"), ("gitlab_ci", "_request"),
+            ("jenkins", "_request"), ("jira", "_request"), ("loki", "_post"),
+            ("notion", "_request"), ("servicenow", "_request"),
+            ("slack", "_request"), ("teams", "_request"),
+        )
     )
     severity: Severity = Severity.ERROR
 
     @staticmethod
-    def _calls_gate(node) -> bool:
+    def _calls_gate(node, gate: str = "assert_effect_permitted") -> bool:
         import ast as _ast
 
         for sub in _ast.walk(node):
             if (isinstance(sub, _ast.Call)
                     and isinstance(sub.func, _ast.Name)
-                    and sub.func.id == "assert_effect_permitted"):
+                    and sub.func.id == gate):
                 return True
         return False
 
@@ -755,7 +769,9 @@ class ConnectorEffectGateRule:
         by_name = {m.name: m for m in graph.modules()}
         violations: list[Violation] = []
         checked = 0
-        for module_name, function_name, must_be_first in self.gate_sites:
+        for site in self.gate_sites:
+            module_name, function_name, must_be_first = site[:3]
+            gate = site[3] if len(site) > 3 else "assert_effect_permitted"
             module = by_name.get(module_name)
             if module is None:
                 violations.append(
@@ -791,7 +807,7 @@ class ConnectorEffectGateRule:
                         and node.name == function_name):
                     found = node
                     break
-            if found is None or not self._calls_gate(found):
+            if found is None or not self._calls_gate(found, gate):
                 violations.append(
                     Violation(
                         rule_id=self.rule_id,
@@ -801,7 +817,7 @@ class ConnectorEffectGateRule:
                         offender=function_name,
                         detail=(
                             f"{function_name} no longer calls "
-                            "assert_effect_permitted — the effect gate has "
+                            f"{gate} — the effect gate has "
                             "been removed (Phase 6.1, L1)"
                         ),
                     )
@@ -814,7 +830,7 @@ class ConnectorEffectGateRule:
                         and isinstance(body[0].value, _ast.Constant)
                         and isinstance(body[0].value.value, str)):
                     body = body[1:]
-                first_ok = bool(body) and self._calls_gate(body[0])
+                first_ok = bool(body) and self._calls_gate(body[0], gate)
                 if not first_ok:
                     violations.append(
                         Violation(
@@ -824,8 +840,8 @@ class ConnectorEffectGateRule:
                             line=found.lineno,
                             offender=function_name,
                             detail=(
-                                "assert_effect_permitted is not the first "
-                                "statement of _execute; a refused write must "
+                                f"{gate} is not the first statement of "
+                                f"{function_name}; a refused write must "
                                 "run nothing, record nothing (Phase 6.1, L1)"
                             ),
                         )

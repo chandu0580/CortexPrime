@@ -22,9 +22,19 @@ still comes only from the verified token.
 
 from __future__ import annotations
 
+import logging
 import os
 
 from fastapi.middleware.cors import CORSMiddleware
+
+# Phase 11.1-K: uvicorn configures only its own loggers, so every platform
+# logger (commissioning, the governed loops, connector health) fell to Python's
+# WARNING default and a deployed runtime's log said nothing about what it was
+# doing. Configured here, once, only if nothing else already configured it.
+if not logging.getLogger().handlers:
+    logging.basicConfig(
+        level=getattr(logging, (os.getenv("LOG_LEVEL") or "INFO").upper(), logging.INFO),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 from backend.api.product.app import build_product_app
 

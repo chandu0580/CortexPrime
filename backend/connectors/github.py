@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import httpx
 
 from backend.connectors.base import BaseConnector
-from backend.connectors.effects import assert_effect_permitted
+from backend.connectors.effects import assert_effect_permitted, guard_raw_request
 
 log = logging.getLogger(__name__)
 
@@ -513,6 +513,9 @@ class GitHubConnector(BaseConnector):
     # ------------------------------------------------------------------
 
     async def _request(self, method: str, path: str, **kwargs) -> Dict[str, Any]:
+        # Audit S-1: a state-changing raw request outside an admitted _execute
+        # operation is an unnamed write and meets the effect gate.
+        guard_raw_request(self.connector_type, method)
         if not self._client:
             raise RuntimeError("GitHub connector not initialized")
         await self.wait_if_needed()

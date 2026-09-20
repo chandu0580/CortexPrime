@@ -93,10 +93,10 @@ def _sync_get_current_revisions() -> List[str]:
     """Query ``alembic_version`` with a synchronous psycopg2 connection."""
     from sqlalchemy import create_engine, text
 
-    from backend.database.engine import _build_dsn
+    from backend.database.engine import _sync_dsn
 
-    # Strip the asyncpg driver â€” psycopg2 is used for sync access
-    dsn = _build_dsn().replace("postgresql+asyncpg://", "postgresql://", 1)
+    # psycopg2 is used for sync access
+    dsn = _sync_dsn()
     try:
         engine = create_engine(
             dsn,
@@ -128,9 +128,9 @@ def _sync_db_reachable() -> bool:
     """
     from sqlalchemy import create_engine, text
 
-    from backend.database.engine import _build_dsn
+    from backend.database.engine import _sync_dsn
 
-    dsn = _build_dsn().replace("postgresql+asyncpg://", "postgresql://", 1)
+    dsn = _sync_dsn()
     try:
         engine = create_engine(
             dsn,
