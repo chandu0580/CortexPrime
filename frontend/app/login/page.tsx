@@ -33,8 +33,16 @@ function LoginPageContent() {
   const clearError = useAuthStore((state) => state.clearError);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
 
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  // Demonstration prefill. Read from the environment rather than written here,
+  // so a working credential never lands in the repository: these come from
+  // frontend/.env.local, which .gitignore already excludes. Unset in any
+  // deployment that does not want them, and the fields start empty as before.
+  const [email, setEmail] = useState(
+    process.env.NEXT_PUBLIC_DEMO_EMAIL ?? "",
+  );
+  const [password, setPassword] = useState(
+    process.env.NEXT_PUBLIC_DEMO_PASSWORD ?? "",
+  );
   const [rememberMe, setRememberMe] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -55,10 +63,14 @@ function LoginPageContent() {
         if (!saved) return;
 
         const parsed = JSON.parse(saved) as Partial<SavedLogin>;
-        if (typeof parsed.email === "string") {
+        // Only a remembered value that actually has something in it replaces
+        // what is already in the field: an empty string saved by an earlier
+        // visit would otherwise clear a prefilled credential a moment after
+        // the page renders, which looks exactly like the prefill not working.
+        if (typeof parsed.email === "string" && parsed.email) {
           setEmail(parsed.email);
         }
-        if (typeof parsed.password === "string") {
+        if (typeof parsed.password === "string" && parsed.password) {
           setPassword(parsed.password);
         }
         setRememberMe(Boolean(parsed.email || parsed.password));

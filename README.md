@@ -41,79 +41,97 @@ Some concrete consequences, all implemented and tested:
 | **Undeclared effects never default to safe** | A tool that doesn't say whether it mutates is treated as the most dangerous case, not the most convenient one. |
 | **No silent retry** | Every retry is a recorded decision with a reason. Ambiguity is checked *before* worthwhileness, so an operation that must not repeat is refused even when the error looks retryable. |
 | **Revocation is terminal** | A revoked capability has no transition back. Restoring it means a new version and a new decision — not flipping a boolean. |
-| **Separation of duties** | Whoever registers a capability cannot be the one who enables or trusts it. |
+| **Separation of duties** | Whoever registers a capability cannot be the one who enables or trusts it. The requester of an action cannot approve it. |
 | **Replay cannot execute** | The replay engine holds no repository, no worker pool, no queue. Re-running history is structurally impossible, not merely discouraged. |
+| **Outcomes are established independently** | A worker reporting success is not success. The world is re-read through a separate path before anything is called done. |
 | **Fails closed everywhere** | Policy engine unreachable → deny. Worker unresolvable → refuse. No default worker, no default tenant, no fallback provider. |
-| **No LLM in the security path** | Authorization and provider selection are deterministic and inspectable. A model may later *suggest*; it never decides. |
+| **No LLM in the security path** | Authorization and provider selection are deterministic and inspectable. A model may *propose*; it never decides. |
 
-**Exactly-once is never claimed.** Nothing that crosses a network can honestly promise it. The system models the choice — at-least-once with idempotency, or at-most-once with surfaced ambiguity — and says which one it is making.
+**Exactly-once is never claimed.** Nothing that crosses a network can honestly promise it. The system provides durable at-least-once dispatch with a revision-checked claim, idempotency where the provider supports it, and independent verification — and says so.
 
 ---
 
 ## Architecture
 
 ```
-  USER INTENT
-      │
-      ▼
+  API   ·   Agent   ·   Scheduler   ·   ChatOps
+                      │
+                      ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  MISSION CONTROL PLANE          what should happen           │
+│  CAPABILITY FABRIC              what may happen              │
 │                                                              │
-│  Mission → Intent → Planner → Workflow → approved graph      │
-└──────────────────────────────┬──────────────────────────────┘
-                               │  digest-verified handoff
-┌──────────────────────────────▼──────────────────────────────┐
-│  CAPABILITY FABRIC              what may happen               │
-│                                                              │
-│  Identity → Discovery → Authorization → Resolution → Binding │
+│  Identity → Tenant → Authorization → Policy/Risk →           │
+│  Approval/Autonomy → Action digest → Binding                 │
 └──────────────────────────────┬──────────────────────────────┘
                                │  immutable, expiring binding
 ┌──────────────────────────────▼──────────────────────────────┐
-│  EXECUTION RUNTIME             what did happen                │
+│  DURABLE EXECUTION             what did happen               │
 │                                                              │
-│  Leases · Attempts · Checkpoints · Recovery · Replay · Audit │
+│  Revision-checked claim · Leases · Attempts · Recovery ·     │
+│  Replay · Hash-chained audit                                 │
 └──────────────────────────────┬──────────────────────────────┘
-                               │  worker contract  (Phase 3.3)
+                               │  one governed path, no bypass
+┌──────────────────────────────▼──────────────────────────────┐
+│  CONTAINED WORKERS             who may touch the world       │
+│                                                              │
+│  Own container · non-root · read-only rootfs · no standing   │
+│  credential · compiled bindings · egress allow-list          │
+└──────────────────────────────┬──────────────────────────────┘
                                ▼
-                    Workers / Connectors / MCP
+              Kubernetes   ·   GitHub   ·   (next connector)
+                               │
+                               ▼
+                    INDEPENDENT VERIFICATION
 ```
 
-**12 bounded contexts**, each owning one responsibility and forbidden from importing another. Cross-context wiring happens only in named composition roots, so "what talks to what" is one greppable file rather than an archaeology project.
+**13 bounded contexts**, each owning one responsibility and forbidden from importing another. Cross-context wiring happens only in named composition roots, so "what talks to what" is one greppable file rather than an archaeology project.
 
 ---
 
 ## Current status
 
-Honest, because anyone technical will check.
+Honest, because anyone technical will check. Claims below are marked **proven** only where a real external system was changed and the change was verified independently.
 
 | Layer | State |
 |---|---|
-| Mission → Intent → Planner → Workflow control plane | **Implemented** — full lifecycle, policy gates, digest binding |
-| Durable execution core (leases, attempts, checkpoints, recovery, replay) | **Implemented** |
-| Capability Fabric (identity, discovery, authorization, resolution, binding) | **Implemented** |
-| Worker execution contract | **Implemented** — the contract and the pre-execution gate |
-| Workers & connectors (shell, Docker, K8s, MCP, GitHub, AWS…) | **Not built** — next phase |
-| Durable persistence | **Not built** — repositories are in-memory behind Protocols |
-| Credential management | **Not built** — Protocol seam only |
-| Authorization policy engine | **Placeholder** — coarse grant checks, designed for replacement |
+| Capability Fabric (identity → tenant → authorization → approval → digest → binding) | **Proven** |
+| Durable execution core (claim, leases, attempts, recovery, replay) | **Proven** |
+| Durable persistence (PostgreSQL, bitemporal world/fact/verification ledgers) | **Proven** |
+| Credential management (Vault, per-action, never in env/logs/records) | **Proven** |
+| Contained workers (own container, no standing credential, egress-fenced) | **Proven** |
+| Hash-chained audit, fenced single writer | **Proven** |
+| **Kubernetes connector** — 8 reads + governed restart + governed rollback | **LOCKED** — real cluster, real rollback, independently verified |
+| **GitHub connector** — 9 reads + one governed issue comment | **NOT LOCKED** — see blockers |
+| Multi-replica operation (leader-elected singletons, idempotency-fenced) | **Proven** — 2 replicas, one holder per role |
+| Asynchronous execution API (submit, leave, come back) | **Partial** — the receipt and status path works; the async *write* does not yet land |
+| Governed execution reachable from the product API | **Partial** — one route, Kubernetes remediation capabilities only |
+| MCP surface | **Legacy/gated** — the V1 MCP path is disabled and does not reach the governed plane |
 | V1 agent runtime (agents, memory, voice, browser, ~50 UI screens) | **Working** — the product this architecture is being built beneath |
 
-The V2 architecture is being introduced under the working V1 system via a strangler migration. V1 proved the product; V2 is making it safe enough to sell to an enterprise.
+### Known blockers, stated plainly
+
+- **GitHub is not locked.** The production credential — a GitHub App installation token — is implemented and covered by deterministic tests including a real RSA signature, but has never authenticated against `api.github.com`. Locking on the development token path would claim a production auth path that was never exercised.
+- **An asynchronous write does not complete.** It is refused after the node is leased, and the refusal's reason is not persisted (the gateway sets it; it does not survive into the durable record). That missing reason is the next thing to fix, because without it the refusal cannot be diagnosed from the record at all.
+- **The V1 plane is legacy.** Its writes are gated off, its MCP execution path is disabled, and none of the governed capabilities above appear in its UI.
 
 ---
 
 ## Why the engineering is the moat
 
-Ambitious AI products are easy to demo and hard to trust. What is unusual here is not the feature list — it is that the safety properties are **mechanically enforced**:
+Ambitious AI products are easy to demo and hard to trust. What is unusual here is not the feature list — it is that the safety properties are **mechanically enforced**, and that the failures are written down.
 
-- **27 Architecture Decision Records.** Every non-obvious choice is written down with its reasoning, its cost, and what it deliberately does *not* claim.
-- **A written Constitution, executed as CI.** 22 architectural rules run as fitness functions on every pull request. A blocking violation fails the build — bounded-context isolation, tenancy on every repository method, no new authoritative file stores, dependency direction. Architecture that drifts is architecture that was never enforced.
-- **Documentation that refuses to oversell.** The ADRs contain explicit "what this does not claim" sections. Where persistence is in-memory, it says so. Where a code branch is currently unreachable, it says so.
+- **118 Architecture Decision Records.** Every non-obvious choice is recorded with its reasoning, its cost, and what it deliberately does *not* claim.
+- **A written Constitution, executed as CI.** 43 architectural rules run as fitness functions on every pull request. A blocking violation fails the build — bounded-context isolation, tenancy on every repository method, no ungated execution site, dependency direction.
+- **Findings are published, including the ones that were refuted.** Each phase report lists what broke, what it cost, and what was *hypothesised and then disproved by its own test*. A finding nobody can reproduce is not a finding.
 - **Failures are first-class.** Denials, refusals, ambiguity and unknown outcomes are modelled, recorded and auditable. A security system that only logs successes cannot explain why an attack was stopped.
+
+A representative lesson, from the phase that made execution durable:
+
+> Three defects were found on the dispatch path, two of them introduced by that phase's own fixes. None was reachable by deterministic testing — one needed four real processes racing, another needed a real cluster with real accumulated data. A change to a concurrency path is unproven until real concurrency *and* real data volume have run against it.
 
 ```
 .github/workflows/architecture.yml   →  Constitution fitness functions
-docs/adr/                            →  27 decision records
+docs/adr/                            →  118 decision records
 backend/platform/architecture/       →  the rules themselves
 ```
 
@@ -121,13 +139,13 @@ backend/platform/architecture/       →  the rules themselves
 
 ## Tech stack
 
-**Backend** — Python 3.13, FastAPI, domain-driven design with strict bounded contexts
+**Backend** — Python 3.11, FastAPI, domain-driven design with strict bounded contexts
 **Frontend** — Next.js, TypeScript, Zustand, live WebSocket event streaming (~50 screens)
-**AI** — OpenAI, Anthropic, Google Gemini, Ollama (provider-routed)
-**Data** — PostgreSQL, Redis, ChromaDB, Neo4j
-**Infra** — Docker, Kubernetes (Helm charts), GitHub Actions CI
+**AI** — OpenAI-compatible, Anthropic, Google Gemini, Ollama (provider-routed; GLM-5.2 in the governed investigator)
+**Data** — PostgreSQL (durable governed plane), Redis, ChromaDB, Neo4j
+**Infra** — Docker, Kubernetes (Helm chart), HashiCorp Vault, GitHub Actions CI
 
-Scale: ~1,000 backend modules · ~1,800 frontend modules · 231 test files
+Scale: ~1,200 backend modules · ~1,800 frontend modules · 311 test files · 118 ADRs
 
 ---
 
@@ -135,30 +153,67 @@ Scale: ~1,000 backend modules · ~1,800 frontend modules · 231 test files
 
 ```
 backend/
-  contexts/          12 bounded contexts (the V2 architecture)
+  contexts/          13 bounded contexts (the governed architecture)
   contracts/         published vocabulary shared across contexts
   platform/          hashing, identity, events, audit, storage, architecture rules
   api/               REST surface + composition roots
-docs/adr/            27 architecture decision records
-tests/               unit, architecture, integration
+docs/adr/            118 architecture decision records
+docs/PHASE_*.md      verification reports (FACT / INFERENCE / UNKNOWN)
+tests/               unit, architecture, integration, connector fabric
+scripts/             phase harnesses and demonstrations
 frontend/            Next.js application
 helm/ · infra/       deployment
+workers/             contained worker implementations (digest-pinned)
 ```
 
 ---
 
 ## Getting started
 
+### The governed plane (what the architecture above describes)
+
+Needs a Kubernetes cluster (k3d is fine), PostgreSQL and Vault.
+
 ```bash
-# Backend
+helm upgrade --install cortexprime ./helm/cortexprime-governed -n cortexprime \
+  --set connection.tenant=<tenant> \
+  --set connection.namespace=<namespace> \
+  --set database.existingSecret=<secret> \
+  --wait
+```
+
+Then, as a member of the connected tenant:
+
+```
+GET  /api/v1/connectors            # health, per connector, through the governed path
+GET  /api/v1/approvals             # the human approval queue
+POST /api/v1/approvals/{id}/decision
+POST /api/v1/approvals/{id}/execute
+GET  /api/v1/executions/{id}       # durable status; the caller need not wait
+```
+
+See `docs/KUBERNETES_CONNECTOR_RUNBOOK.md` and `docs/GITHUB_CONNECTOR_RUNBOOK.md`.
+
+### See one governed change, end to end
+
+```bash
+python scripts/demo_governed_write.py --slow
+```
+
+Seven steps: an anonymous caller refused; connector health read as the tenant; a change requiring a human approval; a member *without* approve authority refused; the scoped approver granting it; the action running through a contained worker; and finally Kubernetes itself — not CortexPrime's own reply — confirming the workload restarted.
+
+### The V1 application
+
+```bash
 python -m venv venv && source venv/bin/activate   # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example backend/.env                      # add your API keys
 uvicorn backend.main:app --reload --port 8000
 
-# Frontend
 cd frontend && npm install && npm run dev         # http://localhost:3000
 ```
+
+On a host already running many containers, set `CORTEX_DISABLE_DOCKER_EVENTS=1`: the V1 Docker event listener writes through to a JSON store on every event and can prevent startup from completing.
 
 Verify the architecture gate locally:
 
@@ -172,26 +227,29 @@ python -c "from backend.platform.architecture import analyze; r=analyze(); print
 
 | Phase | Scope | State |
 |---|---|---|
-| 1 | Platform foundations, audit, tenancy, Constitution-as-CI | Complete |
-| 2 | Mission Control Plane + authoritative workflow handoff | Complete |
-| 3.1 | Durable execution core | Complete |
-| 3.2 | Capability Fabric — identity → binding | Complete |
-| 3.3.1 | Worker execution contract | Complete |
-| 3.3.2 | Worker & connector implementations | Next |
-| 3.4 | Evidence plane, telemetry, root-cause analysis | Planned |
-| 4 | Durable persistence, production hardening | Planned |
+| 1–3 | Platform foundations, Mission Control, durable execution, Capability Fabric | Complete |
+| 7 | World / Intelligence / Assurance planes, bitemporal truth | Complete |
+| 8 | Governed intelligence: investigation, prediction, calibration, autonomy tiers | Complete |
+| 9 | First real governed write, contained workers, isolation taxonomy | Complete |
+| 10 | Productization, tenancy, trust boundary | Complete |
+| 11.1 | Kubernetes reference connector | **Locked** |
+| 11.2 | GitHub connector — the architecture carried to a second provider | Not locked (App auth) |
+| 11.3 | Governed execution fabric — dispatch survives the process that created it | Complete |
+| 11.4 | Async API, multi-replica, final gate | Partial |
+| Next | Close the async write, lock GitHub, then Connector #3 | Planned |
 
 ---
 
-## For reviewers and investors
+## For reviewers
 
-The fastest way to judge this codebase is not the feature list — it is `docs/adr/`. Each record states a decision, the failure mode it prevents, what it costs, and what it explicitly does not claim.
+The fastest way to judge this codebase is not the feature list — it is `docs/adr/` and the phase verification reports. Each states a decision, the failure mode it prevents, what it costs, and what it explicitly does not claim.
 
-Three worth reading first:
+Worth reading first:
 
 - **[ADR-031 — Durable Execution Core](docs/adr/ADR-031-durable-execution-core.md)** — why "unknown" is a first-class outcome and why exactly-once is never claimed
-- **[ADR-034 — Capability Authorization](docs/adr/ADR-034-capability-authorization-and-admission.md)** — default deny, separation of duties, and closing the time-of-check/time-of-use gap
-- **[ADR-036 — Execution Worker Contract](docs/adr/ADR-036-execution-worker-contract.md)** — the seven refusals that gate anything touching a real system
+- **[ADR-125 — The Kubernetes Reference Connector](docs/adr/ADR-125-phase-11-1-kubernetes-reference-connector.md)** — what a production connector actually requires
+- **[ADR-127 — The Governed Execution Fabric](docs/adr/ADR-127-phase-11-3-governed-execution-fabric.md)** — how a limitation turned out to be the only thing preventing duplicate execution
+- **[ADR-128 — Final Execution Gate](docs/adr/ADR-128-phase-11-4-final-execution-gate.md)** — six findings from running two replicas, three of them self-inflicted
 
 ---
 
