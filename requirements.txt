@@ -131,7 +131,7 @@ opentelemetry-exporter-otlp-proto-http>=1.31.0
 # ENCRYPTION (Fernet symmetric encryption)
 # ======================================
 
-cryptography==45.0.0
+cryptography==50.0.0
 
 
 # ======================================
